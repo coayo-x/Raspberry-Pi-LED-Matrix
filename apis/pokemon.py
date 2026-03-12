@@ -1,3 +1,4 @@
+
 import json
 import re
 import urllib.request
@@ -10,22 +11,18 @@ FALLBACK_POKEMON_IDS = list(range(1, 1026))
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     last_error = None
-
     for _ in range(3):
         try:
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "RaspberryPi-Pokemon-LED/1.0"},
             )
-
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 if response.status != 200:
                     raise RuntimeError(f"API request failed with status {response.status}: {url}")
                 return json.loads(response.read().decode("utf-8"))
-
         except Exception as e:
             last_error = e
-
     raise RuntimeError(f"Pokémon API failed after retries: {last_error}")
 
 
