@@ -1,3 +1,5 @@
+# pokemon.py
+
 import json
 import urllib.request
 
@@ -6,21 +8,26 @@ DEFAULT_TIMEOUT = 10
 
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "RaspberryPi-Pokemon-LED/1.0"
+        }
+    )
+
+    with urllib.request.urlopen(req, timeout=timeout) as response:
         if response.status != 200:
             raise RuntimeError(f"API request failed with status {response.status}: {url}")
+
         return json.loads(response.read().decode("utf-8"))
 
 
 def get_total_pokemon() -> int:
-    data = _fetch_json(f"{BASE_URL}/pokemon?limit=1")
-    count = data.get("count")
-
-    if not isinstance(count, int) or count <= 0:
-        raise ValueError("Invalid Pokémon count returned by PokeAPI")
-
-    return count
-
+    """
+    Total valid Pokémon IDs supported by the API.
+    Current National Dex ends at 1025 (Pecharunt).
+    """
+    return 1025
 
 def get_pokemon_data(pokemon_id: int) -> dict:
     data = _fetch_json(f"{BASE_URL}/pokemon/{pokemon_id}")

@@ -11,6 +11,10 @@ def main():
 
     if category == "pokemon":
         pokemon_id = get_today_pokemon_id()
+
+        # DEBUG: نطبع الرقم لمعرفة ماذا يطلب البرنامج
+        print(f"DEBUG pokemon_id: {pokemon_id}")
+
         pokemon = get_pokemon_data(pokemon_id)
 
         print(f"Today's Pokémon is: {pokemon['name']}")
