@@ -1,145 +1,87 @@
+import hashlib
 import random
-from datetime import date
+from datetime import datetime
+from typing import Iterable
 
 from db_manager import connect
-from apis.pokemon import get_total_pokemon
+from apis.jokes import get_random_joke
+from apis.pokemon import FALLBACK_POKEMON_IDS, get_valid_pokemon_ids
 
-CATEGORIES = ["pokemon", "weather", "joke"]
+DISPLAY_SEQUENCE = ["pokemon", "weather", "temperature", "joke"]
+SLOT_MINUTES = 5
+
+
+def _now_or_default(now: datetime | None = None) -> datetime:
+    return now or datetime.now()
+
+
+def get_current_slot_number(now: datetime | None = None) -> int:
+    current = _now_or_default(now)
+    return ((current.hour * 60) + current.minute) // SLOT_MINUTES
+
+
+def get_current_slot_key(now: datetime | None = None) -> str:
+    current = _now_or_default(now)
+    return f"{current.date().isoformat()}:{get_current_slot_number(current)}"
+
+
+def get_current_category(now: datetime | None = None) -> str:
+    return DISPLAY_SEQUENCE[get_current_slot_number(now) % len(DISPLAY_SEQUENCE)]
+
+
+def seconds_until_next_slot(now: datetime | None = None) -> int:
+    current = _now_or_default(now)
+    seconds_today = (current.hour * 3600) + (current.minute * 60) + current.second
+    slot_seconds = SLOT_MINUTES * 60
+    next_boundary = ((seconds_today // slot_seconds) + 1) * slot_seconds
+    remaining = next_boundary - seconds_today
+    return max(1, remaining)
+
+
+def _get_meta(conn, key: str) -> str | None:
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM meta WHERE key = ?", (key,))
+    row = cur.fetchone()
+    return row["value"] if row else None
+
+
+def _set_meta(conn, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
 
 
 def _get_system_state(conn):
     cur = conn.cursor()
-    cur.execute("""
-        SELECT
-            last_date,
-            category_pos,
-            pokemon_pos,
-            pokemon_date,
-            current_pokemon_id
-        FROM system_state
-        WHERE id = 1
-    """)
+    cur.execute("SELECT * FROM system_state WHERE id = 1")
     return cur.fetchone()
 
 
-def _set_system_state_category(conn, last_date: str, category_pos: int) -> None:
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE system_state
-        SET last_date = ?, category_pos = ?
-        WHERE id = 1
-    """, (last_date, category_pos))
+def _catalog_hash(values: Iterable[int]) -> str:
+    joined = ",".join(str(v) for v in values)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
-def _set_system_state_pokemon(conn, pokemon_date: str, current_pokemon_id: int, pokemon_pos: int) -> None:
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE system_state
-        SET pokemon_date = ?, current_pokemon_id = ?, pokemon_pos = ?
-        WHERE id = 1
-    """, (pokemon_date, current_pokemon_id, pokemon_pos))
-
-
-# -----------------------------
-# Category rotation
-# -----------------------------
-
-def _category_table_count(conn) -> int:
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) AS c FROM category_rotation")
-    return cur.fetchone()["c"]
-
-
-def _get_category_at_pos(conn, pos: int) -> str:
-    cur = conn.cursor()
-    cur.execute("SELECT category FROM category_rotation WHERE position = ?", (pos,))
-    row = cur.fetchone()
-    if row is None:
-        raise RuntimeError(f"Missing category at position {pos}")
-    return row["category"]
-
-
-def _seed_categories_if_empty(conn) -> None:
-    if _category_table_count(conn) > 0:
-        return
-
-    order = CATEGORIES[:]
-    random.shuffle(order)
-
-    cur = conn.cursor()
-    for i, category in enumerate(order):
-        cur.execute("""
-            INSERT INTO category_rotation (position, category)
-            VALUES (?, ?)
-        """, (i, category))
-
-
-def _reshuffle_categories(conn, avoid_first=None) -> None:
-    order = CATEGORIES[:]
-
+def _shuffle_copy(values: list[int], avoid_first: int | None = None) -> list[int]:
+    shuffled = values[:]
     for _ in range(20):
-        random.shuffle(order)
-        if avoid_first is None or order[0] != avoid_first:
+        random.shuffle(shuffled)
+        if avoid_first is None or not shuffled or shuffled[0] != avoid_first:
             break
+    return shuffled
 
-    cur = conn.cursor()
-    cur.execute("DELETE FROM category_rotation")
-
-    for i, category in enumerate(order):
-        cur.execute("""
-            INSERT INTO category_rotation (position, category)
-            VALUES (?, ?)
-        """, (i, category))
-
-
-def get_today_category(db_path="content.db") -> str:
-    today = date.today().isoformat()
-
-    conn = connect(db_path)
-    try:
-        _seed_categories_if_empty(conn)
-        row = _get_system_state(conn)
-
-        last_date = row["last_date"]
-        category_pos = row["category_pos"]
-
-        # First run ever
-        if last_date is None:
-            _set_system_state_category(conn, today, 0)
-            conn.commit()
-            return _get_category_at_pos(conn, 0)
-
-        # Same day -> return same category
-        if last_date == today:
-            return _get_category_at_pos(conn, category_pos)
-
-        # New day -> advance category
-        total_categories = len(CATEGORIES)
-
-        if category_pos >= total_categories - 1:
-            last_category = _get_category_at_pos(conn, category_pos)
-            _reshuffle_categories(conn, avoid_first=last_category)
-            category_pos = 0
-        else:
-            category_pos += 1
-
-        _set_system_state_category(conn, today, category_pos)
-        conn.commit()
-
-        return _get_category_at_pos(conn, category_pos)
-
-    finally:
-        conn.close()
-
-
-# -----------------------------
-# Pokémon rotation
-# -----------------------------
 
 def _pokemon_table_count(conn) -> int:
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) AS c FROM pokemon_rotation")
     return cur.fetchone()["c"]
+
+
+def _get_all_pokemon_ids(conn) -> list[int]:
+    cur = conn.cursor()
+    cur.execute("SELECT pokemon_id FROM pokemon_rotation ORDER BY position ASC")
+    return [row["pokemon_id"] for row in cur.fetchall()]
 
 
 def _get_pokemon_at_pos(conn, pos: int) -> int:
@@ -151,88 +93,187 @@ def _get_pokemon_at_pos(conn, pos: int) -> int:
     return row["pokemon_id"]
 
 
-def _seed_pokemon_if_empty(conn, total_pokemon: int) -> None:
-    if _pokemon_table_count(conn) > 0:
-        return
-
-    ids = list(range(1, total_pokemon + 1))
-    random.shuffle(ids)
-
-    cur = conn.cursor()
-    for i, pokemon_id in enumerate(ids):
-        cur.execute("""
-            INSERT INTO pokemon_rotation (position, pokemon_id)
-            VALUES (?, ?)
-        """, (i, pokemon_id))
-
-
-def _reshuffle_pokemon(conn, total_pokemon: int, avoid_first=None) -> None:
-    ids = list(range(1, total_pokemon + 1))
-
-    for _ in range(20):
-        random.shuffle(ids)
-        if avoid_first is None or ids[0] != avoid_first:
-            break
-
+def _replace_pokemon_rotation(conn, pokemon_ids: list[int]) -> None:
     cur = conn.cursor()
     cur.execute("DELETE FROM pokemon_rotation")
+    for position, pokemon_id in enumerate(pokemon_ids):
+        cur.execute(
+            "INSERT INTO pokemon_rotation (position, pokemon_id) VALUES (?, ?)",
+            (position, pokemon_id),
+        )
 
-    for i, pokemon_id in enumerate(ids):
-        cur.execute("""
-            INSERT INTO pokemon_rotation (position, pokemon_id)
-            VALUES (?, ?)
-        """, (i, pokemon_id))
+
+def _reset_pokemon_state(conn) -> None:
+    conn.execute(
+        """
+        UPDATE system_state
+        SET pokemon_pos = 0,
+            pokemon_date = NULL,
+            current_pokemon_id = NULL
+        WHERE id = 1
+        """
+    )
 
 
-def get_today_pokemon_id(db_path="content.db") -> int:
-    today = date.today().isoformat()
+def _ensure_pokemon_rotation(conn) -> list[int]:
+    try:
+        pokemon_ids = get_valid_pokemon_ids()
+    except Exception:
+        pokemon_ids = []
+
+    if not pokemon_ids:
+        existing_ids = _get_all_pokemon_ids(conn)
+        pokemon_ids = existing_ids or FALLBACK_POKEMON_IDS
+
+    pokemon_ids = sorted(set(pokemon_ids))
+    new_hash = _catalog_hash(pokemon_ids)
+
+    stored_hash = _get_meta(conn, "pokemon_catalog_hash")
+    stored_count = _pokemon_table_count(conn)
+
+    if stored_hash != new_hash or stored_count != len(pokemon_ids):
+        shuffled_ids = _shuffle_copy(pokemon_ids)
+        _replace_pokemon_rotation(conn, shuffled_ids)
+        _set_meta(conn, "pokemon_catalog_hash", new_hash)
+        _set_meta(conn, "pokemon_catalog_size", str(len(pokemon_ids)))
+        _reset_pokemon_state(conn)
+
+    return pokemon_ids
+
+
+def _advance_pokemon_cycle(conn, current_pokemon_id: int) -> None:
+    current_ids = _get_all_pokemon_ids(conn)
+    reshuffled = _shuffle_copy(current_ids, avoid_first=current_pokemon_id)
+    _replace_pokemon_rotation(conn, reshuffled)
+
+
+def get_today_pokemon_id(today: str | None = None, db_path: str = "content.db") -> int:
+    today = today or datetime.now().date().isoformat()
 
     conn = connect(db_path)
     try:
-        existing_count = _pokemon_table_count(conn)
-
-        try:
-            total_pokemon = get_total_pokemon()
-        except Exception:
-            if existing_count > 0:
-                total_pokemon = existing_count
-            else:
-                raise
-
-        _seed_pokemon_if_empty(conn, total_pokemon)
+        _ensure_pokemon_rotation(conn)
         row = _get_system_state(conn)
 
-        # Same Pokémon for the same day
         if row["pokemon_date"] == today and row["current_pokemon_id"] is not None:
             return row["current_pokemon_id"]
 
-        pokemon_pos = row["pokemon_pos"]
         total_rows = _pokemon_table_count(conn)
-
         if total_rows == 0:
             raise RuntimeError("pokemon_rotation is empty")
 
+        pokemon_pos = row["pokemon_pos"]
         if pokemon_pos >= total_rows:
             pokemon_pos = 0
 
         pokemon_id = _get_pokemon_at_pos(conn, pokemon_pos)
 
-        # Prepare next position
         if pokemon_pos >= total_rows - 1:
-            _reshuffle_pokemon(conn, total_pokemon, avoid_first=pokemon_id)
+            _advance_pokemon_cycle(conn, pokemon_id)
             next_pokemon_pos = 0
         else:
             next_pokemon_pos = pokemon_pos + 1
 
-        _set_system_state_pokemon(
-            conn,
-            pokemon_date=today,
-            current_pokemon_id=pokemon_id,
-            pokemon_pos=next_pokemon_pos
+        conn.execute(
+            """
+            UPDATE system_state
+            SET pokemon_date = ?,
+                current_pokemon_id = ?,
+                pokemon_pos = ?
+            WHERE id = 1
+            """,
+            (today, pokemon_id, next_pokemon_pos),
         )
         conn.commit()
-
         return pokemon_id
+    finally:
+        conn.close()
 
+
+def _joke_exists(conn, joke_key: str) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM used_jokes WHERE joke_key = ?", (joke_key,))
+    return cur.fetchone() is not None
+
+
+def _store_used_joke(conn, joke: dict, seen_at: str) -> None:
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO used_jokes (
+            joke_key, joke_type, joke_text, joke_setup, joke_delivery, first_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            joke["key"],
+            joke["type"],
+            joke.get("text"),
+            joke.get("setup"),
+            joke.get("delivery"),
+            seen_at,
+        ),
+    )
+
+
+def _fallback_joke(slot_key: str) -> dict:
+    return {
+        "key": f"fallback:{slot_key}",
+        "type": "single",
+        "text": "Backup joke: the API ghosted us, but the Pi is still pretending to be a comedian.",
+        "setup": None,
+        "delivery": None,
+    }
+
+
+def get_current_joke(now: datetime | None = None, db_path: str = "content.db") -> dict:
+    current = _now_or_default(now)
+    slot_key = get_current_slot_key(current)
+    timestamp = current.isoformat(timespec="seconds")
+
+    conn = connect(db_path)
+    try:
+        row = _get_system_state(conn)
+
+        if row["current_joke_slot"] == slot_key and row["current_joke_id"]:
+            return {
+                "key": row["current_joke_id"],
+                "type": row["current_joke_type"] or "single",
+                "text": row["current_joke_text"],
+                "setup": row["current_joke_setup"],
+                "delivery": row["current_joke_delivery"],
+            }
+
+        joke = None
+        for _ in range(10):
+            candidate = get_random_joke()
+            if not _joke_exists(conn, candidate["key"]):
+                joke = candidate
+                break
+
+        if joke is None:
+            joke = _fallback_joke(slot_key)
+
+        _store_used_joke(conn, joke, timestamp)
+        conn.execute(
+            """
+            UPDATE system_state
+            SET current_joke_slot = ?,
+                current_joke_id = ?,
+                current_joke_type = ?,
+                current_joke_text = ?,
+                current_joke_setup = ?,
+                current_joke_delivery = ?
+            WHERE id = 1
+            """,
+            (
+                slot_key,
+                joke["key"],
+                joke["type"],
+                joke.get("text"),
+                joke.get("setup"),
+                joke.get("delivery"),
+            ),
+        )
+        conn.commit()
+        return joke
     finally:
         conn.close()
