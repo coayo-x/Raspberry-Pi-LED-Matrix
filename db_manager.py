@@ -96,7 +96,6 @@ def init_db(db_path: str = DB_FILE) -> None:
         """
     )
 
-    # Older tables can stay; they are harmless if already present.
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS category_rotation (
