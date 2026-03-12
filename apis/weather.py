@@ -43,7 +43,7 @@ WEATHER_CODES = {
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     last_error = None
 
-    for _ in range(3):  # retry 3 times
+    for _ in range(3):
         try:
             req = urllib.request.Request(
                 url,
@@ -90,4 +90,14 @@ def get_weather_data(
         "weather_code": weather_code,
         "condition": WEATHER_CODES.get(weather_code, "Unknown"),
         "wind_mph": current.get("wind_speed_10m"),
+    }
+
+
+def get_weather_fallback(location_name: str = DEFAULT_LOCATION_NAME) -> dict:
+    return {
+        "location": location_name,
+        "temperature_f": "--",
+        "weather_code": None,
+        "condition": "Weather unavailable",
+        "wind_mph": "--",
     }

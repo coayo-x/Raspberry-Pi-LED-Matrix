@@ -9,15 +9,24 @@ FALLBACK_POKEMON_IDS = list(range(1, 1026))
 
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "RaspberryPi-Pokemon-LED/1.0"},
-    )
+    last_error = None
 
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        if response.status != 200:
-            raise RuntimeError(f"API request failed with status {response.status}: {url}")
-        return json.loads(response.read().decode("utf-8"))
+    for _ in range(3):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "RaspberryPi-Pokemon-LED/1.0"},
+            )
+
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"API request failed with status {response.status}: {url}")
+                return json.loads(response.read().decode("utf-8"))
+
+        except Exception as e:
+            last_error = e
+
+    raise RuntimeError(f"Pokémon API failed after retries: {last_error}")
 
 
 def _extract_pokemon_id(url: str) -> int | None:
@@ -28,10 +37,6 @@ def _extract_pokemon_id(url: str) -> int | None:
 
 
 def get_valid_pokemon_ids() -> List[int]:
-    """
-    Return real numeric Pokémon IDs from the API catalog.
-    This avoids the old bug where API `count` included items that did not work with /pokemon/{id}.
-    """
     try:
         data = _fetch_json(f"{BASE_URL}/pokemon?limit=2000&offset=0")
         results = data.get("results", [])
@@ -45,6 +50,7 @@ def get_valid_pokemon_ids() -> List[int]:
 
         ids = sorted(set(ids))
         return ids or FALLBACK_POKEMON_IDS
+
     except Exception:
         return FALLBACK_POKEMON_IDS
 
@@ -84,4 +90,18 @@ def get_pokemon_data(pokemon_id: int) -> dict:
         "attack": stats_map.get("attack"),
         "defense": stats_map.get("defense"),
         "image_url": artwork or fallback_sprite,
+    }
+
+
+def get_pokemon_fallback(pokemon_id: int | None = None) -> dict:
+    return {
+        "id": pokemon_id,
+        "name": "Pokémon unavailable",
+        "types": ["Unknown"],
+        "height": "--",
+        "weight": "--",
+        "hp": "--",
+        "attack": "--",
+        "defense": "--",
+        "image_url": None,
     }

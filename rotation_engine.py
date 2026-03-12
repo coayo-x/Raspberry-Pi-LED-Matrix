@@ -244,7 +244,11 @@ def get_current_joke(now: datetime | None = None, db_path: str = "content.db") -
 
         joke = None
         for _ in range(10):
-            candidate = get_random_joke()
+            try:
+                candidate = get_random_joke()
+            except Exception:
+                continue
+
             if not _joke_exists(conn, candidate["key"]):
                 joke = candidate
                 break
