@@ -51,9 +51,6 @@ class DisplayManager:
         self.preview_dir.mkdir(parents=True, exist_ok=True)
         self.save_previews = save_previews
 
-        self.font = self._load_font()
-        self._measure_image = Image.new("RGBA", (1, 1), DEFAULT_BG)
-        self._measure_draw = ImageDraw.Draw(self._measure_image)
         self.font = ImageFont.load_default()
         self.line_height = self._get_line_height()
         self.matrix = None
@@ -164,23 +161,6 @@ class DisplayManager:
     ) -> None:
         draw.text((x, y), text, font=self.font, fill=fill)
 
-    def _load_font(self) -> ImageFont.ImageFont:
-        try:
-            return ImageFont.truetype("DejaVuSans.ttf", 7)
-        except Exception:
-            return ImageFont.load_default()
-
-    def _text_width(self, text: str) -> int:
-        if not text:
-            return 0
-        bbox = self._measure_draw.textbbox((0, 0), text, font=self.font)
-        return bbox[2] - bbox[0]
-
-    def _get_line_height(self) -> int:
-        bbox = self._measure_draw.textbbox((0, 0), "Ag", font=self.font)
-        measured = max(1, (bbox[3] - bbox[1]) + 1)
-        max_for_three_lines = max(1, (self.height - 2) // 3)
-        return min(measured, max_for_three_lines)
     def _get_line_height(self) -> int:
         bbox = self.font.getbbox("Ag")
         return max(8, bbox[3] - bbox[1] + 1)
@@ -190,33 +170,11 @@ class DisplayManager:
             return ""
 
         value = str(text)
-        while value and self._text_width(value) > max_width_px:
         while value and self.font.getbbox(value)[2] > max_width_px:
             value = value[:-1]
         return value
 
     def _wrap_text(self, text: str, width_px: int) -> list[str]:
-        cleaned = " ".join(str(text).split())
-        if not cleaned:
-            return [""]
-
-        words = cleaned.split(" ")
-        wrapped: list[str] = []
-        line = ""
-
-        for word in words:
-            candidate = f"{line} {word}".strip()
-            if line and self._text_width(candidate) > width_px:
-                wrapped.append(line)
-                line = word
-            else:
-                line = candidate
-
-            while line and self._text_width(line) > width_px:
-                wrapped.append(line[:-1])
-                line = line[-1]
-
-        if line:
         cleaned = " ".join(text.split())
         if not cleaned:
             return [""]
@@ -248,12 +206,10 @@ class DisplayManager:
         lines: list[str],
         fill=TEXT_PRIMARY,
     ) -> None:
-        visible_lines = lines[:3]
-        total_height = len(visible_lines) * self.line_height
         total_height = len(lines) * self.line_height
         y = max(0, (self.height - total_height) // 2)
 
-        for line in visible_lines:
+        for line in lines:
             bbox = draw.textbbox((0, 0), line, font=self.font)
             text_width = bbox[2] - bbox[0]
             x = max(0, (self.width - text_width) // 2)
