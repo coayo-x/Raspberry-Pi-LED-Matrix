@@ -1,5 +1,4 @@
 import io
-import textwrap
 import time
 import urllib.request
 from pathlib import Path
@@ -52,7 +51,10 @@ class DisplayManager:
         self.preview_dir.mkdir(parents=True, exist_ok=True)
         self.save_previews = save_previews
 
-        self.font = ImageFont.load_default()
+        self.font = self._load_font()
+        self._measure_image = Image.new("RGBA", (1, 1), DEFAULT_BG)
+        self._measure_draw = ImageDraw.Draw(self._measure_image)
+        self.line_height = self._get_line_height()
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
@@ -161,16 +163,58 @@ class DisplayManager:
     ) -> None:
         draw.text((x, y), text, font=self.font, fill=fill)
 
-    def _wrap_text(self, text: str, width_chars: int) -> list[str]:
-        cleaned = " ".join(text.split())
+    def _load_font(self) -> ImageFont.ImageFont:
+        try:
+            return ImageFont.truetype("DejaVuSans.ttf", 7)
+        except Exception:
+            return ImageFont.load_default()
+
+    def _text_width(self, text: str) -> int:
+        if not text:
+            return 0
+        bbox = self._measure_draw.textbbox((0, 0), text, font=self.font)
+        return bbox[2] - bbox[0]
+
+    def _get_line_height(self) -> int:
+        bbox = self._measure_draw.textbbox((0, 0), "Ag", font=self.font)
+        measured = max(1, (bbox[3] - bbox[1]) + 1)
+        max_for_three_lines = max(1, (self.height - 2) // 3)
+        return min(measured, max_for_three_lines)
+
+    def _truncate_to_width(self, text: str, max_width_px: int) -> str:
+        if not text:
+            return ""
+
+        value = str(text)
+        while value and self._text_width(value) > max_width_px:
+            value = value[:-1]
+        return value
+
+    def _wrap_text(self, text: str, width_px: int) -> list[str]:
+        cleaned = " ".join(str(text).split())
         if not cleaned:
             return [""]
-        return textwrap.wrap(
-            cleaned,
-            width=width_chars,
-            break_long_words=True,
-            replace_whitespace=False,
-        )
+
+        words = cleaned.split(" ")
+        wrapped: list[str] = []
+        line = ""
+
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if line and self._text_width(candidate) > width_px:
+                wrapped.append(line)
+                line = word
+            else:
+                line = candidate
+
+            while line and self._text_width(line) > width_px:
+                wrapped.append(line[:-1])
+                line = line[-1]
+
+        if line:
+            wrapped.append(line)
+
+        return wrapped or [""]
 
     def _draw_text_centered(
         self,
@@ -178,16 +222,16 @@ class DisplayManager:
         lines: list[str],
         fill=TEXT_PRIMARY,
     ) -> None:
-        line_height = 8
-        total_height = len(lines) * line_height
+        visible_lines = lines[:3]
+        total_height = len(visible_lines) * self.line_height
         y = max(0, (self.height - total_height) // 2)
 
-        for line in lines:
+        for line in visible_lines:
             bbox = draw.textbbox((0, 0), line, font=self.font)
             text_width = bbox[2] - bbox[0]
             x = max(0, (self.width - text_width) // 2)
             draw.text((x, y), line, font=self.font, fill=fill)
-            y += line_height
+            y += self.line_height
 
     # -------------------------
     # Weather icons
@@ -274,16 +318,17 @@ class DisplayManager:
         else:
             self._draw_line(draw, art_x + 3, art_y + 10, "NO IMG", fill=TEXT_SECONDARY)
 
-        name = str(data.get("name", "Unknown"))[:11]
-        types = "/".join(data.get("types", []))[:12]
+        text_max_width = art_x - 4
+        name = self._truncate_to_width(str(data.get("name", "Unknown")), text_max_width)
+        types = self._truncate_to_width("/".join(data.get("types", [])) or "Unknown", text_max_width)
         hp = data.get("hp", "--")
         atk = data.get("attack", "--")
         deff = data.get("defense", "--")
+        stats = self._truncate_to_width(f"HP {hp} A{atk} D{deff}", text_max_width)
 
-        self._draw_line(draw, 2, 3, name, fill=TEXT_ACCENT)
-        self._draw_line(draw, 2, 11, types, fill=TEXT_SECONDARY)
-        self._draw_line(draw, 2, 19, f"HP {hp}", fill=TEXT_PRIMARY)
-        self._draw_line(draw, 2, 27, f"A{atk} D{deff}", fill=TEXT_SECONDARY)
+        self._draw_line(draw, 2, 2, name, fill=TEXT_ACCENT)
+        self._draw_line(draw, 2, 2 + self.line_height, types, fill=TEXT_SECONDARY)
+        self._draw_line(draw, 2, 2 + (2 * self.line_height), stats, fill=TEXT_PRIMARY)
 
         return img
 
@@ -292,13 +337,16 @@ class DisplayManager:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
-        condition = str(data.get("condition", "Unknown"))[:12]
+        text_max_width = 38
+        condition = self._truncate_to_width(str(data.get("condition", "Unknown")), text_max_width)
         temp = str(data.get("temperature_f", "--"))
         wind = str(data.get("wind_mph", "--"))
+        temp_text = self._truncate_to_width(f"{temp}F", text_max_width)
+        wind_text = self._truncate_to_width(f"W {wind}", text_max_width)
 
-        self._draw_line(draw, 2, 4, condition, fill=TEXT_ACCENT)
-        self._draw_line(draw, 2, 14, f"{temp}F", fill=TEXT_PRIMARY)
-        self._draw_line(draw, 2, 24, f"W {wind}", fill=TEXT_SECONDARY)
+        self._draw_line(draw, 2, 2, condition, fill=TEXT_ACCENT)
+        self._draw_line(draw, 2, 2 + self.line_height, temp_text, fill=TEXT_PRIMARY)
+        self._draw_line(draw, 2, 2 + (2 * self.line_height), wind_text, fill=TEXT_SECONDARY)
 
         self._draw_weather_icon(draw, condition, 42, 5)
 
@@ -309,13 +357,16 @@ class DisplayManager:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
+        text_max_width = self.width - 4
         temp = str(data.get("temperature_f", "--"))
-        condition = str(data.get("condition", "Unknown"))[:12]
+        condition = self._truncate_to_width(str(data.get("condition", "Unknown")), text_max_width)
         wind = str(data.get("wind_mph", "--"))
+        temp_text = self._truncate_to_width(f"{temp}F", text_max_width)
+        wind_text = self._truncate_to_width(f"W {wind}", text_max_width)
 
-        self._draw_line(draw, 2, 5, f"{temp}F", fill=TEXT_PRIMARY)
-        self._draw_line(draw, 2, 15, condition, fill=TEXT_ACCENT)
-        self._draw_line(draw, 2, 25, f"W {wind}", fill=TEXT_SECONDARY)
+        self._draw_line(draw, 2, 2, temp_text, fill=TEXT_PRIMARY)
+        self._draw_line(draw, 2, 2 + self.line_height, condition, fill=TEXT_ACCENT)
+        self._draw_line(draw, 2, 2 + (2 * self.line_height), wind_text, fill=TEXT_SECONDARY)
 
         return img
 
@@ -331,15 +382,15 @@ class DisplayManager:
         # No "Joke 1/2" nonsense
         if data.get("type") == "single":
             text = data.get("text") or "No joke"
-            lines = self._wrap_text(text, width_chars=18)
+            lines = self._wrap_text(text, width_px=self.width - 4)
             pages = [lines[i:i + 3] for i in range(0, len(lines), 3)] or [["No joke"]]
             return [self._render_text_page(page, fill=TEXT_PRIMARY) for page in pages]
 
         setup = data.get("setup") or ""
         delivery = data.get("delivery") or ""
 
-        setup_lines = self._wrap_text(setup, width_chars=18)
-        delivery_lines = self._wrap_text(delivery, width_chars=18)
+        setup_lines = self._wrap_text(setup, width_px=self.width - 4)
+        delivery_lines = self._wrap_text(delivery, width_px=self.width - 4)
 
         pages = []
         for chunk_start in range(0, len(setup_lines), 3):
