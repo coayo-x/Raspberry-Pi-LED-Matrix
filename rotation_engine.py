@@ -8,7 +8,7 @@ from apis.jokes import get_random_joke
 from apis.pokemon import FALLBACK_POKEMON_IDS, get_valid_pokemon_ids
 from apis.science import get_random_science_fact, get_science_fact_fallback
 
-DISPLAY_SEQUENCE = ["pokemon", "weather", "temperature", "joke", "science"]
+DISPLAY_SEQUENCE = ["pokemon", "weather", "joke", "science"]
 SLOT_MINUTES = 5
 
 
