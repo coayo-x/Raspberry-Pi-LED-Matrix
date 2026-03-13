@@ -40,12 +40,6 @@ def build_content_for_now(now: datetime | None = None) -> dict:
         except Exception:
             payload["data"] = get_weather_fallback()
 
-    elif category == "temperature":
-        try:
-            payload["data"] = get_weather_data()
-        except Exception:
-            payload["data"] = get_weather_fallback()
-
     elif category == "joke":
         payload["data"] = get_current_joke(now=now)
 
@@ -78,10 +72,6 @@ def print_payload(payload: dict) -> None:
         print(f"Weather in {data['location']}: {data['condition']}")
         print(f"Temperature: {data['temperature_f']}°F")
         print(f"Wind: {data['wind_mph']} mph")
-
-    elif category == "temperature":
-        print(f"Temperature in {data['location']}: {data['temperature_f']}°F")
-        print(f"Condition: {data['condition']}")
 
     elif category == "joke":
         if data["type"] == "single":

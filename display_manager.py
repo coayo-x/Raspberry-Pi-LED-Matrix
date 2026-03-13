@@ -98,7 +98,6 @@ class DisplayManager:
     ) -> None:
         target = self._prepare_image(target_image)
 
-        
         if self.last_frame is None:
             for i in range(1, steps + 1):
                 cut = int(self.width * i / steps)
@@ -116,6 +115,12 @@ class DisplayManager:
         self._push_prepared(target)
         self._save_prepared(target, preview_name)
         self.last_frame = target
+
+    def _show_frame(self, image: Image.Image, preview_name: Optional[str] = None) -> None:
+        prepared = self._prepare_image(image)
+        self._push_prepared(prepared)
+        self._save_prepared(prepared, preview_name)
+        self.last_frame = prepared
 
     def _new_canvas(self) -> Image.Image:
         return Image.new("RGBA", (self.width, self.height), DEFAULT_BG)
@@ -141,14 +146,7 @@ class DisplayManager:
         canvas.paste(working, (x, y), working)
         return canvas
 
-    def _draw_line(
-        self,
-        draw: ImageDraw.ImageDraw,
-        x: int,
-        y: int,
-        text: str,
-        fill=TEXT_PRIMARY,
-    ) -> None:
+    def _draw_line(self, draw: ImageDraw.ImageDraw, x: int, y: int, text: str, fill=TEXT_PRIMARY) -> None:
         draw.text((x, y), text, font=self.font, fill=fill)
 
     def _get_line_height(self) -> int:
@@ -165,37 +163,29 @@ class DisplayManager:
         return value
 
     def _wrap_text(self, text: str, width_px: int) -> list[str]:
-        cleaned = " ".join(text.split())
+        cleaned = " ".join(str(text).split())
         if not cleaned:
             return [""]
 
         wrapped: list[str] = []
-        for paragraph in cleaned.split("\n"):
-            words = paragraph.split(" ")
-            line = ""
+        words = cleaned.split(" ")
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if line and self.font.getbbox(candidate)[2] > width_px:
+                wrapped.append(line)
+                line = word
+            else:
+                line = candidate
 
-            for word in words:
-                candidate = f"{line} {word}".strip()
-                if line and self.font.getbbox(candidate)[2] > width_px:
-                    wrapped.append(line)
-                    line = word
-                else:
-                    line = candidate
+            while self.font.getbbox(line)[2] > width_px:
+                wrapped.append(line[:-1])
+                line = line[-1]
 
-                while self.font.getbbox(line)[2] > width_px:
-                    wrapped.append(line[:-1])
-                    line = line[-1]
-
-            wrapped.append(line)
-
+        wrapped.append(line)
         return wrapped or [""]
 
-    def _draw_text_centered(
-        self,
-        draw: ImageDraw.ImageDraw,
-        lines: list[str],
-        fill=TEXT_PRIMARY,
-    ) -> None:
+    def _draw_text_centered(self, draw: ImageDraw.ImageDraw, lines: list[str], fill=TEXT_PRIMARY) -> None:
         total_height = len(lines) * self.line_height
         y = max(0, (self.height - total_height) // 2)
 
@@ -205,7 +195,6 @@ class DisplayManager:
             x = max(0, (self.width - text_width) // 2)
             draw.text((x, y), line, font=self.font, fill=fill)
             y += self.line_height
-
 
     def _draw_cloud(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
         draw.ellipse((x + 2, y + 5, x + 10, y + 13), fill=ICON_MAIN)
@@ -261,15 +250,27 @@ class DisplayManager:
         else:
             self._draw_cloud(draw, x, y)
 
-    def render_pokemon(self, payload: dict) -> Image.Image:
-        data = payload["data"]
+    def _render_pokemon_center_title(self, data: dict) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        title_lines = self._wrap_text("Today's Pokémon is:", self.width - 4)
+        name = self._truncate_to_width(str(data.get("name", "Unknown")), self.width - 4)
+        self._draw_text_centered(draw, title_lines + [name], fill=TEXT_PRIMARY)
+        return img
+
+    def _render_pokemon_base(self, data: dict) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
-        art_box_w = 26
-        art_box_h = 26
-        art_x = self.width - art_box_w - 2
-        art_y = 3
+        header = self._truncate_to_width("Pokemon:", 26)
+        name = self._truncate_to_width(str(data.get("name", "Unknown")), 26)
+        self._draw_line(draw, 1, 1, header, fill=TEXT_SECONDARY)
+        self._draw_line(draw, 1, 1 + self.line_height, name, fill=TEXT_ACCENT)
+
+        art_box_w = 28
+        art_box_h = 28
+        art_x = self.width - art_box_w - 1
+        art_y = 2
 
         art = None
         try:
@@ -283,18 +284,13 @@ class DisplayManager:
         else:
             self._draw_line(draw, art_x + 3, art_y + 10, "NO IMG", fill=TEXT_SECONDARY)
 
-        text_max_width = art_x - 4
-        name = self._truncate_to_width(str(data.get("name", "Unknown")), text_max_width)
-        types = self._truncate_to_width("/".join(data.get("types", [])) or "Unknown", text_max_width)
-        hp = data.get("hp", "--")
-        atk = data.get("attack", "--")
-        deff = data.get("defense", "--")
-        stats = self._truncate_to_width(f"HP {hp} A{atk} D{deff}", text_max_width)
+        return img
 
-        self._draw_line(draw, 2, 2, name, fill=TEXT_ACCENT)
-        self._draw_line(draw, 2, 2 + self.line_height, types, fill=TEXT_SECONDARY)
-        self._draw_line(draw, 2, 2 + (2 * self.line_height), stats, fill=TEXT_PRIMARY)
-
+    def _render_pokemon_stat_overlay(self, base: Image.Image, line: str) -> Image.Image:
+        img = base.copy()
+        draw = ImageDraw.Draw(img)
+        text = self._truncate_to_width(line, 30)
+        self._draw_line(draw, 1, self.height - self.line_height - 1, text, fill=TEXT_PRIMARY)
         return img
 
     def render_weather(self, payload: dict) -> Image.Image:
@@ -302,37 +298,9 @@ class DisplayManager:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
-        text_max_width = 38
-        condition = self._truncate_to_width(str(data.get("condition", "Unknown")), text_max_width)
-        temp = str(data.get("temperature_f", "--"))
-        wind = str(data.get("wind_mph", "--"))
-        temp_text = self._truncate_to_width(f"{temp}F", text_max_width)
-        wind_text = self._truncate_to_width(f"W {wind}", text_max_width)
-
-        self._draw_line(draw, 2, 2, condition, fill=TEXT_ACCENT)
-        self._draw_line(draw, 2, 2 + self.line_height, temp_text, fill=TEXT_PRIMARY)
-        self._draw_line(draw, 2, 2 + (2 * self.line_height), wind_text, fill=TEXT_SECONDARY)
-
-        self._draw_weather_icon(draw, condition, 42, 5)
-
-        return img
-
-    def render_temperature(self, payload: dict) -> Image.Image:
-        data = payload["data"]
-        img = self._new_canvas()
-        draw = ImageDraw.Draw(img)
-
-        text_max_width = self.width - 4
-        temp = str(data.get("temperature_f", "--"))
-        condition = self._truncate_to_width(str(data.get("condition", "Unknown")), text_max_width)
-        wind = str(data.get("wind_mph", "--"))
-        temp_text = self._truncate_to_width(f"{temp}F", text_max_width)
-        wind_text = self._truncate_to_width(f"W {wind}", text_max_width)
-
-        self._draw_line(draw, 2, 2, temp_text, fill=TEXT_PRIMARY)
-        self._draw_line(draw, 2, 2 + self.line_height, condition, fill=TEXT_ACCENT)
-        self._draw_line(draw, 2, 2 + (2 * self.line_height), wind_text, fill=TEXT_SECONDARY)
-
+        condition = str(data.get("condition", "Unknown"))
+        self._draw_weather_icon(draw, condition, 2, 5)
+        self._draw_line(draw, 28, 11, "Weather", fill=TEXT_ACCENT)
         return img
 
     def _render_text_page(self, lines: list[str], fill=TEXT_PRIMARY) -> Image.Image:
@@ -341,29 +309,22 @@ class DisplayManager:
         self._draw_text_centered(draw, lines, fill=fill)
         return img
 
+    def _paginate_lines(self, lines: list[str], max_lines: int = 3) -> list[list[str]]:
+        pages = [lines[i:i + max_lines] for i in range(0, len(lines), max_lines)]
+        return pages or [[""]]
+
+    def _build_joke_pages(self, text: str, fill=TEXT_PRIMARY) -> list[Image.Image]:
+        lines = self._wrap_text(text, width_px=self.width - 4)
+        pages = self._paginate_lines(lines, max_lines=3)
+        return [self._render_text_page(page, fill=fill) for page in pages]
+
     def render_joke_pages(self, payload: dict) -> list[Image.Image]:
         data = payload["data"]
-
-        if data.get("type") == "single":
-            text = data.get("text") or "No joke"
-            lines = self._wrap_text(text, width_px=self.width - 4)
-            pages = [lines[i:i + 3] for i in range(0, len(lines), 3)] or [["No joke"]]
-            return [self._render_text_page(page, fill=TEXT_PRIMARY) for page in pages]
-
-        setup = data.get("setup") or ""
-        delivery = data.get("delivery") or ""
-
-        setup_lines = self._wrap_text(setup, width_px=self.width - 4)
-        delivery_lines = self._wrap_text(delivery, width_px=self.width - 4)
-
-        pages = []
-        for chunk_start in range(0, len(setup_lines), 3):
-            pages.append(self._render_text_page(setup_lines[chunk_start:chunk_start + 3], fill=TEXT_PRIMARY))
-
-        for chunk_start in range(0, len(delivery_lines), 3):
-            pages.append(self._render_text_page(delivery_lines[chunk_start:chunk_start + 3], fill=TEXT_ACCENT))
-
-        return pages or [self._render_text_page(["No joke"], fill=TEXT_PRIMARY)]
+        if data.get("type") == "twopart":
+            setup_pages = self._build_joke_pages(data.get("setup") or "", fill=TEXT_PRIMARY)
+            delivery_pages = self._build_joke_pages(data.get("delivery") or "", fill=TEXT_ACCENT)
+            return setup_pages + delivery_pages
+        return self._build_joke_pages(data.get("text") or "No joke", fill=TEXT_PRIMARY)
 
     def render_science(self, payload: dict) -> Image.Image:
         data = payload["data"]
@@ -382,11 +343,9 @@ class DisplayManager:
     def render_payload(self, payload: dict) -> Image.Image:
         category = payload["category"]
         if category == "pokemon":
-            return self.render_pokemon(payload)
+            return self._render_pokemon_base(payload["data"])
         if category == "weather":
             return self.render_weather(payload)
-        if category == "temperature":
-            return self.render_temperature(payload)
         if category == "joke":
             return self.render_joke_pages(payload)[0]
         if category == "science":
@@ -397,28 +356,120 @@ class DisplayManager:
         self._draw_line(draw, 2, 12, "UNKNOWN", fill=TEXT_PRIMARY)
         return img
 
+    def _fade_sequence(self, image: Image.Image, steps: int = 6, fade_in: bool = True, delay: float = 0.05) -> None:
+        if fade_in:
+            factors = [i / steps for i in range(1, steps + 1)]
+        else:
+            factors = [i / steps for i in range(steps - 1, -1, -1)]
+        for factor in factors:
+            frame = Image.blend(self._new_canvas(), image, factor)
+            self._show_frame(frame)
+            time.sleep(delay)
+
+    def _animate_pokemon(self, payload: dict, duration_seconds: int, safe_slot: str) -> None:
+        data = payload["data"]
+        end_time = time.time() + max(1, duration_seconds)
+
+        center = self._render_pokemon_center_title(data)
+        self._fade_sequence(center, steps=8, fade_in=True, delay=0.05)
+        if time.time() >= end_time:
+            return
+
+        compact = self._render_pokemon_base(data)
+        self._transition_to(compact, preview_name=f"{safe_slot}_pokemon_base.png", steps=8, delay=0.04)
+
+        stats = [
+            f"Types: {'/'.join(data.get('types', [])) or 'Unknown'}",
+            f"HP: {data.get('hp', '--')}",
+            f"ATK: {data.get('attack', '--')}",
+            f"DEF: {data.get('defense', '--')}",
+            f"Height: {data.get('height', '--')}",
+            f"Weight: {data.get('weight', '--')}",
+        ]
+
+        index = 0
+        while time.time() < end_time:
+            overlay = self._render_pokemon_stat_overlay(compact, stats[index % len(stats)])
+            self._fade_sequence(overlay, steps=5, fade_in=True, delay=0.04)
+
+            hold_end = min(end_time, time.time() + 0.9)
+            while time.time() < hold_end:
+                time.sleep(0.05)
+
+            self._fade_sequence(overlay, steps=5, fade_in=False, delay=0.04)
+            self._show_frame(compact)
+            index += 1
+
+    def _animate_joke(self, payload: dict, duration_seconds: int, safe_slot: str) -> None:
+        data = payload["data"]
+        end_time = time.time() + max(1, duration_seconds)
+
+        segments: list[list[Image.Image]] = []
+        if data.get("type") == "twopart":
+            segments.append(self._build_joke_pages(data.get("setup") or "", fill=TEXT_PRIMARY))
+            segments.append(self._build_joke_pages(data.get("delivery") or "", fill=TEXT_ACCENT))
+        else:
+            segments.append(self._build_joke_pages(data.get("text") or "No joke", fill=TEXT_PRIMARY))
+
+        seg_idx = 0
+        while time.time() < end_time:
+            pages = segments[seg_idx % len(segments)]
+            first = pages[0]
+            self._fade_sequence(first, steps=7, fade_in=True, delay=0.05)
+
+            hold_end = min(end_time, time.time() + 10.0)
+            page_idx = 0
+            while time.time() < hold_end:
+                page = pages[page_idx % len(pages)]
+                self._transition_to(page, preview_name=f"{safe_slot}_joke_{seg_idx}_{page_idx}.png", steps=3, delay=0.03)
+                page_duration = min(2.0, max(0.2, hold_end - time.time()))
+                time.sleep(page_duration)
+                page_idx += 1
+
+            self._fade_sequence(pages[min(page_idx, len(pages) - 1)], steps=7, fade_in=False, delay=0.05)
+            seg_idx += 1
+
+    def _animate_weather_ticker(self, payload: dict, duration_seconds: int, safe_slot: str) -> None:
+        data = payload["data"]
+        condition = str(data.get("condition", "Unknown"))
+        temp = str(data.get("temperature_f", "--"))
+        wind = str(data.get("wind_mph", "--"))
+        location = str(data.get("location", ""))
+        ticker = f"{location} | {condition} | {temp}F | Wind {wind} mph   "
+
+        end_time = time.time() + max(1, duration_seconds)
+        text_w = self.font.getbbox(ticker)[2]
+        x = self.width
+
+        while time.time() < end_time:
+            img = self._new_canvas()
+            draw = ImageDraw.Draw(img)
+            self._draw_weather_icon(draw, condition, 1, 5)
+            self._draw_line(draw, 27, 2, "Weather", fill=TEXT_ACCENT)
+            draw.line((0, 13, self.width - 1, 13), fill=TEXT_SECONDARY)
+            self._draw_line(draw, x, 18, ticker, fill=TEXT_PRIMARY)
+            self._show_frame(img, preview_name=f"{safe_slot}_weather.png")
+
+            x -= 1
+            if x < -text_w:
+                x = self.width
+            time.sleep(0.06)
+
     def display_payload(self, payload: dict, duration_seconds: Optional[int] = None) -> None:
         category = payload["category"]
         safe_slot = payload["slot_key"].replace(":", "-")
+        total_duration = duration_seconds if duration_seconds is not None else 300
+
+        if category == "pokemon":
+            self._animate_pokemon(payload, total_duration, safe_slot)
+            return
 
         if category == "joke":
-            pages = self.render_joke_pages(payload)
-            total_duration = duration_seconds if duration_seconds is not None else max(2, 2 * len(pages))
-            end_time = time.time() + max(1, total_duration)
+            self._animate_joke(payload, total_duration, safe_slot)
+            return
 
-            page_index = 0
-            while time.time() < end_time:
-                page = pages[page_index % len(pages)]
-                preview_name = f"{safe_slot}_{category}_{page_index % len(pages)}.png"
-                self._transition_to(page, preview_name=preview_name, steps=4, delay=0.03)
-
-                page_index += 1
-                page_duration = min(2.0, max(0.2, end_time - time.time()))
-                page_end = time.time() + page_duration
-
-                while time.time() < page_end:
-                    time.sleep(0.08)
-
+        if category == "weather":
+            self._animate_weather_ticker(payload, total_duration, safe_slot)
             return
 
         image = self.render_payload(payload)
