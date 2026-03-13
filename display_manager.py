@@ -54,6 +54,7 @@ class DisplayManager:
         self.font = self._load_font()
         self._measure_image = Image.new("RGBA", (1, 1), DEFAULT_BG)
         self._measure_draw = ImageDraw.Draw(self._measure_image)
+        self.font = ImageFont.load_default()
         self.line_height = self._get_line_height()
         self.matrix = None
         self.framebuffer = None
@@ -180,6 +181,9 @@ class DisplayManager:
         measured = max(1, (bbox[3] - bbox[1]) + 1)
         max_for_three_lines = max(1, (self.height - 2) // 3)
         return min(measured, max_for_three_lines)
+    def _get_line_height(self) -> int:
+        bbox = self.font.getbbox("Ag")
+        return max(8, bbox[3] - bbox[1] + 1)
 
     def _truncate_to_width(self, text: str, max_width_px: int) -> str:
         if not text:
@@ -187,6 +191,7 @@ class DisplayManager:
 
         value = str(text)
         while value and self._text_width(value) > max_width_px:
+        while value and self.font.getbbox(value)[2] > max_width_px:
             value = value[:-1]
         return value
 
@@ -212,6 +217,27 @@ class DisplayManager:
                 line = line[-1]
 
         if line:
+        cleaned = " ".join(text.split())
+        if not cleaned:
+            return [""]
+
+        wrapped: list[str] = []
+        for paragraph in cleaned.split("\n"):
+            words = paragraph.split(" ")
+            line = ""
+
+            for word in words:
+                candidate = f"{line} {word}".strip()
+                if line and self.font.getbbox(candidate)[2] > width_px:
+                    wrapped.append(line)
+                    line = word
+                else:
+                    line = candidate
+
+                while self.font.getbbox(line)[2] > width_px:
+                    wrapped.append(line[:-1])
+                    line = line[-1]
+
             wrapped.append(line)
 
         return wrapped or [""]
@@ -224,6 +250,7 @@ class DisplayManager:
     ) -> None:
         visible_lines = lines[:3]
         total_height = len(visible_lines) * self.line_height
+        total_height = len(lines) * self.line_height
         y = max(0, (self.height - total_height) // 2)
 
         for line in visible_lines:
