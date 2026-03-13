@@ -1,6 +1,5 @@
-
 import io
-import math
+import textwrap
 import time
 import urllib.request
 from pathlib import Path
@@ -14,42 +13,27 @@ try:
 except ImportError:
     piomatter = None
 
-PANEL_WIDTH = 64
-PANEL_HEIGHT = 32
+
+WIDTH = 64
+HEIGHT = 32
+
+# One single panel only
 PANEL_COLS = 1
-PANEL_ROWS = 2
-WIDTH = PANEL_WIDTH * PANEL_COLS
-HEIGHT = PANEL_HEIGHT * PANEL_ROWS
+PANEL_ROWS = 1
+PANEL_ROTATIONS = ((0,),)
 
-DEFAULT_BG = (6, 10, 18, 255)
-CARD_BG = (12, 18, 30, 255)
-CARD_ALT = (18, 26, 40, 255)
-OUTLINE = (50, 72, 110, 255)
-WHITE = (240, 244, 255, 255)
-DIM = (164, 176, 204, 255)
-YELLOW = (255, 213, 79, 255)
-CYAN = (96, 220, 255, 255)
-GREEN = (111, 238, 163, 255)
-RED = (255, 120, 120, 255)
+# Change this to False if your screen appears upside down
+GLOBAL_ROTATE_180 = True
 
+# Real LED black = off
+DEFAULT_BG = (0, 0, 0, 255)
 
-def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    candidates = []
-    if bold:
-        candidates.extend([
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-            '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
-        ])
-    candidates.extend([
-        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        '/System/Library/Fonts/Supplemental/Arial.ttf',
-    ])
-    for path in candidates:
-        try:
-            return ImageFont.truetype(path, size=size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
+# Muted / readable colors (not bright)
+TEXT_PRIMARY = (170, 170, 170, 255)
+TEXT_SECONDARY = (120, 130, 135, 255)
+TEXT_ACCENT = (105, 125, 145, 255)
+ICON_MAIN = (135, 145, 155, 255)
+ICON_ALT = (90, 110, 125, 255)
 
 
 class DisplayManager:
@@ -58,303 +42,362 @@ class DisplayManager:
         width: int = WIDTH,
         height: int = HEIGHT,
         use_matrix: bool = True,
-        preview_dir: str = 'preview_frames',
+        preview_dir: str = "preview_frames",
+        save_previews: bool = False,
     ) -> None:
         self.width = width
         self.height = height
         self.use_matrix = use_matrix and piomatter is not None
         self.preview_dir = Path(preview_dir)
         self.preview_dir.mkdir(parents=True, exist_ok=True)
+        self.save_previews = save_previews
 
-        self.font_sm = _load_font(8)
-        self.font_md = _load_font(10, bold=True)
-        self.font_lg = _load_font(15, bold=True)
-        self.font_xl = _load_font(22, bold=True)
-
+        self.font = ImageFont.load_default()
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
 
         if self.use_matrix:
-            addr_lines = 5 if height >= 64 else 4
-            geometry = piomatter.Geometry(width=width, height=height, n_addr_lines=addr_lines)
+            geometry = piomatter.Geometry(
+                width=self.width,
+                height=self.height,
+                n_addr_lines=4,
+            )
             pinout = piomatter.Pinout.AdafruitMatrixHatBGR
             colorspace = piomatter.Colorspace.RGB888
-            self.framebuffer = np.zeros((height, width, 4), dtype=np.uint8)
+            self.framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
             self.matrix = piomatter.PioMatter(colorspace, pinout, self.framebuffer, geometry)
 
-    def _text_size(self, text: str, font) -> tuple[int, int]:
-        box = font.getbbox(text)
-        return box[2] - box[0], box[3] - box[1]
+    # -------------------------
+    # Low-level output helpers
+    # -------------------------
 
-    def _truncate(self, text: str, font, max_width: int) -> str:
-        if self._text_size(text, font)[0] <= max_width:
-            return text
-        while text:
-            trial = text[:-1].rstrip() + '…'
-            if self._text_size(trial, font)[0] <= max_width:
-                return trial
-            text = text[:-1]
-        return '…'
+    def _prepare_image(self, image: Image.Image) -> Image.Image:
+        img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
 
-    def _wrap(self, text: str, font, max_width: int) -> list[str]:
-        words = text.split()
-        if not words:
-            return ['']
-        lines = []
-        current = words[0]
-        for word in words[1:]:
-            trial = current + ' ' + word
-            if self._text_size(trial, font)[0] <= max_width:
-                current = trial
-            else:
-                lines.append(current)
-                current = word
-        lines.append(current)
-        return lines
+        if PANEL_COLS == 1 and PANEL_ROWS == 1:
+            angle = PANEL_ROTATIONS[0][0]
+            if angle:
+                img = img.rotate(angle, expand=False)
 
-    def _show_image(self, image: Image.Image, preview_name: Optional[str] = None) -> None:
-        image = image.convert('RGBA').resize((self.width, self.height), Image.LANCZOS)
+        if GLOBAL_ROTATE_180:
+            img = img.rotate(180, expand=False)
+
+        return img
+
+    def _push_prepared(self, image: Image.Image) -> None:
         if self.use_matrix and self.matrix is not None and self.framebuffer is not None:
             arr = np.array(image, dtype=np.uint8)
             self.framebuffer[:] = np.flipud(np.fliplr(arr))
             self.matrix.show()
-        if preview_name:
+
+    def _save_prepared(self, image: Image.Image, preview_name: Optional[str]) -> None:
+        if self.save_previews and preview_name:
             image.save(self.preview_dir / preview_name)
-        self.last_frame = image.copy()
+
+    def _transition_to(
+        self,
+        target_image: Image.Image,
+        preview_name: Optional[str] = None,
+        steps: int = 6,
+        delay: float = 0.035,
+    ) -> None:
+        target = self._prepare_image(target_image)
+
+        # First frame: left-to-right reveal
+        if self.last_frame is None:
+            for i in range(1, steps + 1):
+                cut = int(self.width * i / steps)
+                frame = Image.new("RGBA", (self.width, self.height), DEFAULT_BG)
+                frame.paste(target.crop((0, 0, cut, self.height)), (0, 0))
+                self._push_prepared(frame)
+                time.sleep(delay)
+        else:
+            for i in range(1, steps + 1):
+                alpha = i / steps
+                frame = Image.blend(self.last_frame, target, alpha)
+                self._push_prepared(frame)
+                time.sleep(delay)
+
+        self._push_prepared(target)
+        self._save_prepared(target, preview_name)
+        self.last_frame = target
+
+    # -------------------------
+    # Drawing helpers
+    # -------------------------
+
+    def _new_canvas(self) -> Image.Image:
+        return Image.new("RGBA", (self.width, self.height), DEFAULT_BG)
 
     def _download_image(self, url: Optional[str]) -> Optional[Image.Image]:
         if not url:
             return None
-        req = urllib.request.Request(url, headers={'User-Agent': 'RaspberryPi-Pokemon-LED/1.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return Image.open(io.BytesIO(response.read())).convert('RGBA')
 
-    def _card(self, img: Image.Image, xy: tuple[int, int, int, int], fill=CARD_BG) -> ImageDraw.ImageDraw:
-        draw = ImageDraw.Draw(img)
-        draw.rounded_rectangle(xy, radius=6, fill=fill, outline=OUTLINE, width=1)
-        return draw
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "RaspberryPi-Pokemon-LED/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = response.read()
+        return Image.open(io.BytesIO(data)).convert("RGBA")
 
     def _fit_image(self, image: Image.Image, target_width: int, target_height: int) -> Image.Image:
-        working = image.copy().convert('RGBA')
+        working = image.copy().convert("RGBA")
         working.thumbnail((target_width, target_height), Image.LANCZOS)
-        canvas = Image.new('RGBA', (target_width, target_height), (0, 0, 0, 0))
+        canvas = Image.new("RGBA", (target_width, target_height), DEFAULT_BG)
         x = (target_width - working.width) // 2
         y = (target_height - working.height) // 2
         canvas.paste(working, (x, y), working)
         return canvas
 
-    def _render_bg(self) -> Image.Image:
-        img = Image.new('RGBA', (self.width, self.height), DEFAULT_BG)
-        draw = ImageDraw.Draw(img)
-        for y in range(self.height):
-            factor = y / max(1, self.height - 1)
-            color = (
-                int(8 + 14 * factor),
-                int(12 + 10 * factor),
-                int(18 + 24 * factor),
-                255,
-            )
-            draw.line((0, y, self.width, y), fill=color)
-        return img
+    def _draw_line(
+        self,
+        draw: ImageDraw.ImageDraw,
+        x: int,
+        y: int,
+        text: str,
+        fill=TEXT_PRIMARY,
+    ) -> None:
+        draw.text((x, y), text, font=self.font, fill=fill)
 
-    def _draw_header(self, draw: ImageDraw.ImageDraw, title: str, subtitle: str = '') -> None:
-        draw.rounded_rectangle((2, 2, self.width - 3, 15), radius=5, fill=(20, 30, 48, 255), outline=OUTLINE)
-        draw.text((6, 4), title, font=self.font_md, fill=YELLOW)
-        if subtitle:
-            sub = self._truncate(subtitle, self.font_sm, self.width - 70)
-            tw, _ = self._text_size(sub, self.font_sm)
-            draw.text((self.width - tw - 6, 5), sub, font=self.font_sm, fill=DIM)
+    def _wrap_text(self, text: str, width_chars: int) -> list[str]:
+        cleaned = " ".join(text.split())
+        if not cleaned:
+            return [""]
+        return textwrap.wrap(
+            cleaned,
+            width=width_chars,
+            break_long_words=True,
+            replace_whitespace=False,
+        )
 
-    def _draw_weather_icon(self, draw: ImageDraw.ImageDraw, x: int, y: int, condition: str) -> None:
-        c = condition.lower()
-        if 'thunder' in c:
-            self._draw_cloud(draw, x, y, fill=(150, 170, 210, 255))
-            draw.polygon([(x + 18, y + 18), (x + 28, y + 18), (x + 22, y + 30), (x + 30, y + 30), (x + 16, y + 46), (x + 20, y + 32), (x + 12, y + 32)], fill=YELLOW)
-        elif 'snow' in c:
-            self._draw_cloud(draw, x, y)
-            for dx in (12, 22, 32):
-                draw.line((x + dx - 3, y + 30, x + dx + 3, y + 36), fill=WHITE)
-                draw.line((x + dx + 3, y + 30, x + dx - 3, y + 36), fill=WHITE)
-        elif 'rain' in c or 'drizzle' in c or 'showers' in c:
-            self._draw_cloud(draw, x, y)
-            for dx in (12, 22, 32):
-                draw.line((x + dx, y + 28, x + dx - 2, y + 38), fill=CYAN, width=2)
-        elif 'fog' in c:
-            self._draw_cloud(draw, x, y, fill=(180, 190, 205, 255))
-            for iy in range(30, 42, 4):
-                draw.line((x + 4, y + iy, x + 40, y + iy), fill=DIM)
-        elif 'clear' in c:
-            self._draw_sun(draw, x + 6, y + 4)
-        elif 'cloud' in c:
-            self._draw_cloud(draw, x, y)
-        else:
-            self._draw_sun(draw, x + 2, y + 2)
-            self._draw_cloud(draw, x + 10, y + 10)
+    def _draw_text_centered(
+        self,
+        draw: ImageDraw.ImageDraw,
+        lines: list[str],
+        fill=TEXT_PRIMARY,
+    ) -> None:
+        line_height = 8
+        total_height = len(lines) * line_height
+        y = max(0, (self.height - total_height) // 2)
+
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=self.font)
+            text_width = bbox[2] - bbox[0]
+            x = max(0, (self.width - text_width) // 2)
+            draw.text((x, y), line, font=self.font, fill=fill)
+            y += line_height
+
+    # -------------------------
+    # Weather icons
+    # -------------------------
+
+    def _draw_cloud(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+        draw.ellipse((x + 2, y + 5, x + 10, y + 13), fill=ICON_MAIN)
+        draw.ellipse((x + 8, y + 2, x + 16, y + 12), fill=ICON_MAIN)
+        draw.ellipse((x + 14, y + 5, x + 22, y + 13), fill=ICON_MAIN)
+        draw.rectangle((x + 5, y + 9, x + 19, y + 14), fill=ICON_MAIN)
 
     def _draw_sun(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
-        draw.ellipse((x + 8, y + 8, x + 28, y + 28), fill=YELLOW)
-        cx, cy = x + 18, y + 18
-        for angle in range(0, 360, 45):
-            rad = math.radians(angle)
-            x1 = cx + math.cos(rad) * 14
-            y1 = cy + math.sin(rad) * 14
-            x2 = cx + math.cos(rad) * 21
-            y2 = cy + math.sin(rad) * 21
-            draw.line((x1, y1, x2, y2), fill=YELLOW, width=2)
+        draw.ellipse((x + 5, y + 5, x + 15, y + 15), fill=ICON_ALT)
+        draw.line((x + 10, y, x + 10, y + 4), fill=ICON_ALT)
+        draw.line((x + 10, y + 16, x + 10, y + 20), fill=ICON_ALT)
+        draw.line((x, y + 10, x + 4, y + 10), fill=ICON_ALT)
+        draw.line((x + 16, y + 10, x + 20, y + 10), fill=ICON_ALT)
 
-    def _draw_cloud(self, draw: ImageDraw.ImageDraw, x: int, y: int, fill=(206, 216, 235, 255)) -> None:
-        draw.ellipse((x + 4, y + 14, x + 22, y + 30), fill=fill)
-        draw.ellipse((x + 16, y + 8, x + 34, y + 28), fill=fill)
-        draw.ellipse((x + 28, y + 14, x + 44, y + 30), fill=fill)
-        draw.rounded_rectangle((x + 8, y + 20, x + 40, y + 32), radius=6, fill=fill)
+    def _draw_rain(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+        self._draw_cloud(draw, x, y)
+        draw.line((x + 7, y + 16, x + 5, y + 20), fill=ICON_ALT)
+        draw.line((x + 12, y + 16, x + 10, y + 20), fill=ICON_ALT)
+        draw.line((x + 17, y + 16, x + 15, y + 20), fill=ICON_ALT)
 
-    def _transition_to(self, next_image: Image.Image, preview_prefix: Optional[str] = None, steps: int = 8, delay: float = 0.04) -> None:
-        if self.last_frame is None:
-            self._show_image(next_image, preview_name=f'{preview_prefix}_0.png' if preview_prefix else None)
-            return
+    def _draw_snow(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+        self._draw_cloud(draw, x, y)
+        for sx, sy in [(7, 18), (12, 19), (17, 18)]:
+            draw.line((x + sx - 2, y + sy, x + sx + 2, y + sy), fill=ICON_ALT)
+            draw.line((x + sx, y + sy - 2, x + sx, y + sy + 2), fill=ICON_ALT)
 
-        prev = self.last_frame.copy().convert('RGBA')
-        nxt = next_image.copy().convert('RGBA')
-        for step in range(1, steps + 1):
-            t = step / steps
-            canvas = Image.new('RGBA', (self.width, self.height), DEFAULT_BG)
+    def _draw_storm(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+        self._draw_cloud(draw, x, y)
+        draw.line((x + 12, y + 14, x + 9, y + 19), fill=ICON_ALT)
+        draw.line((x + 9, y + 19, x + 13, y + 19), fill=ICON_ALT)
+        draw.line((x + 13, y + 19, x + 10, y + 24), fill=ICON_ALT)
 
-            prev_offset = int(-self.width * 0.18 * t)
-            next_offset = int(self.width * (1 - t) * 0.18)
+    def _draw_fog(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+        draw.line((x + 2, y + 8, x + 22, y + 8), fill=ICON_MAIN)
+        draw.line((x, y + 12, x + 20, y + 12), fill=ICON_MAIN)
+        draw.line((x + 2, y + 16, x + 22, y + 16), fill=ICON_MAIN)
 
-            prev_layer = prev.copy()
-            prev_layer.putalpha(int(255 * (1 - t)))
-            nxt_layer = nxt.copy()
-            nxt_layer.putalpha(int(255 * t))
+    def _draw_weather_icon(self, draw: ImageDraw.ImageDraw, condition: str, x: int, y: int) -> None:
+        c = condition.lower()
 
-            canvas.alpha_composite(prev_layer, (prev_offset, 0))
-            canvas.alpha_composite(nxt_layer, (next_offset, 0))
+        if "thunder" in c or "storm" in c:
+            self._draw_storm(draw, x, y)
+        elif "snow" in c:
+            self._draw_snow(draw, x, y)
+        elif "rain" in c or "drizzle" in c or "shower" in c:
+            self._draw_rain(draw, x, y)
+        elif "fog" in c:
+            self._draw_fog(draw, x, y)
+        elif "cloud" in c or "overcast" in c:
+            self._draw_cloud(draw, x, y)
+        elif "clear" in c or "sun" in c:
+            self._draw_sun(draw, x, y)
+        else:
+            self._draw_cloud(draw, x, y)
 
-            self._show_image(canvas, preview_name=f'{preview_prefix}_transition_{step}.png' if preview_prefix and step == steps else None)
-            time.sleep(delay)
+    # -------------------------
+    # Category renderers
+    # -------------------------
 
     def render_pokemon(self, payload: dict) -> Image.Image:
-        data = payload['data']
-        img = self._render_bg()
+        data = payload["data"]
+        img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_header(draw, "TODAY'S POKEMON", payload['slot_key'])
 
-        self._card(img, (4, 18, 34, 60), fill=(14, 22, 36, 255))
+        # Bigger image, smaller text
+        art_box_w = 26
+        art_box_h = 26
+        art_x = self.width - art_box_w - 2
+        art_y = 3
+
         art = None
         try:
-            art = self._download_image(data.get('image_url'))
+            art = self._download_image(data.get("image_url"))
         except Exception:
             art = None
-        if art is not None:
-            art = self._fit_image(art, 28, 38)
-            img.paste(art, (5, 20), art)
-        else:
-            draw.text((8, 34), 'NO', font=self.font_md, fill=RED)
-            draw.text((8, 44), 'IMG', font=self.font_md, fill=RED)
 
-        self._card(img, (36, 18, 60, 34), fill=CARD_BG)
-        self._card(img, (36, 36, 60, 60), fill=CARD_ALT)
-        name = self._truncate(data.get('name', 'Unknown'), self.font_md, 22)
-        draw.text((39, 20), name, font=self.font_md, fill=YELLOW)
-        types = '/'.join(data.get('types', [])) or 'Unknown'
-        for idx, line in enumerate(self._wrap(types, self.font_sm, 20)[:2]):
-            draw.text((39, 29 + idx * 8), line, font=self.font_sm, fill=CYAN)
-        draw.text((39, 39), f'HP {data.get("hp", "--")}', font=self.font_sm, fill=GREEN)
-        draw.text((39, 47), f'ATK {data.get("attack", "--")}', font=self.font_sm, fill=WHITE)
-        draw.text((39, 55), f'DEF {data.get("defense", "--")}', font=self.font_sm, fill=DIM)
+        if art is not None:
+            art = self._fit_image(art, art_box_w, art_box_h)
+            img.paste(art, (art_x, art_y), art)
+        else:
+            self._draw_line(draw, art_x + 3, art_y + 10, "NO IMG", fill=TEXT_SECONDARY)
+
+        name = str(data.get("name", "Unknown"))[:11]
+        types = "/".join(data.get("types", []))[:12]
+        hp = data.get("hp", "--")
+        atk = data.get("attack", "--")
+        deff = data.get("defense", "--")
+
+        self._draw_line(draw, 2, 3, name, fill=TEXT_ACCENT)
+        self._draw_line(draw, 2, 11, types, fill=TEXT_SECONDARY)
+        self._draw_line(draw, 2, 19, f"HP {hp}", fill=TEXT_PRIMARY)
+        self._draw_line(draw, 2, 27, f"A{atk} D{deff}", fill=TEXT_SECONDARY)
+
         return img
 
     def render_weather(self, payload: dict) -> Image.Image:
-        data = payload['data']
-        img = self._render_bg()
+        data = payload["data"]
+        img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_header(draw, 'WEATHER', data.get('location', ''))
-        self._card(img, (4, 18, 28, 60), fill=(14, 22, 36, 255))
-        self._draw_weather_icon(draw, 6, 22, str(data.get('condition', 'Unknown')))
-        self._card(img, (30, 18, 60, 60), fill=CARD_BG)
-        draw.text((34, 22), self._truncate(str(data.get('condition', 'Unknown')), self.font_md, 24), font=self.font_md, fill=YELLOW)
-        temp = f'{data.get("temperature_f", "--")}°F'
-        draw.text((34, 36), temp, font=self.font_lg, fill=WHITE)
-        draw.text((34, 52), f'W {data.get("wind_mph", "--")} mph', font=self.font_sm, fill=CYAN)
+
+        condition = str(data.get("condition", "Unknown"))[:12]
+        temp = str(data.get("temperature_f", "--"))
+        wind = str(data.get("wind_mph", "--"))
+
+        self._draw_line(draw, 2, 4, condition, fill=TEXT_ACCENT)
+        self._draw_line(draw, 2, 14, f"{temp}F", fill=TEXT_PRIMARY)
+        self._draw_line(draw, 2, 24, f"W {wind}", fill=TEXT_SECONDARY)
+
+        self._draw_weather_icon(draw, condition, 42, 5)
+
         return img
 
     def render_temperature(self, payload: dict) -> Image.Image:
-        data = payload['data']
-        img = self._render_bg()
+        data = payload["data"]
+        img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_header(draw, 'TEMPERATURE', data.get('location', ''))
-        self._card(img, (4, 18, 60, 60), fill=CARD_BG)
-        temp = f'{data.get("temperature_f", "--")}°F'
-        tw, _ = self._text_size(temp, self.font_xl)
-        draw.text(((self.width - tw) // 2, 22), temp, font=self.font_xl, fill=WHITE)
-        cond = self._truncate(str(data.get('condition', 'Unknown')), self.font_md, 54)
-        cw, _ = self._text_size(cond, self.font_md)
-        draw.text(((self.width - cw) // 2, 46), cond, font=self.font_md, fill=CYAN)
+
+        temp = str(data.get("temperature_f", "--"))
+        condition = str(data.get("condition", "Unknown"))[:12]
+        wind = str(data.get("wind_mph", "--"))
+
+        self._draw_line(draw, 2, 5, f"{temp}F", fill=TEXT_PRIMARY)
+        self._draw_line(draw, 2, 15, condition, fill=TEXT_ACCENT)
+        self._draw_line(draw, 2, 25, f"W {wind}", fill=TEXT_SECONDARY)
+
         return img
 
-    def _render_joke_pages(self, payload: dict) -> list[Image.Image]:
-        data = payload['data']
-        if data.get('type') == 'single':
-            lines = self._wrap(data.get('text') or 'No joke text', self.font_md, self.width - 10)
-        else:
-            setup = self._wrap(data.get('setup') or '', self.font_md, self.width - 10)
-            delivery = self._wrap(data.get('delivery') or '', self.font_md, self.width - 10)
-            lines = setup + [''] + delivery
-        pages = [lines[i:i + 4] for i in range(0, len(lines), 4)] or [['No joke']]
-        images = []
-        for idx, page in enumerate(pages):
-            img = self._render_bg()
-            draw = ImageDraw.Draw(img)
-            self._draw_header(draw, f'JOKE {idx + 1}/{len(pages)}', payload['slot_key'])
-            self._card(img, (4, 18, 60, 60), fill=CARD_BG)
-            y = 22
-            for line in page:
-                draw.text((8, y), self._truncate(line, self.font_md, self.width - 12), font=self.font_md, fill=WHITE if line else DIM)
-                y += 9
-            images.append(img)
-        return images
+    def _render_text_page(self, lines: list[str], fill=TEXT_PRIMARY) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        self._draw_text_centered(draw, lines, fill=fill)
+        return img
 
-    def render_payload_frames(self, payload: dict) -> list[Image.Image]:
-        category = payload['category']
-        if category == 'pokemon':
-            return [self.render_pokemon(payload)]
-        if category == 'weather':
-            return [self.render_weather(payload)]
-        if category == 'temperature':
-            return [self.render_temperature(payload)]
-        if category == 'joke':
-            return self._render_joke_pages(payload)
-        return [self._render_bg()]
+    def render_joke_pages(self, payload: dict) -> list[Image.Image]:
+        data = payload["data"]
+
+        # No "Joke 1/2" nonsense
+        if data.get("type") == "single":
+            text = data.get("text") or "No joke"
+            lines = self._wrap_text(text, width_chars=18)
+            pages = [lines[i:i + 3] for i in range(0, len(lines), 3)] or [["No joke"]]
+            return [self._render_text_page(page, fill=TEXT_PRIMARY) for page in pages]
+
+        setup = data.get("setup") or ""
+        delivery = data.get("delivery") or ""
+
+        setup_lines = self._wrap_text(setup, width_chars=18)
+        delivery_lines = self._wrap_text(delivery, width_chars=18)
+
+        pages = []
+        for chunk_start in range(0, len(setup_lines), 3):
+            pages.append(self._render_text_page(setup_lines[chunk_start:chunk_start + 3], fill=TEXT_PRIMARY))
+
+        for chunk_start in range(0, len(delivery_lines), 3):
+            pages.append(self._render_text_page(delivery_lines[chunk_start:chunk_start + 3], fill=TEXT_ACCENT))
+
+        return pages or [self._render_text_page(["No joke"], fill=TEXT_PRIMARY)]
+
+    def render_payload(self, payload: dict) -> Image.Image:
+        category = payload["category"]
+        if category == "pokemon":
+            return self.render_pokemon(payload)
+        if category == "weather":
+            return self.render_weather(payload)
+        if category == "temperature":
+            return self.render_temperature(payload)
+        if category == "joke":
+            return self.render_joke_pages(payload)[0]
+
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        self._draw_line(draw, 2, 12, "UNKNOWN", fill=TEXT_PRIMARY)
+        return img
+
+    # -------------------------
+    # Public display API
+    # -------------------------
 
     def display_payload(self, payload: dict, duration_seconds: Optional[int] = None) -> None:
-        frames = self.render_payload_frames(payload)
-        safe_slot = payload['slot_key'].replace(':', '-')
-        if not frames:
+        category = payload["category"]
+        safe_slot = payload["slot_key"].replace(":", "-")
+
+        if category == "joke":
+            pages = self.render_joke_pages(payload)
+            total_duration = duration_seconds if duration_seconds is not None else max(2, 2 * len(pages))
+            end_time = time.time() + max(1, total_duration)
+
+            page_index = 0
+            while time.time() < end_time:
+                page = pages[page_index % len(pages)]
+                preview_name = f"{safe_slot}_{category}_{page_index % len(pages)}.png"
+                self._transition_to(page, preview_name=preview_name, steps=4, delay=0.03)
+
+                page_index += 1
+                page_duration = min(2.0, max(0.2, end_time - time.time()))
+                page_end = time.time() + page_duration
+
+                while time.time() < page_end:
+                    time.sleep(0.08)
+
             return
 
-        self._transition_to(frames[0], preview_prefix=f'{safe_slot}_{payload["category"]}')
+        image = self.render_payload(payload)
+        self._transition_to(image, preview_name=f"{safe_slot}_{category}.png", steps=5, delay=0.03)
 
-        if duration_seconds is None:
-            return
-
-        remaining = max(1.0, float(duration_seconds) - 0.35)
-
-        if len(frames) == 1:
-            self._show_image(frames[0], preview_name=f'{safe_slot}_{payload["category"]}.png')
-            time.sleep(remaining)
-            return
-
-        page_duration = max(2.0, remaining / len(frames))
-        start_idx = 0
-        self._show_image(frames[start_idx], preview_name=f'{safe_slot}_{payload["category"]}_page0.png')
-        time.sleep(min(page_duration, remaining))
-        remaining -= min(page_duration, remaining)
-        idx = 1
-        while remaining > 0:
-            frame = frames[idx % len(frames)]
-            self._transition_to(frame)
-            sleep_for = min(page_duration, remaining)
-            time.sleep(sleep_for)
-            remaining -= sleep_for
-            idx += 1
+        if duration_seconds is not None:
+            sleep_time = max(0, duration_seconds - 0.20)
+            if sleep_time > 0:
+                time.sleep(sleep_time)

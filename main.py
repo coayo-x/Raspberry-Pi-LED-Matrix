@@ -1,4 +1,3 @@
-
 import sys
 import time
 from datetime import datetime
@@ -21,67 +20,67 @@ def build_content_for_now(now: datetime | None = None) -> dict:
     category = get_current_category(now)
 
     payload = {
-        'slot_key': get_current_slot_key(now),
-        'time': now.strftime('%Y-%m-%d %H:%M:%S'),
-        'category': category,
-        'data': None,
+        "slot_key": get_current_slot_key(now),
+        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "category": category,
+        "data": None,
     }
 
-    if category == 'pokemon':
+    if category == "pokemon":
         pokemon_id = get_today_pokemon_id(today=now.date().isoformat())
         try:
-            payload['data'] = get_pokemon_data(pokemon_id)
+            payload["data"] = get_pokemon_data(pokemon_id)
         except Exception:
-            payload['data'] = get_pokemon_fallback(pokemon_id)
+            payload["data"] = get_pokemon_fallback(pokemon_id)
 
-    elif category == 'weather':
+    elif category == "weather":
         try:
-            payload['data'] = get_weather_data()
+            payload["data"] = get_weather_data()
         except Exception:
-            payload['data'] = get_weather_fallback()
+            payload["data"] = get_weather_fallback()
 
-    elif category == 'temperature':
+    elif category == "temperature":
         try:
-            payload['data'] = get_weather_data()
+            payload["data"] = get_weather_data()
         except Exception:
-            payload['data'] = get_weather_fallback()
+            payload["data"] = get_weather_fallback()
 
-    elif category == 'joke':
-        payload['data'] = get_current_joke(now=now)
+    elif category == "joke":
+        payload["data"] = get_current_joke(now=now)
 
     else:
-        raise RuntimeError(f'Unknown category: {category}')
+        raise RuntimeError(f"Unknown category: {category}")
 
     return payload
 
 
 def print_payload(payload: dict) -> None:
-    category = payload['category']
-    data = payload['data']
+    category = payload["category"]
+    data = payload["data"]
 
-    print('=' * 50)
+    print("=" * 50)
     print(f"Time: {payload['time']}")
     print(f"Slot: {payload['slot_key']}")
     print(f"Category: {category}")
 
-    if category == 'pokemon':
+    if category == "pokemon":
         print(f"Today's Pokémon is: {data['name']}")
         print(f"Types: {' / '.join(data['types'])}")
         print(f"HP: {data['hp']} | ATK: {data['attack']} | DEF: {data['defense']}")
         print(f"Height: {data['height']} | Weight: {data['weight']}")
         print(f"Image URL: {data['image_url']}")
 
-    elif category == 'weather':
+    elif category == "weather":
         print(f"Weather in {data['location']}: {data['condition']}")
         print(f"Temperature: {data['temperature_f']}°F")
         print(f"Wind: {data['wind_mph']} mph")
 
-    elif category == 'temperature':
+    elif category == "temperature":
         print(f"Temperature in {data['location']}: {data['temperature_f']}°F")
         print(f"Condition: {data['condition']}")
 
-    elif category == 'joke':
-        if data['type'] == 'single':
+    elif category == "joke":
+        if data["type"] == "single":
             print(f"Joke: {data['text']}")
         else:
             print(f"Setup: {data['setup']}")
@@ -120,14 +119,19 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
 
 def main() -> None:
     args = set(sys.argv[1:])
-    use_matrix = '--simulate' not in args
-    display = DisplayManager(use_matrix=use_matrix)
+    use_matrix = "--simulate" not in args
+    save_previews = "--save-previews" in args
 
-    if '--once' in args:
+    display = DisplayManager(
+        use_matrix=use_matrix,
+        save_previews=save_previews,
+    )
+
+    if "--once" in args:
         run_once(display)
     else:
         run_forever(display)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
