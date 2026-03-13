@@ -163,12 +163,27 @@ class DisplayManager:
         canvas.paste(working, (x, y), working)
         return canvas
 
+    def _draw_line(
+        self,
+        draw: ImageDraw.ImageDraw,
+        x: int,
+        y: int,
+        text: str,
+        fill=TEXT_PRIMARY,
+        font=None,
+    ) -> None:
+        draw.text((x, y), text, font=font or self.font, fill=fill)
     def _draw_line(self, draw: ImageDraw.ImageDraw, x: int, y: int, text: str, fill=TEXT_PRIMARY) -> None:
         draw.text((x, y), text, font=self.font, fill=fill)
 
     def _get_line_height(self, font) -> int:
         bbox = font.getbbox("Ag")
         return max(7, bbox[3] - bbox[1] + 1)
+
+    def _text_width(self, text: str, font=None) -> int:
+        active_font = font or self.font
+        return active_font.getbbox(text)[2]
+
 
     def _text_width(self, text: str, font=None) -> int:
         active_font = font or self.font
@@ -194,6 +209,10 @@ class DisplayManager:
         wrapped: list[str] = []
         words = cleaned.split(" ")
         line = ""
+
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if line and active_font.getbbox(candidate)[2] > width_px:
         for word in words:
             candidate = f"{line} {word}".strip()
             if line and active_font.getbbox(candidate)[2] > width_px:
@@ -203,6 +222,7 @@ class DisplayManager:
             else:
                 line = candidate
 
+            while line and active_font.getbbox(line)[2] > width_px:
             while active_font.getbbox(line)[2] > width_px:
             while self.font.getbbox(line)[2] > width_px:
                 wrapped.append(line[:-1])
@@ -391,6 +411,12 @@ class DisplayManager:
     def _paginate_lines(self, lines: list[str], max_lines: int = 3) -> list[list[str]]:
         pages = [lines[i:i + max_lines] for i in range(0, len(lines), max_lines)]
         return pages or [[""]]
+
+    def _build_joke_pages(self, text: str, fill=TEXT_PRIMARY) -> list[Image.Image]:
+        lines = self._wrap_text(text, width_px=self.width - 4)
+        pages = self._paginate_lines(lines, max_lines=3)
+        return [self._render_text_page(page, fill=fill) for page in pages]
+
 
     def _build_joke_pages(self, text: str, fill=TEXT_PRIMARY) -> list[Image.Image]:
         lines = self._wrap_text(text, width_px=self.width - 4)
