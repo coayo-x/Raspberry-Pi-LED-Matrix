@@ -60,3 +60,4 @@ def get_random_joke() -> dict:
         "setup": setup,
         "delivery": delivery,
     }
+
