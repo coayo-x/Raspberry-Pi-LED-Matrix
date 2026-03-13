@@ -16,18 +16,16 @@ except ImportError:
 WIDTH = 64
 HEIGHT = 32
 
-# One single panel only
 PANEL_COLS = 1
 PANEL_ROWS = 1
 PANEL_ROTATIONS = ((0,),)
 
-# Change this to False if your screen appears upside down
+
 GLOBAL_ROTATE_180 = True
 
-# Real LED black = off
 DEFAULT_BG = (0, 0, 0, 255)
 
-# Muted / readable colors (not bright)
+
 TEXT_PRIMARY = (170, 170, 170, 255)
 TEXT_SECONDARY = (120, 130, 135, 255)
 TEXT_ACCENT = (105, 125, 145, 255)
@@ -68,10 +66,6 @@ class DisplayManager:
             self.framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
             self.matrix = piomatter.PioMatter(colorspace, pinout, self.framebuffer, geometry)
 
-    # -------------------------
-    # Low-level output helpers
-    # -------------------------
-
     def _prepare_image(self, image: Image.Image) -> Image.Image:
         img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
 
@@ -104,7 +98,7 @@ class DisplayManager:
     ) -> None:
         target = self._prepare_image(target_image)
 
-        # First frame: left-to-right reveal
+        
         if self.last_frame is None:
             for i in range(1, steps + 1):
                 cut = int(self.width * i / steps)
@@ -122,10 +116,6 @@ class DisplayManager:
         self._push_prepared(target)
         self._save_prepared(target, preview_name)
         self.last_frame = target
-
-    # -------------------------
-    # Drawing helpers
-    # -------------------------
 
     def _new_canvas(self) -> Image.Image:
         return Image.new("RGBA", (self.width, self.height), DEFAULT_BG)
@@ -216,9 +206,6 @@ class DisplayManager:
             draw.text((x, y), line, font=self.font, fill=fill)
             y += self.line_height
 
-    # -------------------------
-    # Weather icons
-    # -------------------------
 
     def _draw_cloud(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
         draw.ellipse((x + 2, y + 5, x + 10, y + 13), fill=ICON_MAIN)
@@ -274,16 +261,11 @@ class DisplayManager:
         else:
             self._draw_cloud(draw, x, y)
 
-    # -------------------------
-    # Category renderers
-    # -------------------------
-
     def render_pokemon(self, payload: dict) -> Image.Image:
         data = payload["data"]
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
-        # Bigger image, smaller text
         art_box_w = 26
         art_box_h = 26
         art_x = self.width - art_box_w - 2
@@ -362,7 +344,6 @@ class DisplayManager:
     def render_joke_pages(self, payload: dict) -> list[Image.Image]:
         data = payload["data"]
 
-        # No "Joke 1/2" nonsense
         if data.get("type") == "single":
             text = data.get("text") or "No joke"
             lines = self._wrap_text(text, width_px=self.width - 4)
@@ -399,10 +380,6 @@ class DisplayManager:
         draw = ImageDraw.Draw(img)
         self._draw_line(draw, 2, 12, "UNKNOWN", fill=TEXT_PRIMARY)
         return img
-
-    # -------------------------
-    # Public display API
-    # -------------------------
 
     def display_payload(self, payload: dict, duration_seconds: Optional[int] = None) -> None:
         category = payload["category"]
