@@ -1,4 +1,3 @@
-
 import hashlib
 import random
 from datetime import datetime
@@ -7,8 +6,9 @@ from typing import Iterable
 from db_manager import connect
 from apis.jokes import get_random_joke
 from apis.pokemon import FALLBACK_POKEMON_IDS, get_valid_pokemon_ids
+from science import get_random_science_fact, get_science_fact_fallback
 
-DISPLAY_SEQUENCE = ["pokemon", "weather", "temperature", "joke"]
+DISPLAY_SEQUENCE = ["pokemon", "weather", "temperature", "joke", "science"]
 SLOT_MINUTES = 5
 
 
@@ -280,5 +280,54 @@ def get_current_joke(now: datetime | None = None, db_path: str = "content.db") -
         )
         conn.commit()
         return joke
+    finally:
+        conn.close()
+
+
+def get_current_science_fact(now: datetime | None = None, db_path: str = "content.db") -> dict:
+    current = _now_or_default(now)
+    slot_key = get_current_slot_key(current)
+
+    conn = connect(db_path)
+    try:
+        row = _get_system_state(conn)
+
+        if row["current_science_slot"] == slot_key and row["current_science_key"]:
+            return {
+                "key": row["current_science_key"],
+                "text": row["current_science_text"],
+                "name": row["current_science_name"],
+                "symbol": row["current_science_symbol"],
+                "atomic_number": row["current_science_atomic_number"],
+                "category": "element",
+            }
+
+        try:
+            fact = get_random_science_fact()
+        except Exception:
+            fact = get_science_fact_fallback()
+
+        conn.execute(
+            """
+            UPDATE system_state
+            SET current_science_slot = ?,
+                current_science_key = ?,
+                current_science_text = ?,
+                current_science_name = ?,
+                current_science_symbol = ?,
+                current_science_atomic_number = ?
+            WHERE id = 1
+            """,
+            (
+                slot_key,
+                fact.get("key"),
+                fact.get("text"),
+                fact.get("name"),
+                fact.get("symbol"),
+                fact.get("atomic_number"),
+            ),
+        )
+        conn.commit()
+        return fact
     finally:
         conn.close()

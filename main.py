@@ -7,6 +7,7 @@ from display_manager import DisplayManager
 from rotation_engine import (
     get_current_category,
     get_current_joke,
+    get_current_science_fact,
     get_current_slot_key,
     get_today_pokemon_id,
     seconds_until_next_slot,
@@ -48,6 +49,9 @@ def build_content_for_now(now: datetime | None = None) -> dict:
     elif category == "joke":
         payload["data"] = get_current_joke(now=now)
 
+    elif category == "science":
+        payload["data"] = get_current_science_fact(now=now)
+
     else:
         raise RuntimeError(f"Unknown category: {category}")
 
@@ -85,6 +89,9 @@ def print_payload(payload: dict) -> None:
         else:
             print(f"Setup: {data['setup']}")
             print(f"Punchline: {data['delivery']}")
+
+    elif category == "science":
+        print(f"Science Fact: {data['text']}")
 
 
 def run_once(display: DisplayManager, now: datetime | None = None) -> dict:

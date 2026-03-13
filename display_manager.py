@@ -365,6 +365,20 @@ class DisplayManager:
 
         return pages or [self._render_text_page(["No joke"], fill=TEXT_PRIMARY)]
 
+    def render_science(self, payload: dict) -> Image.Image:
+        data = payload["data"]
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+
+        name = self._truncate_to_width(str(data.get("name", "Unknown")), self.width - 4)
+        symbol = self._truncate_to_width(f"({data.get('symbol', '?')})", self.width - 4)
+        atomic_number = data.get("atomic_number", "?")
+        atomic_line = self._truncate_to_width(f"Atomic {atomic_number}", self.width - 4)
+
+        lines = [name, symbol, atomic_line]
+        self._draw_text_centered(draw, lines, fill=TEXT_PRIMARY)
+        return img
+
     def render_payload(self, payload: dict) -> Image.Image:
         category = payload["category"]
         if category == "pokemon":
@@ -375,6 +389,8 @@ class DisplayManager:
             return self.render_temperature(payload)
         if category == "joke":
             return self.render_joke_pages(payload)[0]
+        if category == "science":
+            return self.render_science(payload)
 
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)

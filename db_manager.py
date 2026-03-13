@@ -38,7 +38,7 @@ def init_db(db_path: str = DB_FILE) -> None:
         )
         """
     )
-    cur.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3')")
+    cur.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '4')")
 
     cur.execute(
         """
@@ -55,7 +55,13 @@ def init_db(db_path: str = DB_FILE) -> None:
             current_joke_type TEXT,
             current_joke_text TEXT,
             current_joke_setup TEXT,
-            current_joke_delivery TEXT
+            current_joke_delivery TEXT,
+            current_science_slot TEXT,
+            current_science_key TEXT,
+            current_science_text TEXT,
+            current_science_name TEXT,
+            current_science_symbol TEXT,
+            current_science_atomic_number INTEGER
         )
         """
     )
@@ -73,6 +79,12 @@ def init_db(db_path: str = DB_FILE) -> None:
     _ensure_column(conn, "system_state", "current_joke_text", "TEXT")
     _ensure_column(conn, "system_state", "current_joke_setup", "TEXT")
     _ensure_column(conn, "system_state", "current_joke_delivery", "TEXT")
+    _ensure_column(conn, "system_state", "current_science_slot", "TEXT")
+    _ensure_column(conn, "system_state", "current_science_key", "TEXT")
+    _ensure_column(conn, "system_state", "current_science_text", "TEXT")
+    _ensure_column(conn, "system_state", "current_science_name", "TEXT")
+    _ensure_column(conn, "system_state", "current_science_symbol", "TEXT")
+    _ensure_column(conn, "system_state", "current_science_atomic_number", "INTEGER")
 
     cur.execute(
         """
