@@ -50,7 +50,10 @@ class DisplayManager:
         self.save_previews = save_previews
 
         self.font = ImageFont.load_default()
-        self.line_height = self._get_line_height()
+        self.small_font = self._load_small_font()
+        self.line_height = self._get_line_height(self.font)
+        self.small_line_height = self._get_line_height(self.small_font)
+
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
@@ -65,6 +68,20 @@ class DisplayManager:
             colorspace = piomatter.Colorspace.RGB888
             self.framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
             self.matrix = piomatter.PioMatter(colorspace, pinout, self.framebuffer, geometry)
+
+    def _load_small_font(self):
+        candidates = [
+            ("DejaVuSans.ttf", 8),
+            ("DejaVuSansMono.ttf", 8),
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 8),
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 8),
+        ]
+        for name, size in candidates:
+            try:
+                return ImageFont.truetype(name, size=size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
 
     def _prepare_image(self, image: Image.Image) -> Image.Image:
         img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
@@ -149,19 +166,26 @@ class DisplayManager:
     def _draw_line(self, draw: ImageDraw.ImageDraw, x: int, y: int, text: str, fill=TEXT_PRIMARY) -> None:
         draw.text((x, y), text, font=self.font, fill=fill)
 
-    def _get_line_height(self) -> int:
-        bbox = self.font.getbbox("Ag")
-        return max(8, bbox[3] - bbox[1] + 1)
+    def _get_line_height(self, font) -> int:
+        bbox = font.getbbox("Ag")
+        return max(7, bbox[3] - bbox[1] + 1)
 
-    def _truncate_to_width(self, text: str, max_width_px: int) -> str:
+    def _text_width(self, text: str, font=None) -> int:
+        active_font = font or self.font
+        return active_font.getbbox(text)[2]
+
+    def _truncate_to_width(self, text: str, max_width_px: int, font=None) -> str:
         if not text:
             return ""
 
+        active_font = font or self.font
         value = str(text)
-        while value and self.font.getbbox(value)[2] > max_width_px:
+        while value and active_font.getbbox(value)[2] > max_width_px:
             value = value[:-1]
         return value
 
+    def _wrap_text(self, text: str, width_px: int, font=None) -> list[str]:
+        active_font = font or self.font
     def _wrap_text(self, text: str, width_px: int) -> list[str]:
         cleaned = " ".join(str(text).split())
         if not cleaned:
@@ -172,12 +196,14 @@ class DisplayManager:
         line = ""
         for word in words:
             candidate = f"{line} {word}".strip()
+            if line and active_font.getbbox(candidate)[2] > width_px:
             if line and self.font.getbbox(candidate)[2] > width_px:
                 wrapped.append(line)
                 line = word
             else:
                 line = candidate
 
+            while active_font.getbbox(line)[2] > width_px:
             while self.font.getbbox(line)[2] > width_px:
                 wrapped.append(line[:-1])
                 line = line[-1]
@@ -185,14 +211,27 @@ class DisplayManager:
         wrapped.append(line)
         return wrapped or [""]
 
+    def _draw_text_centered(
+        self,
+        draw: ImageDraw.ImageDraw,
+        lines: list[str],
+        fill=TEXT_PRIMARY,
+        font=None,
+        line_height: Optional[int] = None,
+    ) -> None:
+        active_font = font or self.font
+        active_line_height = line_height if line_height is not None else self._get_line_height(active_font)
+        total_height = len(lines) * active_line_height
     def _draw_text_centered(self, draw: ImageDraw.ImageDraw, lines: list[str], fill=TEXT_PRIMARY) -> None:
         total_height = len(lines) * self.line_height
         y = max(0, (self.height - total_height) // 2)
 
         for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=self.font)
+            bbox = draw.textbbox((0, 0), line, font=active_font)
             text_width = bbox[2] - bbox[0]
             x = max(0, (self.width - text_width) // 2)
+            draw.text((x, y), line, font=active_font, fill=fill)
+            y += active_line_height
             draw.text((x, y), line, font=self.font, fill=fill)
             y += self.line_height
 
@@ -262,6 +301,14 @@ class DisplayManager:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
+        art_box_w = 24
+        art_box_h = 24
+        art_x = self.width - art_box_w - 1
+        art_y = 4
+        text_max_width = art_x - 2
+
+        name = self._truncate_to_width(str(data.get("name", "Unknown")), text_max_width, font=self.small_font)
+        self._draw_line(draw, 1, 1, name, fill=TEXT_ACCENT, font=self.small_font)
         header = self._truncate_to_width("Pokemon:", 26)
         name = self._truncate_to_width(str(data.get("name", "Unknown")), 26)
         self._draw_line(draw, 1, 1, header, fill=TEXT_SECONDARY)
@@ -282,6 +329,31 @@ class DisplayManager:
             art = self._fit_image(art, art_box_w, art_box_h)
             img.paste(art, (art_x, art_y), art)
         else:
+            self._draw_line(draw, art_x + 1, art_y + 9, "NO IMG", fill=TEXT_SECONDARY, font=self.small_font)
+
+        return img
+
+    def _render_pokemon_info_frame(self, base: Image.Image, info_text: str, alpha: float = 1.0) -> Image.Image:
+        img = base.copy()
+        draw = ImageDraw.Draw(img)
+
+        info_x = 1
+        info_y = self.small_line_height + 3
+        info_w = (self.width - 24 - 1) - 2
+
+        lines = self._wrap_text(info_text, width_px=info_w, font=self.small_font)[:3]
+        text_alpha = max(0, min(255, int(255 * alpha)))
+        fill = (TEXT_PRIMARY[0], TEXT_PRIMARY[1], TEXT_PRIMARY[2], text_alpha)
+
+        for index, line in enumerate(lines):
+            self._draw_line(
+                draw,
+                info_x,
+                info_y + (index * self.small_line_height),
+                line,
+                fill=fill,
+                font=self.small_font,
+            )
             self._draw_line(draw, art_x + 3, art_y + 10, "NO IMG", fill=TEXT_SECONDARY)
 
         return img
@@ -299,6 +371,13 @@ class DisplayManager:
         draw = ImageDraw.Draw(img)
 
         condition = str(data.get("condition", "Unknown"))
+        self._draw_weather_icon(draw, condition, 1, 5)
+
+        label = "Weather"
+        label_width = self._text_width(label, font=self.small_font)
+        label_x = max(24, min(self.width - label_width, (self.width - label_width) // 2))
+        self._draw_line(draw, label_x, 2, label, fill=TEXT_ACCENT, font=self.small_font)
+        draw.line((0, 13, self.width - 1, 13), fill=TEXT_SECONDARY)
         self._draw_weather_icon(draw, condition, 2, 5)
         self._draw_line(draw, 28, 11, "Weather", fill=TEXT_ACCENT)
         return img
@@ -370,6 +449,17 @@ class DisplayManager:
         data = payload["data"]
         end_time = time.time() + max(1, duration_seconds)
 
+        intro = self._render_pokemon_center_title(data)
+        intro_start = time.time()
+        self._transition_to(intro, preview_name=f"{safe_slot}_pokemon_intro.png", steps=8, delay=0.04)
+        elapsed = time.time() - intro_start
+        if elapsed < 3.0:
+            time.sleep(3.0 - elapsed)
+        if time.time() >= end_time:
+            return
+
+        base = self._render_pokemon_base(data)
+        self._transition_to(base, preview_name=f"{safe_slot}_pokemon_base.png", steps=8, delay=0.04)
         center = self._render_pokemon_center_title(data)
         self._fade_sequence(center, steps=8, fade_in=True, delay=0.05)
         if time.time() >= end_time:
@@ -387,6 +477,25 @@ class DisplayManager:
             f"Weight: {data.get('weight', '--')}",
         ]
 
+        idx = 0
+        while time.time() < end_time:
+            text = stats[idx % len(stats)]
+
+            for alpha in [0.2, 0.4, 0.6, 0.8, 1.0]:
+                self._show_frame(self._render_pokemon_info_frame(base, text, alpha=alpha))
+                time.sleep(0.05)
+
+            hold_end = min(end_time, time.time() + 0.9)
+            while time.time() < hold_end:
+                self._show_frame(self._render_pokemon_info_frame(base, text, alpha=1.0))
+                time.sleep(0.08)
+
+            for alpha in [0.8, 0.6, 0.4, 0.2, 0.0]:
+                self._show_frame(self._render_pokemon_info_frame(base, text, alpha=alpha))
+                time.sleep(0.05)
+
+            self._show_frame(base)
+            idx += 1
         index = 0
         while time.time() < end_time:
             overlay = self._render_pokemon_stat_overlay(compact, stats[index % len(stats)])
@@ -415,12 +524,14 @@ class DisplayManager:
         while time.time() < end_time:
             pages = segments[seg_idx % len(segments)]
             first = pages[0]
+            self._transition_to(first, preview_name=f"{safe_slot}_joke_{seg_idx}_0.png", steps=6, delay=0.03)
             self._fade_sequence(first, steps=7, fade_in=True, delay=0.05)
 
             hold_end = min(end_time, time.time() + 10.0)
             page_idx = 0
             while time.time() < hold_end:
                 page = pages[page_idx % len(pages)]
+                self._show_frame(page, preview_name=f"{safe_slot}_joke_{seg_idx}_{page_idx}.png")
                 self._transition_to(page, preview_name=f"{safe_slot}_joke_{seg_idx}_{page_idx}.png", steps=3, delay=0.03)
                 page_duration = min(2.0, max(0.2, hold_end - time.time()))
                 time.sleep(page_duration)
@@ -428,6 +539,20 @@ class DisplayManager:
 
             self._fade_sequence(pages[min(page_idx, len(pages) - 1)], steps=7, fade_in=False, delay=0.05)
             seg_idx += 1
+
+    def _weather_ticker_frame(self, condition: str, ticker: str, x: int) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        self._draw_weather_icon(draw, condition, 1, 5)
+
+        label = "Weather"
+        label_width = self._text_width(label, font=self.small_font)
+        label_x = max(24, min(self.width - label_width, (self.width - label_width) // 2))
+        self._draw_line(draw, label_x, 2, label, fill=TEXT_ACCENT, font=self.small_font)
+
+        draw.line((0, 13, self.width - 1, 13), fill=TEXT_SECONDARY)
+        self._draw_line(draw, x, 18, ticker, fill=TEXT_PRIMARY, font=self.small_font)
+        return img
 
     def _animate_weather_ticker(self, payload: dict, duration_seconds: int, safe_slot: str) -> None:
         data = payload["data"]
@@ -438,6 +563,18 @@ class DisplayManager:
         ticker = f"{location} | {condition} | {temp}F | Wind {wind} mph   "
 
         end_time = time.time() + max(1, duration_seconds)
+        text_w = self._text_width(ticker, font=self.small_font)
+        x = self.width
+
+        first = self._weather_ticker_frame(condition, ticker, x)
+        self._transition_to(first, preview_name=f"{safe_slot}_weather.png", steps=6, delay=0.03)
+
+        while time.time() < end_time:
+            x -= 1
+            if x < -text_w:
+                x = self.width
+            frame = self._weather_ticker_frame(condition, ticker, x)
+            self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
         text_w = self.font.getbbox(ticker)[2]
         x = self.width
 
