@@ -1,0 +1,10 @@
+numpy
+Pillow
+adafruit-blinka
+adafruit-circuitpython-rgb-display
+requests
+
+ruff
+black
+pytest
+pre-commit
