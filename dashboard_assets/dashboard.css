@@ -124,7 +124,6 @@ select {
 
 .hero-subtitle,
 .modal-subtitle,
-.service-copy,
 .control-note,
 .pokemon-meta,
 .admin-disabled-message {
@@ -278,8 +277,7 @@ select {
     margin-bottom: 8px;
 }
 
-.switch-row,
-.service-grid {
+.switch-row {
     display: grid;
     gap: 8px;
 }
@@ -469,7 +467,6 @@ select {
 }
 
 .modal-subtitle.admin-subtitle,
-.service-copy,
 .admin-disabled-message,
 .admin-status-message,
 .lock-state {
@@ -516,15 +513,11 @@ select {
     display: grid;
     gap: 14px;
     margin-top: 14px;
-}
-
-.admin-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    justify-items: center;
 }
 
 .admin-subcard {
+    width: min(100%, 560px);
     padding: 14px;
     border-radius: 18px;
     border: 1px solid rgba(255, 231, 168, 0.16);
@@ -545,10 +538,6 @@ select {
 .lock-row:first-of-type {
     border-top: none;
     padding-top: 0;
-}
-
-.service-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .admin-button {
@@ -584,8 +573,7 @@ select {
         width: 100%;
     }
 
-    .main-grid,
-    .admin-grid {
+    .main-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -598,7 +586,6 @@ select {
 
     .metric-row,
     .switch-row,
-    .service-grid,
     .pokemon-card {
         grid-template-columns: 1fr;
     }

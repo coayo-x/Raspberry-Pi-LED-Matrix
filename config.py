@@ -53,16 +53,3 @@ SKIP_CATEGORY_COOLDOWN_SECONDS = max(0, _get_int("SKIP_CATEGORY_COOLDOWN_SECONDS
 SWITCH_CATEGORY_COOLDOWN_SECONDS = max(
     0, _get_int("SWITCH_CATEGORY_COOLDOWN_SECONDS", 10)
 )
-BACKEND_SERVICE_NAME = (
-    os.getenv("BACKEND_SERVICE_NAME", "led-matrix.service").strip()
-    or "led-matrix.service"
-)
-FRONTEND_SERVICE_NAME = (
-    os.getenv("FRONTEND_SERVICE_NAME", "led-matrix-dashboard.service").strip()
-    or "led-matrix-dashboard.service"
-)
-SYSTEMCTL_BIN = os.getenv("SYSTEMCTL_BIN", "systemctl").strip() or "systemctl"
-SYSTEMCTL_USE_SUDO = _get_bool("SYSTEMCTL_USE_SUDO", False)
-SERVICE_CONTROL_TIMEOUT_SECONDS = max(
-    1, _get_int("SERVICE_CONTROL_TIMEOUT_SECONDS", 15)
-)

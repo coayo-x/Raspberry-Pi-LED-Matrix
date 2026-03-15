@@ -8,7 +8,6 @@
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
-    data-admin-service-action-api="__ADMIN_SERVICE_ACTION_API__"
     data-poll-interval-ms="__POLL_INTERVAL_MS__"
 >
 <head>
@@ -173,52 +172,30 @@
             </div>
 
             <div class="admin-panel" id="admin-panel" hidden>
-                <div class="admin-grid">
-                    <article class="admin-subcard">
-                        <div class="card-heading">
-                            <div>
-                                <p class="section-kicker admin-kicker">Access Locks</p>
-                                <h3>Public control gates</h3>
-                            </div>
+                <article class="admin-subcard">
+                    <div class="card-heading">
+                        <div>
+                            <p class="section-kicker admin-kicker">Access Locks</p>
+                            <h3>Public control gates</h3>
                         </div>
+                    </div>
 
-                        <div class="lock-row">
-                            <div>
-                                <p class="lock-title">Skip Category</p>
-                                <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
-                            </div>
-                            <button class="admin-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                    <div class="lock-row">
+                        <div>
+                            <p class="lock-title">Skip Category</p>
+                            <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
                         </div>
+                        <button class="admin-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                    </div>
 
-                        <div class="lock-row">
-                            <div>
-                                <p class="lock-title">Switch Category</p>
-                                <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
-                            </div>
-                            <button class="admin-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                    <div class="lock-row">
+                        <div>
+                            <p class="lock-title">Switch Category</p>
+                            <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
                         </div>
-                    </article>
-
-                    <article class="admin-subcard">
-                        <div class="card-heading">
-                            <div>
-                                <p class="section-kicker admin-kicker">Service Control</p>
-                                <h3>Backend and frontend units</h3>
-                            </div>
-                        </div>
-
-                        <p class="service-copy" id="service-copy">
-                            Runtime service targets will appear here after the control state loads.
-                        </p>
-
-                        <div class="service-grid">
-                            <button class="admin-button admin-button-danger" data-service="backend" data-action="stop" type="button">Stop Backend</button>
-                            <button class="admin-button admin-button-primary" data-service="backend" data-action="restart" type="button">Restart Backend</button>
-                            <button class="admin-button admin-button-danger" data-service="frontend" data-action="stop" type="button">Stop Frontend</button>
-                            <button class="admin-button admin-button-primary" data-service="frontend" data-action="restart" type="button">Restart Frontend</button>
-                        </div>
-                    </article>
-                </div>
+                        <button class="admin-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                    </div>
+                </article>
 
                 <div class="admin-footer">
                     <button class="admin-button admin-button-ghost" id="admin-logout-button" type="button">Log Out</button>

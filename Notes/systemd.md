@@ -37,14 +37,3 @@ sudo systemctl restart led-matrix-dashboard.service
 sudo systemctl stop led-matrix-dashboard.service
 sudo systemctl status led-matrix-dashboard.service
 ```
-
-## Dashboard Service-Control Permissions
-
-The admin dashboard calls `systemctl` for stop/restart actions.
-
-One of these must be true on the Raspberry Pi:
-
-1. the dashboard service runs with permission to control both units
-2. passwordless sudo is configured for the exact `systemctl stop/restart` commands and `SYSTEMCTL_USE_SUDO=1` is set in `.env`
-
-If neither is true, admin service actions will fail even though login and the rest of the dashboard still work.

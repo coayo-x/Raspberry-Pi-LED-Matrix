@@ -22,11 +22,6 @@ from runtime_control import (
     request_switch_category,
     set_control_lock,
 )
-from service_control import (
-    execute_service_action,
-    get_service_control_config,
-    schedule_service_action,
-)
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
 STATIC_ROUTES = {
@@ -42,7 +37,6 @@ SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
-ADMIN_SERVICE_ACTION_API_PATH = "/api/admin/service-action"
 
 CSP_HEADER = (
     "default-src 'self'; "
@@ -211,43 +205,6 @@ def create_dashboard_server(
                 )
                 return
 
-            if route == ADMIN_SERVICE_ACTION_API_PATH:
-                if not self._require_admin():
-                    return
-
-                try:
-                    payload = self._read_json_body()
-                    service = self._require_text_field(payload, "service")
-                    action = self._require_text_field(payload, "action")
-                except ValueError as error:
-                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
-                    return
-
-                if service.strip().lower() == "frontend":
-                    scheduled = schedule_service_action(
-                        service,
-                        action,
-                        delay_seconds=0.5,
-                    )
-                    self._send_json(
-                        HTTPStatus.ACCEPTED,
-                        {
-                            **scheduled,
-                            "message": (
-                                "Frontend service action scheduled. This browser connection "
-                                "may drop briefly while the dashboard service restarts or stops."
-                            ),
-                        },
-                    )
-                    return
-
-                result = execute_service_action(service, action)
-                status = (
-                    HTTPStatus.OK if result["ok"] else HTTPStatus.INTERNAL_SERVER_ERROR
-                )
-                self._send_json(status, result)
-                return
-
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
@@ -368,7 +325,6 @@ def create_dashboard_server(
                     db_path=db_path,
                     is_admin=admin_status["authenticated"],
                 ),
-                "services": get_service_control_config(),
             }
 
         def _control_status_code(self, result: dict) -> HTTPStatus:
@@ -394,7 +350,6 @@ def _render_html() -> bytes:
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,
-        "__ADMIN_SERVICE_ACTION_API__": ADMIN_SERVICE_ACTION_API_PATH,
     }
     for placeholder, value in replacements.items():
         html = html.replace(placeholder, value)
