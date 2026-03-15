@@ -5,6 +5,12 @@ import urllib.request
 
 from dashboard_server import create_dashboard_server
 from current_display_state import save_current_display_state
+from runtime_control import (
+    consume_skip_category_request,
+    consume_switch_category_request,
+    get_skip_category_state,
+    get_switch_category_state,
+)
 from runtime_control import consume_skip_category_request, get_skip_category_state
 
 
@@ -18,6 +24,14 @@ def _fetch_text(url: str) -> str:
         return response.read().decode("utf-8")
 
 
+def _post_json(url: str, payload: dict | None = None) -> dict:
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
 def _post_json(url: str) -> dict:
     request = urllib.request.Request(url, method="POST")
     with urllib.request.urlopen(request, timeout=5) as response:
@@ -72,6 +86,7 @@ def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
     assert "data-poll-interval-ms=" in page
     assert "/api/current-display-state" in page
     assert "/api/skip-category" in page
+    assert "/api/switch-category" in page
 
 
 def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) -> None:
@@ -148,6 +163,60 @@ def test_dashboard_skip_category_endpoint_records_runtime_request(
     assert result["request_count"] == 1
     assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
     assert consume_skip_category_request(str(isolated_db_path)) == 1
+
+
+def test_dashboard_switch_category_endpoint_records_runtime_request(
+    isolated_db_path,
+) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/api/switch-category"
+
+    try:
+        result = _post_json(url, {"category": "weather"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result["requested"] is True
+    assert result["category"] == "weather"
+    assert result["request_count"] == 1
+    assert get_switch_category_state(str(isolated_db_path)) == (1, 0, "weather")
+    assert consume_switch_category_request(str(isolated_db_path)) == (1, "weather")
+
+
+def test_dashboard_switch_category_endpoint_rejects_invalid_category(
+    isolated_db_path,
+) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server.server_address[1]}/api/switch-category",
+        data=json.dumps({"category": "invalid"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=5):
+            pass
+    except urllib.error.HTTPError as error:
+        status = error.code
+        body = json.loads(error.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 400
+    assert "Invalid category" in body["error"]
 
 
 def test_dashboard_skip_category_endpoint_returns_not_found_for_unknown_post(

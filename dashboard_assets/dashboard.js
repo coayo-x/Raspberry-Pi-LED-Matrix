@@ -1,5 +1,6 @@
 const apiPath = document.documentElement.dataset.apiPath || "/api/current-display-state";
 const skipApiPath = document.documentElement.dataset.skipApiPath || "/api/skip-category";
+const switchApiPath = document.documentElement.dataset.switchApiPath || "/api/switch-category";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
 
 const elements = {
@@ -11,6 +12,8 @@ const elements = {
     refreshStatus: document.getElementById("refresh-status"),
     lastUpdated: document.getElementById("last-updated"),
     skipCategoryButton: document.getElementById("skip-category-button"),
+    switchCategorySelect: document.getElementById("switch-category-select"),
+    switchCategoryButton: document.getElementById("switch-category-button"),
     actionStatus: document.getElementById("action-status"),
 };
 
@@ -36,6 +39,22 @@ function applyState(state) {
 function setActionStatus(message, state = "idle") {
     elements.actionStatus.textContent = message;
     elements.actionStatus.dataset.state = state;
+}
+
+function formatCategoryLabel(category) {
+    if (!category) {
+        return "Unknown";
+    }
+
+    return String(category).charAt(0).toUpperCase() + String(category).slice(1);
+}
+
+async function parseJsonResponse(response) {
+    try {
+        return await response.json();
+    } catch {
+        return null;
+    }
 }
 
 async function refreshState() {
@@ -69,6 +88,7 @@ async function skipCategory() {
             throw new Error(`HTTP ${response.status}`);
         }
 
+        const result = await parseJsonResponse(response);
         const result = await response.json();
         elements.refreshStatus.textContent = "Skip requested";
         setActionStatus(
@@ -83,8 +103,48 @@ async function skipCategory() {
     }
 }
 
+async function switchCategory() {
+    if (!elements.switchCategoryButton || !elements.switchCategorySelect) {
+        return;
+    }
+
+    const category = elements.switchCategorySelect.value;
+    elements.switchCategoryButton.disabled = true;
+    setActionStatus(`Switching to ${formatCategoryLabel(category)}...`, "pending");
+
+    try {
+        const response = await fetch(switchApiPath, {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ category }),
+        });
+        const result = await parseJsonResponse(response);
+        if (!response.ok) {
+            throw new Error(result?.error || `HTTP ${response.status}`);
+        }
+
+        elements.refreshStatus.textContent = "Switch requested";
+        setActionStatus(
+            `Switch requested: ${formatCategoryLabel(result.category)}`,
+            "success",
+        );
+        await refreshState();
+    } catch (error) {
+        setActionStatus(`Switch failed: ${error.message}`, "error");
+    } finally {
+        elements.switchCategoryButton.disabled = false;
+    }
+}
+
 if (elements.skipCategoryButton) {
     elements.skipCategoryButton.addEventListener("click", skipCategory);
+}
+
+if (elements.switchCategoryButton) {
+    elements.switchCategoryButton.addEventListener("click", switchCategory);
 }
 
 refreshState();

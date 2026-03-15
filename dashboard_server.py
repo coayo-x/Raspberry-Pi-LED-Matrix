@@ -6,6 +6,7 @@ from pathlib import Path
 
 from config import DASHBOARD_HOST, DASHBOARD_POLL_INTERVAL_MS, DASHBOARD_PORT, DB_PATH
 from current_display_state import load_current_display_state
+from runtime_control import request_skip_category, request_switch_category
 from runtime_control import request_skip_category
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
@@ -17,6 +18,7 @@ STATIC_ROUTES = {
 }
 API_PATH = "/api/current-display-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
+SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 
 
 def _read_asset(filename: str) -> bytes:
@@ -62,6 +64,26 @@ def create_dashboard_server(
                 )
                 return
 
+            if route == SWITCH_CATEGORY_API_PATH:
+                try:
+                    payload = self._read_json_body()
+                    category = payload.get("category")
+                    result = request_switch_category(category=category, db_path=db_path)
+                except ValueError as error:
+                    body = json.dumps({"error": str(error)}).encode("utf-8")
+                    self._send_response(
+                        HTTPStatus.BAD_REQUEST,
+                        "application/json; charset=utf-8",
+                        body,
+                    )
+                    return
+
+                body = json.dumps(result).encode("utf-8")
+                self._send_response(
+                    HTTPStatus.OK, "application/json; charset=utf-8", body
+                )
+                return
+
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
@@ -76,6 +98,20 @@ def create_dashboard_server(
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _read_json_body(self) -> dict:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+
+            try:
+                payload = json.loads(raw_body.decode("utf-8"))
+            except json.JSONDecodeError as error:
+                raise ValueError("Request body must be valid JSON.") from error
+
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object.")
+
+            return payload
 
     return ThreadingHTTPServer((host, port), DashboardRequestHandler)
 

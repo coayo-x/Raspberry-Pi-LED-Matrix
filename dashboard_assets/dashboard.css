@@ -105,6 +105,30 @@ body {
     border: 1px solid rgba(127, 216, 255, 0.16);
 }
 
+.control-row {
+    display: grid;
+    gap: 8px;
+}
+
+.control-row-switch {
+    padding-top: 8px;
+    border-top: 1px solid rgba(127, 216, 255, 0.12);
+}
+
+.control-label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.control-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.control-select,
 .control-button {
     border: 1px solid rgba(127, 216, 255, 0.24);
     border-radius: 12px;
@@ -118,11 +142,24 @@ body {
     transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 
+.control-select {
+    appearance: none;
+    font-weight: 600;
+    padding: 10px 12px;
+}
+
+.control-button:hover:not(:disabled),
+.control-button:focus-visible,
+.control-select:focus-visible {
 .control-button:hover:not(:disabled),
 .control-button:focus-visible {
     transform: translateY(-1px);
     border-color: rgba(127, 216, 255, 0.4);
     background: linear-gradient(180deg, rgba(127, 216, 255, 0.28), rgba(87, 194, 161, 0.18));
+}
+
+.control-button-secondary {
+    min-width: 86px;
 }
 
 .control-button:disabled {
@@ -238,6 +275,10 @@ body {
 
     .status-row {
         width: 100%;
+    }
+
+    .control-input-row {
+        grid-template-columns: 1fr;
     }
 
     .field-grid {
