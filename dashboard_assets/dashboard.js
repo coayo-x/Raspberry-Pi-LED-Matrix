@@ -89,6 +89,7 @@ async function skipCategory() {
         }
 
         const result = await parseJsonResponse(response);
+        const result = await response.json();
         elements.refreshStatus.textContent = "Skip requested";
         setActionStatus(
             `Skip requested at ${displayText(result.requested_at)}`,

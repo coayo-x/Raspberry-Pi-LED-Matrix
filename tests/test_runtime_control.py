@@ -7,6 +7,10 @@ from runtime_control import (
     get_switch_category_state,
     request_skip_category,
     request_switch_category,
+from runtime_control import (
+    consume_skip_category_request,
+    get_skip_category_state,
+    request_skip_category,
 )
 
 

@@ -11,6 +11,7 @@ from runtime_control import (
     get_skip_category_state,
     get_switch_category_state,
 )
+from runtime_control import consume_skip_category_request, get_skip_category_state
 
 
 def _fetch_json(url: str) -> dict:
@@ -31,6 +32,8 @@ def _post_json(url: str, payload: dict | None = None) -> dict:
         headers["Content-Type"] = "application/json"
 
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+def _post_json(url: str) -> dict:
+    request = urllib.request.Request(url, method="POST")
     with urllib.request.urlopen(request, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
 

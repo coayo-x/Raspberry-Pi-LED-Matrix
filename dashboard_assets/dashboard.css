@@ -151,6 +151,8 @@ body {
 .control-button:hover:not(:disabled),
 .control-button:focus-visible,
 .control-select:focus-visible {
+.control-button:hover:not(:disabled),
+.control-button:focus-visible {
     transform: translateY(-1px);
     border-color: rgba(127, 216, 255, 0.4);
     background: linear-gradient(180deg, rgba(127, 216, 255, 0.28), rgba(87, 194, 161, 0.18));

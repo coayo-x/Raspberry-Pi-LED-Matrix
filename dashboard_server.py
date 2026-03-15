@@ -7,6 +7,7 @@ from pathlib import Path
 from config import DASHBOARD_HOST, DASHBOARD_POLL_INTERVAL_MS, DASHBOARD_PORT, DB_PATH
 from current_display_state import load_current_display_state
 from runtime_control import request_skip_category, request_switch_category
+from runtime_control import request_skip_category
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
 STATIC_ROUTES = {
