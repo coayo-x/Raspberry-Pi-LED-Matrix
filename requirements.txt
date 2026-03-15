@@ -3,6 +3,7 @@ Pillow
 adafruit-blinka
 adafruit-circuitpython-rgb-display
 requests
+python-dotenv
 
 ruff
 black
