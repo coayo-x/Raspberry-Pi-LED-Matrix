@@ -1,0 +1,19 @@
+[Unit]
+Description=Raspberry Pi LED Matrix dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=%h/Raspberry-Pi-LED-Matrix
+EnvironmentFile=-%h/Raspberry-Pi-LED-Matrix/.env
+ExecStart=/usr/bin/python3 %h/Raspberry-Pi-LED-Matrix/dashboard_server.py
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

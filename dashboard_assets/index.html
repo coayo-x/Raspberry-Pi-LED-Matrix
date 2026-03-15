@@ -1,5 +1,16 @@
 <!doctype html>
-<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-switch-api-path="/api/switch-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
+<html
+    lang="en"
+    data-current-display-api="__CURRENT_DISPLAY_API__"
+    data-control-state-api="__CONTROL_STATE_API__"
+    data-skip-api-path="__SKIP_API__"
+    data-switch-api-path="__SWITCH_API__"
+    data-admin-login-api="__ADMIN_LOGIN_API__"
+    data-admin-logout-api="__ADMIN_LOGOUT_API__"
+    data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
+    data-admin-service-action-api="__ADMIN_SERVICE_ACTION_API__"
+    data-poll-interval-ms="__POLL_INTERVAL_MS__"
+>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,59 +19,192 @@
 </head>
 <body>
     <main class="dashboard-shell">
-        <section class="dashboard-header">
-            <div class="header-copy">
-                <p class="eyebrow">Phase 2 Dashboard</p>
-                <h1>Current LED Matrix Screen</h1>
-                <p class="header-subtitle">Live runtime view with a lightweight category skip control.</p>
+        <section class="hero-card">
+            <div class="hero-copy">
+                <p class="eyebrow">Operations Console</p>
+                <h1>LED Matrix Runtime Dashboard</h1>
+                <p class="hero-subtitle">
+                    Public runtime visibility with protected admin controls layered on top of the existing single-process LED matrix loop.
+                </p>
             </div>
-            <div class="header-actions">
-                <div class="control-panel" aria-label="Dashboard controls">
-                    <div class="control-row control-row-skip">
-                        <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+            <div class="hero-status">
+                <span class="status-pill" id="refresh-status">Connecting</span>
+                <span class="status-pill" id="last-updated">Waiting for state</span>
+            </div>
+        </section>
+
+        <section class="main-grid">
+            <article class="snapshot-card">
+                <div class="snapshot-header">
+                    <div>
+                        <p class="section-kicker">Live Snapshot</p>
+                        <h2>Current matrix payload</h2>
                     </div>
-                    <div class="control-row control-row-switch">
-                        <label class="control-label" for="switch-category-select">Switch Category</label>
-                        <div class="control-input-row">
-                            <select class="control-select" id="switch-category-select" name="switch-category">
+                    <div class="metric-row">
+                        <div class="metric-chip">
+                            <span class="metric-label">Time</span>
+                            <span class="metric-value" id="time-value">--</span>
+                        </div>
+                        <div class="metric-chip">
+                            <span class="metric-label">Slot</span>
+                            <span class="metric-value" id="slot-value">--</span>
+                        </div>
+                        <div class="metric-chip">
+                            <span class="metric-label">Category</span>
+                            <span class="metric-value" id="category-value">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="content-stack">
+                    <article class="content-panel">
+                        <p class="section-kicker">Setup</p>
+                        <p class="content-value" id="setup-value">--</p>
+                    </article>
+                    <article class="content-panel">
+                        <p class="section-kicker">Punchline</p>
+                        <p class="content-value" id="punchline-value">--</p>
+                    </article>
+                </div>
+            </article>
+
+            <aside class="side-rail">
+                <article class="public-controls-card">
+                    <div class="card-heading">
+                        <div>
+                            <p class="section-kicker">Public Controls</p>
+                            <h2>Runtime actions</h2>
+                        </div>
+                        <span class="state-chip" id="public-control-mode">Open</span>
+                    </div>
+
+                    <div class="control-block">
+                        <div class="control-block-header">
+                            <div>
+                                <p class="control-title">Skip Category</p>
+                                <p class="control-note" id="skip-category-note">Checking availability...</p>
+                            </div>
+                            <button class="public-button" id="skip-category-button" type="button">Skip</button>
+                        </div>
+                    </div>
+
+                    <div class="control-block">
+                        <div class="control-block-header control-block-switch">
+                            <div>
+                                <label class="control-title" for="switch-category-select">Switch Category</label>
+                                <p class="control-note" id="switch-category-note">Checking availability...</p>
+                            </div>
+                        </div>
+                        <div class="switch-row">
+                            <select class="category-select" id="switch-category-select" name="switch-category">
                                 <option value="pokemon">Pokemon</option>
                                 <option value="weather">Weather</option>
                                 <option value="joke">Joke</option>
                                 <option value="science">Science</option>
                             </select>
-                            <button class="control-button control-button-secondary" id="switch-category-button" type="button">Apply</button>
+                            <button class="public-button public-button-secondary" id="switch-category-button" type="button">Apply</button>
                         </div>
                     </div>
-                    <p class="control-message" id="action-status">No action requested</p>
-                </div>
-                <div class="status-row">
-                    <span class="status-pill" id="refresh-status">Connecting</span>
-                    <span class="status-pill" id="last-updated">Waiting for state</span>
-                </div>
-            </div>
+
+                    <p class="action-message" id="action-status" aria-live="polite">Waiting for control state.</p>
+                </article>
+
+                <article class="pokemon-card" id="pokemon-card" hidden>
+                    <div class="pokemon-art-frame">
+                        <img id="pokemon-image" alt="" hidden>
+                        <div class="pokemon-art-fallback" id="pokemon-image-fallback">Artwork unavailable</div>
+                    </div>
+                    <div class="pokemon-copy">
+                        <p class="section-kicker">Pokemon Artwork</p>
+                        <h2 id="pokemon-name">--</h2>
+                        <p class="pokemon-meta" id="pokemon-meta">Waiting for Pokemon state.</p>
+                    </div>
+                </article>
+            </aside>
         </section>
 
-        <section class="field-grid" aria-label="Current display summary">
-            <article class="field-card field-card-time">
-                <p class="field-label">Time</p>
-                <p class="field-value" id="time-value">--</p>
-            </article>
-            <article class="field-card field-card-slot">
-                <p class="field-label">Slot</p>
-                <p class="field-value" id="slot-value">--</p>
-            </article>
-            <article class="field-card field-card-category">
-                <p class="field-label">Category</p>
-                <p class="field-value" id="category-value">--</p>
-            </article>
-            <article class="field-card field-card-setup">
-                <p class="field-label">Setup</p>
-                <p class="field-value" id="setup-value">--</p>
-            </article>
-            <article class="field-card field-card-punchline">
-                <p class="field-label">Punchline</p>
-                <p class="field-value" id="punchline-value">--</p>
-            </article>
+        <section class="admin-card" id="admin-card">
+            <div class="admin-header">
+                <div>
+                    <p class="section-kicker admin-kicker">Admin Control</p>
+                    <h2>Protected operations</h2>
+                    <p class="admin-subtitle" id="admin-summary">
+                        Sign in with the configured admin account to manage locks and service actions.
+                    </p>
+                </div>
+                <span class="admin-session-badge" id="admin-session-badge">Signed out</span>
+            </div>
+
+            <div class="admin-disabled-message" id="admin-disabled-message" hidden>
+                Admin authentication is not configured on this host yet. Add `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` in your local environment before using admin controls.
+            </div>
+
+            <form class="admin-login-form" id="admin-login-form">
+                <label class="admin-field">
+                    <span>Username</span>
+                    <input id="admin-username" name="username" type="text" autocomplete="username">
+                </label>
+                <label class="admin-field">
+                    <span>Password</span>
+                    <input id="admin-password" name="password" type="password" autocomplete="current-password">
+                </label>
+                <button class="admin-button admin-button-primary" id="admin-login-button" type="submit">Sign In</button>
+                <p class="admin-status-message" id="admin-login-status" aria-live="polite">Admin session inactive.</p>
+            </form>
+
+            <div class="admin-panel" id="admin-panel" hidden>
+                <div class="admin-grid">
+                    <article class="admin-subcard">
+                        <div class="card-heading">
+                            <div>
+                                <p class="section-kicker admin-kicker">Access Locks</p>
+                                <h3>Public control gates</h3>
+                            </div>
+                        </div>
+
+                        <div class="lock-row">
+                            <div>
+                                <p class="lock-title">Skip Category</p>
+                                <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
+                            </div>
+                            <button class="admin-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                        </div>
+
+                        <div class="lock-row">
+                            <div>
+                                <p class="lock-title">Switch Category</p>
+                                <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
+                            </div>
+                            <button class="admin-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                        </div>
+                    </article>
+
+                    <article class="admin-subcard">
+                        <div class="card-heading">
+                            <div>
+                                <p class="section-kicker admin-kicker">Service Control</p>
+                                <h3>Backend and frontend units</h3>
+                            </div>
+                        </div>
+
+                        <p class="service-copy" id="service-copy">
+                            Runtime service targets will appear here after the control state loads.
+                        </p>
+
+                        <div class="service-grid">
+                            <button class="admin-button admin-button-danger" data-service="backend" data-action="stop" type="button">Stop Backend</button>
+                            <button class="admin-button admin-button-primary" data-service="backend" data-action="restart" type="button">Restart Backend</button>
+                            <button class="admin-button admin-button-danger" data-service="frontend" data-action="stop" type="button">Stop Frontend</button>
+                            <button class="admin-button admin-button-primary" data-service="frontend" data-action="restart" type="button">Restart Frontend</button>
+                        </div>
+                    </article>
+                </div>
+
+                <div class="admin-footer">
+                    <button class="admin-button admin-button-ghost" id="admin-logout-button" type="button">Log Out</button>
+                    <p class="admin-status-message" id="admin-action-status" aria-live="polite">Admin controls ready.</p>
+                </div>
+            </div>
         </section>
     </main>
 

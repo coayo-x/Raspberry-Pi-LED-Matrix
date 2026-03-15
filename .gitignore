@@ -8,4 +8,8 @@ __pycache__/
 # databases
 content.db
 *.db
+*.db-wal
+*.db-shm
 .env
+.env.local
+preview_frames/
