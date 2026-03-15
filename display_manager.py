@@ -240,10 +240,11 @@ class DisplayManager:
             return []
 
         base_image = draw._image.copy()
-        _, top, _, bottom = active_font.getbbox(value)
+        left, top, right, bottom = active_font.getbbox(value)
         text_height = max(1, bottom - top)
-        draw_y = max(0, -top)
-        region_height = min(self.height - y, max(text_height, draw_y + text_height))
+        draw_x = -left
+        draw_y = -top
+        region_height = min(self.height - y, text_height)
         gap = max(4, gap)
         step_px = max(1, step_px)
 
@@ -258,8 +259,8 @@ class DisplayManager:
         for offset in offsets:
             region = Image.new("RGBA", (available_width, region_height), (0, 0, 0, 0))
             region_draw = ImageDraw.Draw(region)
-            region_draw.text((-offset, draw_y), value, font=active_font, fill=fill)
-            region_draw.text((loop_width - offset, draw_y), value, font=active_font, fill=fill)
+            region_draw.text((draw_x - offset, draw_y), value, font=active_font, fill=fill)
+            region_draw.text((draw_x + loop_width - offset, draw_y), value, font=active_font, fill=fill)
 
             frame = base_image.copy()
             frame.paste(region, (x, y), region)
