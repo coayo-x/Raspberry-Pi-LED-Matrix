@@ -1,0 +1,12 @@
+# Core engine
+main.py @coayo-x
+rotation_engine.py @coayo-x
+db_manager.py @coayo-x
+
+# Rendering
+display_manager.py @coayo-x
+
+# API layer
+apis/jokes.py @coayo-x
+apis/pokemon.py @coayo-x
+apis/weather.py @coayo-x
