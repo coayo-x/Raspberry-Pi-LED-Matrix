@@ -209,6 +209,68 @@ class DisplayManager:
             draw.text((x, y), line, font=active_font, fill=fill)
             y += active_line_height
 
+    def render_scrolling_text(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        font=None,
+        x: int = 0,
+        y: int = 0,
+        max_width: Optional[int] = None,
+        fill=TEXT_PRIMARY,
+        gap: int = 12,
+        pause_frames: int = 8,
+        step_px: int = 1,
+    ) -> list[Image.Image]:
+        active_font = font or self.font
+        value = str(text)
+        available_width = max_width if max_width is not None else max(0, self.width - x)
+        available_width = min(available_width, max(0, self.width - x))
+
+        if available_width <= 0 or y >= self.height:
+            return []
+
+        if not value:
+            draw.text((x, y), value, font=active_font, fill=fill)
+            return []
+
+        text_width = self._text_width(value, active_font)
+        if text_width <= available_width:
+            draw.text((x, y), value, font=active_font, fill=fill)
+            return []
+
+        base_image = draw._image.copy()
+        _, top, _, bottom = active_font.getbbox(value)
+        text_height = max(1, bottom - top)
+        draw_y = max(0, -top)
+        region_height = min(self.height - y, max(text_height, draw_y + text_height))
+        gap = max(4, gap)
+        step_px = max(1, step_px)
+
+        loop_width = text_width + gap
+        pause_offset = text_width - available_width
+        offsets = list(range(0, loop_width, step_px))
+        if offsets[-1] != pause_offset and pause_offset not in offsets:
+            offsets.append(pause_offset)
+            offsets.sort()
+
+        frames: list[Image.Image] = []
+        for offset in offsets:
+            region = Image.new("RGBA", (available_width, region_height), (0, 0, 0, 0))
+            region_draw = ImageDraw.Draw(region)
+            region_draw.text((-offset, draw_y), value, font=active_font, fill=fill)
+            region_draw.text((loop_width - offset, draw_y), value, font=active_font, fill=fill)
+
+            frame = base_image.copy()
+            frame.paste(region, (x, y), region)
+            frames.append(frame)
+
+            if offset == pause_offset:
+                for _ in range(pause_frames):
+                    frames.append(frame.copy())
+
+        return frames
+
     def _draw_cloud(self, draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
         draw.ellipse((x + 2, y + 5, x + 10, y + 13), fill=ICON_MAIN)
         draw.ellipse((x + 8, y + 2, x + 16, y + 12), fill=ICON_MAIN)
@@ -270,7 +332,7 @@ class DisplayManager:
         self._draw_text_centered(draw, title_lines + [name], fill=TEXT_PRIMARY, font=self.small_font)
         return img
 
-    def _render_pokemon_base(self, data: dict) -> Image.Image:
+    def _render_pokemon_base_canvas(self, data: dict) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
 
@@ -278,10 +340,6 @@ class DisplayManager:
         art_box_h = 24
         art_x = self.width - art_box_w - 1
         art_y = 4
-        text_max_width = art_x - 3
-
-        name = self._truncate_to_width(str(data.get("name", "Unknown")), text_max_width, font=self.small_font)
-        self._draw_line(draw, 1, 1, name, fill=TEXT_ACCENT, font=self.small_font)
 
         art = None
         try:
@@ -296,6 +354,32 @@ class DisplayManager:
             self._draw_line(draw, art_x + 1, art_y + 9, "NO IMG", fill=TEXT_SECONDARY, font=self.small_font)
 
         return img
+
+    def _build_pokemon_name_frames(self, base: Image.Image, data: dict) -> list[Image.Image]:
+        img = base.copy()
+        draw = ImageDraw.Draw(img)
+
+        art_box_w = 24
+        art_x = self.width - art_box_w - 1
+        text_max_width = art_x - 3
+        name = str(data.get("name", "Unknown"))
+
+        frames = self.render_scrolling_text(
+            draw,
+            name,
+            font=self.small_font,
+            x=1,
+            y=1,
+            max_width=text_max_width,
+            fill=TEXT_ACCENT,
+            gap=12,
+            pause_frames=10,
+            step_px=1,
+        )
+        return frames or [img]
+
+    def _render_pokemon_base(self, data: dict) -> Image.Image:
+        return self._build_pokemon_name_frames(self._render_pokemon_base_canvas(data), data)[0]
 
     def _render_pokemon_info_frame(self, base: Image.Image, info_text: str, alpha: float = 1.0) -> Image.Image:
         img = base.copy()
@@ -409,8 +493,10 @@ class DisplayManager:
         if time.time() >= end_time:
             return
 
-        base = self._render_pokemon_base(data)
-        self._transition_to(base, preview_name=f"{safe_slot}_pokemon_base.png", steps=8, delay=0.04)
+        base_canvas = self._render_pokemon_base_canvas(data)
+        name_frames = self._build_pokemon_name_frames(base_canvas, data)
+        name_frame_index = 0
+        self._transition_to(name_frames[0], preview_name=f"{safe_slot}_pokemon_base.png", steps=8, delay=0.04)
 
         stats = [
             f"Types: {'/'.join(data.get('types', [])) or 'Unknown'}",
@@ -426,19 +512,26 @@ class DisplayManager:
             text = stats[index % len(stats)]
 
             for alpha in [0.2, 0.4, 0.6, 0.8, 1.0]:
-                self._show_frame(self._render_pokemon_info_frame(base, text, alpha=alpha))
+                current_base = name_frames[name_frame_index % len(name_frames)]
+                self._show_frame(self._render_pokemon_info_frame(current_base, text, alpha=alpha))
+                name_frame_index += 1
                 time.sleep(0.05)
 
             hold_end = min(end_time, time.time() + 0.9)
             while time.time() < hold_end:
-                self._show_frame(self._render_pokemon_info_frame(base, text, alpha=1.0))
+                current_base = name_frames[name_frame_index % len(name_frames)]
+                self._show_frame(self._render_pokemon_info_frame(current_base, text, alpha=1.0))
+                name_frame_index += 1
                 time.sleep(0.08)
 
             for alpha in [0.8, 0.6, 0.4, 0.2, 0.0]:
-                self._show_frame(self._render_pokemon_info_frame(base, text, alpha=alpha))
+                current_base = name_frames[name_frame_index % len(name_frames)]
+                self._show_frame(self._render_pokemon_info_frame(current_base, text, alpha=alpha))
+                name_frame_index += 1
                 time.sleep(0.05)
 
-            self._show_frame(base)
+            self._show_frame(name_frames[name_frame_index % len(name_frames)])
+            name_frame_index += 1
             index += 1
 
     def _animate_joke(self, payload: dict, duration_seconds: int, safe_slot: str) -> None:
