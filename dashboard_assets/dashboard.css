@@ -1,4 +1,22 @@
 :root {
+    --bg-1: #08111b;
+    --bg-2: #0d1826;
+    --panel: rgba(10, 18, 28, 0.88);
+    --panel-strong: rgba(13, 24, 38, 0.94);
+    --border: rgba(164, 192, 214, 0.14);
+    --text-main: #eef5fb;
+    --text-muted: #9db1c5;
+    --text-soft: #758aa0;
+    --teal: #6ed4bf;
+    --teal-strong: #8ce6ff;
+    --danger: #ffb09a;
+    --shadow: rgba(1, 8, 18, 0.45);
+    --admin-bg: linear-gradient(180deg, rgba(63, 47, 11, 0.97), rgba(28, 21, 7, 0.98));
+    --admin-border: rgba(239, 209, 113, 0.28);
+    --admin-accent: #efd171;
+    --admin-accent-strong: #ffe7a8;
+    --admin-ink: #fff7db;
+    --admin-muted: #d9c68f;
     --bg: #09111d;
     --bg-glow: rgba(70, 112, 163, 0.2);
     --panel: rgba(10, 18, 31, 0.88);
@@ -17,11 +35,587 @@
 
 html,
 body {
+    min-height: 100%;
     height: 100%;
 }
 
 body {
     margin: 0;
+    font-family: "Gill Sans", "Trebuchet MS", sans-serif;
+    color: var(--text-main);
+    background:
+        radial-gradient(circle at top left, rgba(110, 212, 191, 0.14), transparent 26%),
+        radial-gradient(circle at 88% 12%, rgba(140, 230, 255, 0.08), transparent 22%),
+        linear-gradient(155deg, var(--bg-1) 0%, var(--bg-2) 42%, #102134 100%);
+}
+
+body.modal-open {
+    overflow: hidden;
+}
+
+img {
+    max-width: 100%;
+    display: block;
+}
+
+button,
+input,
+select {
+    font: inherit;
+}
+
+.dashboard-shell {
+    width: min(1120px, calc(100% - 24px));
+    margin: 0 auto;
+    padding: 14px 0 20px;
+    display: grid;
+    gap: 14px;
+}
+
+.hero-card,
+.snapshot-card,
+.public-controls-card,
+.pokemon-card {
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+    box-shadow: 0 18px 36px var(--shadow);
+}
+
+.hero-card {
+    padding: 16px 18px;
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+}
+
+.hero-copy h1,
+.snapshot-card h2,
+.public-controls-card h2,
+.pokemon-card h2,
+.admin-modal h2,
+.admin-subcard h3 {
+    margin: 0;
+    font-family: Georgia, "Palatino Linotype", serif;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.snapshot-card h2,
+.public-controls-card h2,
+.pokemon-card h2 {
+    font-size: 1.2rem;
+}
+
+.admin-modal h2 {
+    font-size: 1.28rem;
+}
+
+.admin-subcard h3 {
+    font-size: 0.98rem;
+}
+
+.eyebrow,
+.section-kicker,
+.metric-label,
+.modal-kicker {
+    margin: 0;
+    color: var(--teal);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 0.66rem;
+}
+
+.hero-copy h1 {
+    margin-top: 6px;
+    font-size: clamp(1.6rem, 2.6vw, 2.35rem);
+    line-height: 1.04;
+}
+
+.hero-subtitle,
+.modal-subtitle,
+.control-note,
+.pokemon-meta,
+.admin-disabled-message {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.42;
+    font-size: 0.92rem;
+}
+
+.hero-actions {
+    min-width: 250px;
+    display: grid;
+    gap: 8px;
+}
+
+.status-pill,
+.state-chip,
+.admin-session-badge,
+.admin-entry-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 9px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(140, 230, 255, 0.18);
+    background: rgba(110, 212, 191, 0.08);
+    color: var(--text-muted);
+    text-align: center;
+    text-decoration: none;
+}
+
+.admin-entry-button {
+    cursor: pointer;
+    color: var(--admin-ink);
+    border-color: rgba(255, 231, 168, 0.22);
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.18), rgba(184, 145, 45, 0.14));
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.admin-entry-button:hover,
+.admin-entry-button:focus-visible {
+    transform: translateY(-1px);
+    border-color: rgba(255, 231, 168, 0.4);
+    outline: none;
+}
+
+.main-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(290px, 0.92fr);
+    gap: 14px;
+}
+
+.snapshot-card {
+    padding: 18px;
+    display: grid;
+    gap: 16px;
+}
+
+.snapshot-header {
+    display: grid;
+    gap: 12px;
+}
+
+.metric-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.metric-chip {
+    min-width: 0;
+    padding: 12px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(17, 31, 47, 0.92), rgba(12, 23, 36, 0.94));
+    border: 1px solid rgba(164, 192, 214, 0.12);
+}
+
+.metric-value {
+    margin-top: 5px;
+    font-size: clamp(0.96rem, 1.45vw, 1.14rem);
+    color: var(--text-main);
+    word-break: break-word;
+}
+
+.content-stack {
+    display: grid;
+    gap: 10px;
+}
+
+.content-panel {
+    min-height: 0;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(16, 28, 44, 0.9), rgba(11, 22, 34, 0.95));
+    border: 1px solid rgba(164, 192, 214, 0.1);
+}
+
+.content-value {
+    margin: 8px 0 0;
+    min-height: 58px;
+    color: var(--text-main);
+    font-size: clamp(0.98rem, 1.5vw, 1.14rem);
+    line-height: 1.42;
+    word-break: break-word;
+}
+
+.side-rail {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+}
+
+.public-controls-card,
+.pokemon-card {
+    padding: 16px;
+}
+
+.card-heading,
+.control-block-header,
+.admin-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.public-controls-card {
+    display: grid;
+    gap: 12px;
+}
+
+.control-block {
+    padding: 12px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(18, 32, 49, 0.88), rgba(12, 24, 38, 0.96));
+    border: 1px solid rgba(164, 192, 214, 0.12);
+}
+
+.control-title,
+.lock-title {
+    margin: 0;
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.control-block-switch {
+    margin-bottom: 8px;
+}
+
+.switch-row {
+    display: grid;
+    gap: 8px;
+}
+
+.switch-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.category-select,
+.public-button,
+.admin-button,
+.admin-field input {
+    border-radius: 12px;
+    border: 1px solid rgba(140, 230, 255, 0.2);
+    background: linear-gradient(180deg, rgba(111, 183, 210, 0.18), rgba(77, 162, 146, 0.12));
+    color: var(--text-main);
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.category-select,
+.admin-field input {
+    padding: 9px 11px;
+}
+
+.public-button,
+.admin-button {
+    padding: 9px 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+.public-button:hover:not(:disabled),
+.public-button:focus-visible,
+.category-select:focus-visible,
+.admin-button:hover:not(:disabled),
+.admin-button:focus-visible,
+.admin-field input:focus-visible {
+    transform: translateY(-1px);
+    border-color: rgba(140, 230, 255, 0.4);
+    outline: none;
+}
+
+.public-button-secondary {
+    min-width: 80px;
+}
+
+.public-button:disabled,
+.admin-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.action-message,
+.admin-status-message,
+.lock-state {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.36;
+    font-size: 0.9rem;
+}
+
+.action-message[data-state="success"],
+.admin-status-message[data-state="success"] {
+    color: var(--teal-strong);
+}
+
+.action-message[data-state="error"],
+.admin-status-message[data-state="error"] {
+    color: var(--danger);
+}
+
+.action-message[data-state="pending"],
+.admin-status-message[data-state="pending"] {
+    color: var(--teal);
+}
+
+.pokemon-card {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+}
+
+.pokemon-art-frame {
+    width: 104px;
+    height: 104px;
+    border-radius: 20px;
+    border: 1px solid rgba(140, 230, 255, 0.18);
+    background:
+        radial-gradient(circle at 30% 20%, rgba(140, 230, 255, 0.16), transparent 38%),
+        linear-gradient(180deg, rgba(16, 28, 44, 0.95), rgba(10, 18, 28, 0.96));
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+}
+
+.pokemon-art-frame img {
+    width: 88%;
+    height: 88%;
+    object-fit: contain;
+    filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.28));
+}
+
+.pokemon-art-fallback {
+    padding: 10px;
+    text-align: center;
+    color: var(--text-soft);
+    font-size: 0.84rem;
+}
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(4, 10, 18, 0.66);
+    backdrop-filter: blur(6px);
+}
+
+.modal-backdrop[hidden] {
+    display: none;
+}
+
+.modal-dialog {
+    width: min(100%, 760px);
+    border-radius: 22px;
+    position: relative;
+}
+
+.admin-modal {
+    padding: 18px;
+    border: 1px solid var(--admin-border);
+    background: var(--admin-bg);
+    box-shadow: 0 24px 46px rgba(17, 11, 0, 0.5);
+    color: var(--admin-ink);
+}
+
+.admin-login-dialog {
+    width: min(100%, 390px);
+}
+
+.admin-controls-dialog {
+    width: min(100%, 760px);
+}
+
+.modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    border: none;
+    background: transparent;
+    color: var(--admin-muted);
+    cursor: pointer;
+    font-size: 0.86rem;
+    letter-spacing: 0.04em;
+}
+
+.modal-close:hover,
+.modal-close:focus-visible {
+    color: var(--admin-accent-strong);
+    outline: none;
+}
+
+.modal-heading,
+.admin-modal-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    padding-right: 48px;
+}
+
+.modal-heading {
+    display: grid;
+    gap: 6px;
+}
+
+.admin-kicker {
+    color: var(--admin-accent);
+}
+
+.modal-kicker.admin-kicker {
+    color: var(--admin-accent);
+}
+
+.modal-subtitle.admin-subtitle,
+.admin-disabled-message,
+.admin-status-message,
+.lock-state {
+    color: var(--admin-muted);
+}
+
+.admin-session-badge {
+    border-color: rgba(255, 231, 168, 0.22);
+    background: rgba(239, 209, 113, 0.1);
+    color: var(--admin-muted);
+    min-height: 34px;
+    padding: 8px 12px;
+}
+
+.admin-disabled-message {
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 231, 168, 0.18);
+    background: rgba(255, 231, 168, 0.08);
+    font-size: 0.9rem;
+}
+
+.admin-login-form {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.admin-field {
+    display: grid;
+    gap: 5px;
+    color: var(--admin-muted);
+    font-size: 0.86rem;
+}
+
+.admin-field input {
+    width: 100%;
+    color: var(--admin-ink);
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.12), rgba(165, 132, 44, 0.12));
+    border-color: rgba(255, 231, 168, 0.2);
+}
+
+.admin-panel {
+    display: grid;
+    gap: 14px;
+    margin-top: 14px;
+    justify-items: center;
+}
+
+.admin-subcard {
+    width: min(100%, 560px);
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 231, 168, 0.16);
+    background: linear-gradient(180deg, rgba(85, 63, 14, 0.28), rgba(45, 33, 9, 0.36));
+    display: grid;
+    gap: 12px;
+}
+
+.lock-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 0;
+    border-top: 1px solid rgba(255, 231, 168, 0.12);
+}
+
+.lock-row:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.admin-button {
+    color: var(--admin-ink);
+    border-color: rgba(255, 231, 168, 0.22);
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.16), rgba(184, 145, 45, 0.12));
+}
+
+.admin-button-primary {
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.22), rgba(208, 165, 49, 0.16));
+}
+
+.admin-button-danger {
+    background: linear-gradient(180deg, rgba(255, 176, 154, 0.16), rgba(142, 65, 48, 0.18));
+}
+
+.admin-button-ghost {
+    background: transparent;
+}
+
+@media (max-width: 980px) {
+    .hero-card,
+    .card-heading,
+    .control-block-header,
+    .admin-modal-header,
+    .admin-footer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .hero-actions {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .main-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 760px) {
+    .dashboard-shell {
+        width: min(100%, calc(100% - 16px));
+        padding: 10px 0 16px;
+    }
+
+    .metric-row,
+    .switch-row,
+    .pokemon-card {
+        grid-template-columns: 1fr;
+    }
+
+    .pokemon-card {
+        justify-items: center;
+        text-align: center;
+    }
+
+    .pokemon-copy {
+        width: 100%;
+    }
+
+    .modal-backdrop {
+        padding: 12px;
+    }
+
+    .admin-modal {
+        padding: 16px;
     overflow: hidden;
     font-family: "Trebuchet MS", "Segoe UI", sans-serif;
     background:

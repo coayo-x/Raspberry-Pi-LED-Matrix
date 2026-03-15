@@ -17,6 +17,7 @@ def test_normalize_current_display_state_maps_non_joke_categories() -> None:
                 "hp": 45,
                 "attack": 49,
                 "defense": 49,
+                "image_url": "https://example.test/bulbasaur.png",
             },
         },
         updated_at="2026-03-15T09:00:01",
@@ -53,6 +54,7 @@ def test_normalize_current_display_state_maps_non_joke_categories() -> None:
 
     assert pokemon_state["setup"] == "Bulbasaur"
     assert pokemon_state["punchline"] == "Grass / Poison | HP 45 | ATK 49 | DEF 49"
+    assert pokemon_state["data"]["image_url"] == "https://example.test/bulbasaur.png"
 
     assert weather_state["setup"] == "Erie, PA"
     assert weather_state["punchline"] == "Cloudy | 37F | Wind 11 mph"

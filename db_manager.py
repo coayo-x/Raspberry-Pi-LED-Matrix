@@ -133,6 +133,27 @@ def init_db(db_path: str = DB_PATH) -> None:
             """)
 
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS admin_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_hash TEXT NOT NULL UNIQUE,
+                username TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                client_ip TEXT
+            )
+            """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS admin_login_attempts (
+                subject TEXT PRIMARY KEY,
+                failed_attempts INTEGER NOT NULL DEFAULT 0,
+                locked_until TEXT,
+                last_failed_at TEXT
+            )
+            """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS category_rotation (
                 position INTEGER PRIMARY KEY,
                 category TEXT NOT NULL
