@@ -12,6 +12,9 @@ const adminLogoutApi =
     document.documentElement.dataset.adminLogoutApi || "/api/admin/logout";
 const adminControlLockApi =
     document.documentElement.dataset.adminControlLockApi || "/api/admin/control-lock";
+const apiPath = document.documentElement.dataset.apiPath || "/api/current-display-state";
+const skipApiPath = document.documentElement.dataset.skipApiPath || "/api/skip-category";
+const switchApiPath = document.documentElement.dataset.switchApiPath || "/api/switch-category";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
 
 const elements = {
@@ -57,6 +60,12 @@ const elements = {
 };
 
 let latestControlPayload = null;
+
+    skipCategoryButton: document.getElementById("skip-category-button"),
+    switchCategorySelect: document.getElementById("switch-category-select"),
+    switchCategoryButton: document.getElementById("switch-category-button"),
+    actionStatus: document.getElementById("action-status"),
+};
 
 function displayText(value) {
     if (value === null || value === undefined || value === "") {
@@ -249,6 +258,7 @@ function renderPokemonCard(state) {
 }
 
 function applySnapshotState(state) {
+function applyState(state) {
     elements.time.textContent = displayText(state.time);
     elements.slot.textContent = displayText(state.slot);
     elements.category.textContent = displayText(state.category);
@@ -436,6 +446,44 @@ async function refreshDashboard() {
             describeResultError(controlResult.reason, "Admin state unavailable"),
             "error",
         );
+    elements.refreshStatus.textContent = state.has_data ? "Live snapshot loaded" : "Waiting for runtime state";
+    elements.lastUpdated.textContent = state.updated_at
+        ? `Updated ${state.updated_at}`
+        : "No snapshot saved yet";
+}
+
+function setActionStatus(message, state = "idle") {
+    elements.actionStatus.textContent = message;
+    elements.actionStatus.dataset.state = state;
+}
+
+function formatCategoryLabel(category) {
+    if (!category) {
+        return "Unknown";
+    }
+
+    return String(category).charAt(0).toUpperCase() + String(category).slice(1);
+}
+
+async function parseJsonResponse(response) {
+    try {
+        return await response.json();
+    } catch {
+        return null;
+    }
+}
+
+async function refreshState() {
+    try {
+        const response = await fetch(apiPath, { cache: "no-store" });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const state = await response.json();
+        applyState(state);
+    } catch (error) {
+        elements.refreshStatus.textContent = "Refresh failed";
+        elements.lastUpdated.textContent = error.message;
     }
 }
 
@@ -462,6 +510,29 @@ async function skipCategory() {
         );
     } finally {
         await refreshDashboard();
+    setActionStatus("Requesting category skip...", "pending");
+
+    try {
+        const response = await fetch(skipApiPath, {
+            method: "POST",
+            cache: "no-store",
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const result = await parseJsonResponse(response);
+        const result = await response.json();
+        elements.refreshStatus.textContent = "Skip requested";
+        setActionStatus(
+            `Skip requested at ${displayText(result.requested_at)}`,
+            "success",
+        );
+        await refreshState();
+    } catch (error) {
+        setActionStatus(`Skip failed: ${error.message}`, "error");
+    } finally {
+        elements.skipCategoryButton.disabled = false;
     }
 }
 
@@ -651,6 +722,35 @@ if (elements.pokemonImage) {
     });
 }
 
+    setActionStatus(`Switching to ${formatCategoryLabel(category)}...`, "pending");
+
+    try {
+        const response = await fetch(switchApiPath, {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ category }),
+        });
+        const result = await parseJsonResponse(response);
+        if (!response.ok) {
+            throw new Error(result?.error || `HTTP ${response.status}`);
+        }
+
+        elements.refreshStatus.textContent = "Switch requested";
+        setActionStatus(
+            `Switch requested: ${formatCategoryLabel(result.category)}`,
+            "success",
+        );
+        await refreshState();
+    } catch (error) {
+        setActionStatus(`Switch failed: ${error.message}`, "error");
+    } finally {
+        elements.switchCategoryButton.disabled = false;
+    }
+}
+
 if (elements.skipCategoryButton) {
     elements.skipCategoryButton.addEventListener("click", skipCategory);
 }
@@ -688,3 +788,5 @@ refreshDashboard();
 window.setInterval(() => {
     refreshDashboard().catch(() => {});
 }, pollIntervalMs);
+refreshState();
+window.setInterval(refreshState, pollIntervalMs);

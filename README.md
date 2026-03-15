@@ -79,3 +79,57 @@ When the current category is `pokemon`, the dashboard shows the normalized Pokem
 Checked-in units live in [`systemd/led-matrix.service`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/systemd/led-matrix.service) and [`systemd/led-matrix-dashboard.service`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/systemd/led-matrix-dashboard.service).
 
 Install and enable them with the steps in [`Notes/systemd.md`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/Notes/systemd.md).
+Please review the Wiki before modifying any core components.
+
+## Local Setup
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Phase 1 Dashboard
+
+Phase 1 adds a lightweight, read-only dashboard without changing the core slot loop into a web service.
+
+High-level flow:
+
+1. `main.py` determines the active slot and builds the payload for that slot.
+2. The runtime writes a normalized `current_display_state` snapshot into SQLite.
+3. `dashboard_server.py` reads that snapshot and exposes it at `/api/current-display-state`.
+4. The dashboard page polls that endpoint and refreshes the visible fields automatically.
+
+Current dashboard fields:
+
+- `time`
+- `slot`
+- `category`
+- `setup`
+- `punchline`
+
+Non-joke categories are normalized into the same `setup` and `punchline` fields, and the full raw category payload is also returned by the API for future UI expansion.
+
+### Run the dashboard
+
+Start the matrix runtime as usual in one terminal:
+
+```bash
+python main.py --simulate
+```
+
+Start the dashboard server in another terminal:
+
+```bash
+python dashboard_server.py
+```
+
+Open `http://127.0.0.1:8080` in a browser.
+
+Optional environment variables:
+
+- `DASHBOARD_HOST`
+- `DASHBOARD_PORT`
+- `DASHBOARD_POLL_INTERVAL_MS`
+
+No new third-party runtime dependency was added for the dashboard. It uses Python's standard-library HTTP server plus simple static assets in `dashboard_assets/`.
