@@ -603,3 +603,95 @@ Secondary repo docs are currently minimal:
 - `CONTRIBUTING.md` is empty
 
 Use this file and the implementation as the authoritative developer reference.
+
+## Current Repository Addendum
+
+The sections above remain useful for system behavior, but the repository now also includes a lightweight configuration and developer-tooling layer that should be treated as part of the architecture.
+
+### Configuration System
+
+- `config.py` loads environment variables at import time via `python-dotenv` when that package is installed.
+- `.env.example` documents the current environment surface:
+  - `DB_PATH`
+  - `ROTATION_INTERVAL`
+  - `DISPLAY_BRIGHTNESS`
+  - `WEATHER_API_KEY`
+- `DB_PATH` defaults to `content.db`.
+- `ROTATION_INTERVAL` is parsed as an integer and clamped to a minimum of `1`; `rotation_engine.py` converts it into `SLOT_SECONDS` for slot math.
+- `DISPLAY_BRIGHTNESS` is parsed as a float and clamped into the `0.0..1.0` range.
+- `WEATHER_API_KEY` is exported by `config.py`, but the current weather adapter uses Open-Meteo and does not read that key yet.
+
+Important behavior:
+
+- Configuration values are module-level constants. Changing `.env` or process environment variables after import does not update the running process.
+- `display_manager.py` currently imports only `ROTATION_INTERVAL`; `DISPLAY_BRIGHTNESS` is not yet wired into matrix output.
+- If `python-dotenv` is unavailable, `config.py` falls back to a no-op `load_dotenv()` and the app relies on shell environment variables plus defaults.
+
+### Database Behavior Addendum
+
+- SQLite initialization is automatic. `db_manager.connect()` calls `init_db()` the first time a normalized DB path is seen by the current process.
+- `init_db()` creates parent directories for the configured DB path before opening SQLite.
+- The schema bootstrap is path-aware, so alternate files such as `tmp/auto_init.db` can be created and initialized without extra setup code.
+- Each connection enables:
+  - `sqlite3.Row`
+  - `PRAGMA foreign_keys = ON`
+  - `PRAGMA journal_mode = WAL`
+- `init_db()` still uses add-column checks instead of ordered migrations, so existing databases are patched in place.
+
+Runtime file expectations:
+
+- `.gitignore` ignores `.env`, `content.db`, and `*.db`.
+- Database files should be treated as runtime state, not source artifacts or fixtures.
+- SQLite WAL mode may create sidecar files during normal execution.
+
+### Module Overview Addendum
+
+- `main.py` is the process entry point. It parses `--simulate`, `--save-previews`, and `--once`, initializes the display, and drives `run_once()` / `run_forever()`.
+- `rotation_engine.py` owns slot timing, category selection, Pokemon queue management, slot-stable joke selection, and slot-stable science selection.
+- `display_manager.py` turns payload dicts into frames, animations, preview images, and optional matrix output.
+- `db_manager.py` owns SQLite connection defaults plus schema auto-initialization.
+- `config.py` is the environment-backed settings module imported by the runtime.
+- `apis/` contains network adapters that normalize upstream API responses into the payload shapes consumed by `main.py` and `display_manager.py`.
+
+### Developer Workflow Addendum
+
+- The repository now has a Python dependency manifest at `requirements.txt`.
+- Local developer setup is currently:
+  - `pip install -r requirements.txt`
+  - `pre-commit install`
+- `.pre-commit-config.yaml` enables `ruff`, `black`, and basic file hygiene hooks.
+- `.github/workflows/pylint.yml` runs on both `push` and `pull_request`, installs `requirements.txt`, and invokes `ruff`, `black --check`, and `pytest` on Python `3.10` and `3.11`.
+- The current CI workflow is informative rather than strictly blocking because each lint/test command ends with `|| true`. Treat the logs as required review material before merge instead of assuming the workflow enforces failures.
+- `.github/CODEOWNERS` routes core engine, rendering, and most API files to `@coayo-x`.
+
+Recommended repo workflow for contributors:
+
+- create a topic branch from `main`
+- make documentation or code changes on that branch
+- open a pull request instead of merging directly into `main`
+- review CI output before merge, especially because the current workflow is non-blocking
+
+### Developer Safety Rules
+
+SAFE TO MODIFY:
+
+- `apis/*` adapters
+- provider-specific payload normalization
+- fallback content logic that does not change the shared payload contract
+- documentation files and examples such as `.env.example`
+
+SENSITIVE CORE MODULES:
+
+- `rotation_engine.py`
+- `display_manager.py`
+- `db_manager.py`
+- `main.py`
+
+Why these are sensitive:
+
+- `rotation_engine.py` defines slot identity, category order, and persisted content state.
+- `display_manager.py` controls animation timing, orientation transforms, preview output, and matrix writes.
+- `db_manager.py` defines schema bootstrap and connection behavior used by every persisted feature.
+- `main.py` is the orchestration layer that ties scheduler, adapters, and renderer together.
+
+Changes in the sensitive core can break the display cycle even when individual modules still import cleanly. Validate slot timing, restart behavior, and DB compatibility before treating edits there as safe.

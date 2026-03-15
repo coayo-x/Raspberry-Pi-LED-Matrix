@@ -522,3 +522,63 @@ The highest-value next steps are:
 3. replace ad hoc DB evolution with explicit migrations
 4. stop rewriting Pokemon rotation state on catalog fetch failure
 5. add focused tests around slot math, DB state transitions, and rendering helpers
+
+## Additional Current-State Risks
+
+These are additional realistic issues visible in the current repository state that are not covered above.
+
+### 56. `DISPLAY_BRIGHTNESS` is currently a dead configuration knob
+
+- Location: `.env.example`, `config.py`, `display_manager.py`
+- Problem: `DISPLAY_BRIGHTNESS` is parsed and exposed by `config.py`, but nothing in `DisplayManager` applies it to the matrix or preview output.
+- Why it matters: operators can change the value and expect dimmer or brighter output, but the display behavior does not change.
+- Impact: misleading configuration, confusing deployment debugging, and false assumptions about brightness support.
+- Suggestion: wire the setting into matrix initialization/output or remove it until brightness control is implemented.
+
+### 57. `.env` loading fails silently when `python-dotenv` is missing
+
+- Location: `config.py`
+- Problem: the import is wrapped in `try/except ImportError`, and the fallback `load_dotenv()` simply returns `False` with no warning.
+- Why it matters: an incomplete environment can ignore `.env` files while still starting the app with defaults.
+- Impact: local development and ad hoc deployments can run with the wrong DB path or rotation interval without any obvious signal.
+- Suggestion: make `python-dotenv` mandatory for `.env`-based workflows or emit a startup warning when dotenv loading is unavailable.
+
+### 58. Configuration is frozen at import time
+
+- Location: `config.py`, `rotation_engine.py`, `display_manager.py`
+- Problem: environment-backed settings are resolved into module-level constants on import, and `rotation_engine.py` computes `SLOT_SECONDS` from `ROTATION_INTERVAL` immediately.
+- Why it matters: changing environment variables later in the same process does not update scheduling or runtime behavior.
+- Impact: tests, REPL sessions, and long-running supervisor flows can behave unexpectedly unless the whole process restarts.
+- Suggestion: centralize config reads behind a runtime settings object or document that config changes require a full restart.
+
+### 59. GitHub Actions currently reports success even when checks fail
+
+- Location: `.github/workflows/pylint.yml`
+- Problem: the `ruff`, `black --check`, and `pytest` commands are all suffixed with `|| true`.
+- Why it matters: the workflow runs on pushes and pull requests, but it does not act as a real quality gate.
+- Impact: branches can appear green in CI even when lint, formatting, or tests are failing.
+- Suggestion: remove the `|| true` suffixes or split the workflow into blocking and informational jobs explicitly.
+
+### 60. `WEATHER_API_KEY` is misleading dead configuration
+
+- Location: `.env.example`, `config.py`, `apis/weather.py`
+- Problem: the repository advertises `WEATHER_API_KEY`, but the current weather provider is Open-Meteo and never uses that setting.
+- Why it matters: contributors can spend time populating or debugging an irrelevant secret.
+- Impact: unnecessary deployment complexity and confusion around weather-provider behavior.
+- Suggestion: remove the variable from the documented config surface or only restore it when a key-based provider is actually implemented.
+
+### 61. Replacing a DB file mid-process can bypass schema initialization
+
+- Location: `db_manager.py`
+- Problem: `_INITIALIZED_PATHS` caches initialized DB paths for the life of the process. If a DB file at an already-seen path is deleted or swapped out, later `connect()` calls skip `init_db()`.
+- Why it matters: the app assumes initialization is complete once per path, not once per file instance.
+- Impact: repaired or replaced databases can be missing required tables or columns until the process restarts.
+- Suggestion: validate core tables on connect or invalidate the cache when the target file changes.
+
+### 62. Dependency versions are unconstrained
+
+- Location: `requirements.txt`
+- Problem: the manifest lists package names without version pins or compatible upper/lower bounds.
+- Why it matters: installs on different days can pull materially different Pillow, NumPy, tooling, or hardware-library versions.
+- Impact: rendering behavior, CI output, and local debugging can drift between environments even when the source tree is unchanged.
+- Suggestion: pin or constrain versions for runtime and developer dependencies, especially the rendering stack and formatting/lint tools.
