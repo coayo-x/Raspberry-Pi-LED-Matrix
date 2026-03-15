@@ -35,6 +35,14 @@ def get_current_category(now: datetime | None = None) -> str:
     return DISPLAY_SEQUENCE[get_current_slot_number(now) % len(DISPLAY_SEQUENCE)]
 
 
+def get_next_category(category: str) -> str:
+    if category not in DISPLAY_SEQUENCE:
+        raise RuntimeError(f"Unknown category: {category}")
+
+    index = DISPLAY_SEQUENCE.index(category)
+    return DISPLAY_SEQUENCE[(index + 1) % len(DISPLAY_SEQUENCE)]
+
+
 def seconds_until_next_slot(now: datetime | None = None) -> int:
     current = _now_or_default(now)
     seconds_today = _seconds_since_midnight(current)
@@ -109,15 +117,13 @@ def _replace_pokemon_rotation(conn, pokemon_ids: list[int]) -> None:
 
 
 def _reset_pokemon_state(conn) -> None:
-    conn.execute(
-        """
+    conn.execute("""
         UPDATE system_state
         SET pokemon_pos = 0,
             pokemon_date = NULL,
             current_pokemon_id = NULL
         WHERE id = 1
-        """
-    )
+        """)
 
 
 def _ensure_pokemon_rotation(conn) -> list[int]:
@@ -288,7 +294,9 @@ def get_current_joke(now: datetime | None = None, db_path: str = DB_PATH) -> dic
         conn.close()
 
 
-def get_current_science_fact(now: datetime | None = None, db_path: str = DB_PATH) -> dict:
+def get_current_science_fact(
+    now: datetime | None = None, db_path: str = DB_PATH
+) -> dict:
     current = _now_or_default(now)
     slot_key = get_current_slot_key(current)
 

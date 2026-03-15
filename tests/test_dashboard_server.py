@@ -1,9 +1,11 @@
 import json
 import threading
+import urllib.error
 import urllib.request
 
 from dashboard_server import create_dashboard_server
 from current_display_state import save_current_display_state
+from runtime_control import consume_skip_category_request, get_skip_category_state
 
 
 def _fetch_json(url: str) -> dict:
@@ -14,6 +16,12 @@ def _fetch_json(url: str) -> dict:
 def _fetch_text(url: str) -> str:
     with urllib.request.urlopen(url, timeout=5) as response:
         return response.read().decode("utf-8")
+
+
+def _post_json(url: str) -> dict:
+    request = urllib.request.Request(url, method="POST")
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
@@ -63,6 +71,7 @@ def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
     assert state["punchline"] == "Clear | 41F | Wind 8 mph"
     assert "data-poll-interval-ms=" in page
     assert "/api/current-display-state" in page
+    assert "/api/skip-category" in page
 
 
 def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) -> None:
@@ -116,3 +125,52 @@ def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) 
     assert second_state["category"] == "joke"
     assert second_state["slot"] == "2026-03-15:145"
     assert second_state["setup"] == "I told my Pi a joke. It needed more bytes."
+
+
+def test_dashboard_skip_category_endpoint_records_runtime_request(
+    isolated_db_path,
+) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/api/skip-category"
+
+    try:
+        result = _post_json(url)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result["requested"] is True
+    assert result["request_count"] == 1
+    assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
+    assert consume_skip_category_request(str(isolated_db_path)) == 1
+
+
+def test_dashboard_skip_category_endpoint_returns_not_found_for_unknown_post(
+    isolated_db_path,
+) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server.server_address[1]}/api/unknown",
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=5):
+            pass
+    except urllib.error.HTTPError as error:
+        status = error.code
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 404

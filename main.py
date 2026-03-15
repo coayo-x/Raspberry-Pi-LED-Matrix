@@ -8,24 +8,30 @@ from display_manager import DisplayManager
 from rotation_engine import (
     get_current_category,
     get_current_joke,
+    get_next_category,
     get_current_science_fact,
     get_current_slot_key,
     get_today_pokemon_id,
     seconds_until_next_slot,
 )
+from runtime_control import consume_skip_category_request, get_skip_category_state
 from apis.pokemon import get_pokemon_data, get_pokemon_fallback
 from apis.weather import get_weather_data, get_weather_fallback
 
 
-def build_runtime_payload(now: datetime | None = None) -> dict:
-    payload = build_content_for_now(now)
+def build_runtime_payload(
+    now: datetime | None = None, category_override: str | None = None
+) -> dict:
+    payload = build_content_for_now(now, category_override=category_override)
     save_current_display_state(payload)
     return payload
 
 
-def build_content_for_now(now: datetime | None = None) -> dict:
+def build_content_for_now(
+    now: datetime | None = None, category_override: str | None = None
+) -> dict:
     now = now or datetime.now()
-    category = get_current_category(now)
+    category = category_override or get_current_category(now)
 
     payload = {
         "slot_key": get_current_slot_key(now),
@@ -105,20 +111,41 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
     if boot_delay > 0:
         time.sleep(boot_delay)
 
-    last_slot_key = None
+    active_slot_key = None
+    active_category = None
 
     while True:
         now = datetime.now()
         slot_key = get_current_slot_key(now)
+        category_override = None
 
-        if slot_key != last_slot_key:
-            payload = build_runtime_payload(now)
-            print_payload(payload)
-            duration = seconds_until_next_slot(now)
-            display.display_payload(payload, duration_seconds=duration)
-            last_slot_key = slot_key
+        if slot_key == active_slot_key:
+            if active_category is None:
+                time.sleep(1)
+                continue
+
+            handled_count = consume_skip_category_request()
+            if handled_count is None:
+                time.sleep(1)
+                continue
+
+            # Skip only overrides the currently active category within this slot.
+            category_override = get_next_category(active_category)
         else:
-            time.sleep(1)
+            _, handled_count = get_skip_category_state()
+
+        payload = build_runtime_payload(now, category_override=category_override)
+        print_payload(payload)
+        duration = seconds_until_next_slot(now)
+        display.display_payload(
+            payload,
+            duration_seconds=duration,
+            should_interrupt=lambda baseline=handled_count: (
+                get_skip_category_state()[0] > baseline
+            ),
+        )
+        active_slot_key = slot_key
+        active_category = payload["category"]
 
 
 def main() -> None:

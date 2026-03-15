@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-api-path="/api/current-display-state" data-poll-interval-ms="__POLL_INTERVAL_MS__">
+<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,13 +10,19 @@
     <main class="dashboard-shell">
         <section class="dashboard-header">
             <div class="header-copy">
-                <p class="eyebrow">Phase 1 Dashboard</p>
+                <p class="eyebrow">Phase 2 Dashboard</p>
                 <h1>Current LED Matrix Screen</h1>
-                <p class="header-subtitle">Read-only monitoring view of the active matrix payload.</p>
+                <p class="header-subtitle">Live runtime view with a lightweight category skip control.</p>
             </div>
-            <div class="status-row">
-                <span class="status-pill" id="refresh-status">Connecting</span>
-                <span class="status-pill" id="last-updated">Waiting for state</span>
+            <div class="header-actions">
+                <div class="control-panel" aria-label="Dashboard controls">
+                    <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+                    <p class="control-message" id="action-status">No action requested</p>
+                </div>
+                <div class="status-row">
+                    <span class="status-pill" id="refresh-status">Connecting</span>
+                    <span class="status-pill" id="last-updated">Waiting for state</span>
+                </div>
             </div>
         </section>
 
