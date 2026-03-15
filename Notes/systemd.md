@@ -15,7 +15,7 @@ sudo cp systemd/led-matrix-dashboard.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
-Adjust the checked-in unit files first if your Raspberry Pi user or repository path is not `/home/pi/Raspberry-Pi-LED-Matrix`.
+These checked-in unit files assume the deployment path is `/home/human/Raspberry-Pi-LED-Matrix` and run as the `human` user/group. Adjust them before install if your Raspberry Pi uses a different user or repository path.
 
 ## Enable Auto-Run
 
