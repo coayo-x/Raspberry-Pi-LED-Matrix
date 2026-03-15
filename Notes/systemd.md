@@ -1,4 +1,4 @@
-systemd commands for auto run  
+Systemd commands for auto run  
 
 **Start the service**
 
