@@ -1,39 +1,104 @@
 # Systemd Setup
 
-This repository now ships both systemd units:
+This project provides two systemd services:
 
-- [`systemd/led-matrix.service`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/systemd/led-matrix.service)
-- [`systemd/led-matrix-dashboard.service`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/systemd/led-matrix-dashboard.service)
+- `led-matrix.service` → runs the LED matrix application  
+- `led-matrix-dashboard.service` → runs the dashboard backend
 
-## Install
+These services allow the app to **start automatically when the Raspberry Pi boots**.
 
-Copy the units into `/etc/systemd/system/` and reload systemd:
+---
+
+# Install the Services
+
+Copy the service files to the systemd directory:
 
 ```bash
 sudo cp systemd/led-matrix.service /etc/systemd/system/
 sudo cp systemd/led-matrix-dashboard.service /etc/systemd/system/
+````
+
+Reload systemd:
+
+```bash
 sudo systemctl daemon-reload
 ```
 
-These checked-in unit files assume the deployment path is `/home/human/Raspberry-Pi-LED-Matrix` and run as the `human` user/group. Adjust them before install if your Raspberry Pi uses a different user or repository path.
+---
 
-## Enable Auto-Run
+# Enable Auto-Run on Boot
 
 ```bash
 sudo systemctl enable --now led-matrix.service
 sudo systemctl enable --now led-matrix-dashboard.service
 ```
 
-## Day-To-Day Commands
+---
+
+# Systemd Commands
+
+## Main LED Matrix Service
+
+**Start the service**
 
 ```bash
 sudo systemctl start led-matrix.service
-sudo systemctl restart led-matrix.service
-sudo systemctl stop led-matrix.service
-sudo systemctl status led-matrix.service
+```
 
+**Restart the service**
+
+```bash
+sudo systemctl restart led-matrix.service
+```
+
+**Stop the service**
+
+```bash
+sudo systemctl stop led-matrix.service
+```
+
+**Check if it’s running**
+
+```bash
+sudo systemctl status led-matrix.service
+```
+
+---
+
+## Dashboard Service
+
+**Start the service**
+
+```bash
 sudo systemctl start led-matrix-dashboard.service
+```
+
+**Restart the service**
+
+```bash
 sudo systemctl restart led-matrix-dashboard.service
+```
+
+**Stop the service**
+
+```bash
 sudo systemctl stop led-matrix-dashboard.service
+```
+
+**Check if it’s running**
+
+```bash
 sudo systemctl status led-matrix-dashboard.service
+```
+
+---
+
+# View Logs
+
+```bash
+journalctl -u led-matrix.service -f
+```
+
+```bash
+journalctl -u led-matrix-dashboard.service -f
 ```
