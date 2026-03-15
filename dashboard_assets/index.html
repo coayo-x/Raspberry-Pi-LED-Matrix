@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LED Matrix Dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+    <main class="dashboard-shell">
+        <section class="dashboard-header">
+            <div class="header-copy">
+                <p class="eyebrow">Phase 2 Dashboard</p>
+                <h1>Current LED Matrix Screen</h1>
+                <p class="header-subtitle">Live runtime view with a lightweight category skip control.</p>
+            </div>
+            <div class="header-actions">
+                <div class="control-panel" aria-label="Dashboard controls">
+                    <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+                    <p class="control-message" id="action-status">No action requested</p>
+                </div>
+                <div class="status-row">
+                    <span class="status-pill" id="refresh-status">Connecting</span>
+                    <span class="status-pill" id="last-updated">Waiting for state</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="field-grid" aria-label="Current display summary">
+            <article class="field-card field-card-time">
+                <p class="field-label">Time</p>
+                <p class="field-value" id="time-value">--</p>
+            </article>
+            <article class="field-card field-card-slot">
+                <p class="field-label">Slot</p>
+                <p class="field-value" id="slot-value">--</p>
+            </article>
+            <article class="field-card field-card-category">
+                <p class="field-label">Category</p>
+                <p class="field-value" id="category-value">--</p>
+            </article>
+            <article class="field-card field-card-setup">
+                <p class="field-label">Setup</p>
+                <p class="field-value" id="setup-value">--</p>
+            </article>
+            <article class="field-card field-card-punchline">
+                <p class="field-label">Punchline</p>
+                <p class="field-value" id="punchline-value">--</p>
+            </article>
+        </section>
+    </main>
+
+    <script src="/dashboard.js" defer></script>
+</body>
+</html>
