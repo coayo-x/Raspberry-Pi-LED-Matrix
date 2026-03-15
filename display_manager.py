@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from config import ROTATION_INTERVAL
 
 try:
     import adafruit_blinka_raspberry_pi5_piomatter as piomatter
@@ -602,7 +603,7 @@ class DisplayManager:
     def display_payload(self, payload: dict, duration_seconds: Optional[int] = None) -> None:
         category = payload["category"]
         safe_slot = payload["slot_key"].replace(":", "-")
-        total_duration = duration_seconds if duration_seconds is not None else 300
+        total_duration = duration_seconds if duration_seconds is not None else ROTATION_INTERVAL
 
         if category == "pokemon":
             self._animate_pokemon(payload, total_duration, safe_slot)

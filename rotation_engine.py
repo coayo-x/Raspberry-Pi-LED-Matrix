@@ -3,22 +3,27 @@ import random
 from datetime import datetime
 from typing import Iterable
 
+from config import DB_PATH, ROTATION_INTERVAL
 from db_manager import connect
 from apis.jokes import get_random_joke
 from apis.pokemon import FALLBACK_POKEMON_IDS, get_valid_pokemon_ids
 from apis.science import get_random_science_fact, get_science_fact_fallback
 
 DISPLAY_SEQUENCE = ["pokemon", "weather", "joke", "science"]
-SLOT_MINUTES = 5
+SLOT_SECONDS = max(1, ROTATION_INTERVAL)
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
     return now or datetime.now()
 
 
+def _seconds_since_midnight(current: datetime) -> int:
+    return (current.hour * 3600) + (current.minute * 60) + current.second
+
+
 def get_current_slot_number(now: datetime | None = None) -> int:
     current = _now_or_default(now)
-    return ((current.hour * 60) + current.minute) // SLOT_MINUTES
+    return _seconds_since_midnight(current) // SLOT_SECONDS
 
 
 def get_current_slot_key(now: datetime | None = None) -> str:
@@ -32,9 +37,8 @@ def get_current_category(now: datetime | None = None) -> str:
 
 def seconds_until_next_slot(now: datetime | None = None) -> int:
     current = _now_or_default(now)
-    seconds_today = (current.hour * 3600) + (current.minute * 60) + current.second
-    slot_seconds = SLOT_MINUTES * 60
-    next_boundary = ((seconds_today // slot_seconds) + 1) * slot_seconds
+    seconds_today = _seconds_since_midnight(current)
+    next_boundary = ((seconds_today // SLOT_SECONDS) + 1) * SLOT_SECONDS
     remaining = next_boundary - seconds_today
     return max(1, remaining)
 
@@ -148,7 +152,7 @@ def _advance_pokemon_cycle(conn, current_pokemon_id: int) -> None:
     _replace_pokemon_rotation(conn, reshuffled)
 
 
-def get_today_pokemon_id(today: str | None = None, db_path: str = "content.db") -> int:
+def get_today_pokemon_id(today: str | None = None, db_path: str = DB_PATH) -> int:
     today = today or datetime.now().date().isoformat()
 
     conn = connect(db_path)
@@ -225,7 +229,7 @@ def _fallback_joke(slot_key: str) -> dict:
     }
 
 
-def get_current_joke(now: datetime | None = None, db_path: str = "content.db") -> dict:
+def get_current_joke(now: datetime | None = None, db_path: str = DB_PATH) -> dict:
     current = _now_or_default(now)
     slot_key = get_current_slot_key(current)
     timestamp = current.isoformat(timespec="seconds")
@@ -284,7 +288,7 @@ def get_current_joke(now: datetime | None = None, db_path: str = "content.db") -
         conn.close()
 
 
-def get_current_science_fact(now: datetime | None = None, db_path: str = "content.db") -> dict:
+def get_current_science_fact(now: datetime | None = None, db_path: str = DB_PATH) -> dict:
     current = _now_or_default(now)
     slot_key = get_current_slot_key(current)
 
