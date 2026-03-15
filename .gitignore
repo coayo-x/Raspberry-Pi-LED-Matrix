@@ -8,3 +8,4 @@ __pycache__/
 # databases
 content.db
 *.db
+.env
