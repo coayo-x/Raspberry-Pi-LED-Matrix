@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
+<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-switch-api-path="/api/switch-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,7 +16,21 @@
             </div>
             <div class="header-actions">
                 <div class="control-panel" aria-label="Dashboard controls">
-                    <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+                    <div class="control-row control-row-skip">
+                        <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+                    </div>
+                    <div class="control-row control-row-switch">
+                        <label class="control-label" for="switch-category-select">Switch Category</label>
+                        <div class="control-input-row">
+                            <select class="control-select" id="switch-category-select" name="switch-category">
+                                <option value="pokemon">Pokemon</option>
+                                <option value="weather">Weather</option>
+                                <option value="joke">Joke</option>
+                                <option value="science">Science</option>
+                            </select>
+                            <button class="control-button control-button-secondary" id="switch-category-button" type="button">Apply</button>
+                        </div>
+                    </div>
                     <p class="control-message" id="action-status">No action requested</p>
                 </div>
                 <div class="status-row">
