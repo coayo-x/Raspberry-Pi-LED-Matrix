@@ -32,7 +32,9 @@ def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) 
     return any(col["name"] == column_name for col in columns)
 
 
-def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+def _ensure_column(
+    conn: sqlite3.Connection, table_name: str, column_name: str, definition: str
+) -> None:
     if not _column_exists(conn, table_name, column_name):
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
@@ -46,18 +48,17 @@ def init_db(db_path: str = DB_PATH) -> None:
     try:
         cur = conn.cursor()
 
-        cur.execute(
-            """
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
-            """
-        )
-        cur.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '4')")
-
+            """)
         cur.execute(
-            """
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '4')"
+        )
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS system_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 last_date TEXT,
@@ -79,13 +80,16 @@ def init_db(db_path: str = DB_PATH) -> None:
                 current_science_symbol TEXT,
                 current_science_atomic_number INTEGER
             )
-            """
-        )
+            """)
         cur.execute("INSERT OR IGNORE INTO system_state (id) VALUES (1)")
 
         _ensure_column(conn, "system_state", "last_date", "TEXT")
-        _ensure_column(conn, "system_state", "category_pos", "INTEGER NOT NULL DEFAULT 0")
-        _ensure_column(conn, "system_state", "pokemon_pos", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(
+            conn, "system_state", "category_pos", "INTEGER NOT NULL DEFAULT 0"
+        )
+        _ensure_column(
+            conn, "system_state", "pokemon_pos", "INTEGER NOT NULL DEFAULT 0"
+        )
         _ensure_column(conn, "system_state", "joke_pos", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "system_state", "pokemon_date", "TEXT")
         _ensure_column(conn, "system_state", "current_pokemon_id", "INTEGER")
@@ -102,17 +106,14 @@ def init_db(db_path: str = DB_PATH) -> None:
         _ensure_column(conn, "system_state", "current_science_symbol", "TEXT")
         _ensure_column(conn, "system_state", "current_science_atomic_number", "INTEGER")
 
-        cur.execute(
-            """
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS pokemon_rotation (
                 position INTEGER PRIMARY KEY,
                 pokemon_id INTEGER NOT NULL
             )
-            """
-        )
+            """)
 
-        cur.execute(
-            """
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS used_jokes (
                 joke_key TEXT PRIMARY KEY,
                 joke_type TEXT NOT NULL,
@@ -121,26 +122,29 @@ def init_db(db_path: str = DB_PATH) -> None:
                 joke_delivery TEXT,
                 first_seen_at TEXT NOT NULL
             )
-            """
-        )
+            """)
 
-        cur.execute(
-            """
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS current_display_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                state_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS category_rotation (
                 position INTEGER PRIMARY KEY,
                 category TEXT NOT NULL
             )
-            """
-        )
+            """)
 
-        cur.execute(
-            """
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS jokes_rotation (
                 position INTEGER PRIMARY KEY,
                 joke_text TEXT NOT NULL
             )
-            """
-        )
+            """)
 
         conn.commit()
     finally:

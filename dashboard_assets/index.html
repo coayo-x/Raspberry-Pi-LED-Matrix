@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-api-path="/api/current-display-state" data-poll-interval-ms="__POLL_INTERVAL_MS__">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LED Matrix Dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+    <main class="dashboard-shell">
+        <section class="hero-panel">
+            <p class="eyebrow">Phase 1 Dashboard</p>
+            <h1>Current LED Matrix Screen</h1>
+            <p class="hero-copy">
+                Read-only view of the latest runtime snapshot written by the matrix loop.
+            </p>
+            <div class="status-row">
+                <span id="refresh-status">Connecting</span>
+                <span id="last-updated">Waiting for state</span>
+            </div>
+        </section>
+
+        <section class="field-grid" aria-label="Current display summary">
+            <article class="field-card">
+                <p class="field-label">Time</p>
+                <p class="field-value" id="time-value">--</p>
+            </article>
+            <article class="field-card">
+                <p class="field-label">Slot</p>
+                <p class="field-value" id="slot-value">--</p>
+            </article>
+            <article class="field-card">
+                <p class="field-label">Category</p>
+                <p class="field-value" id="category-value">--</p>
+            </article>
+            <article class="field-card field-card-wide">
+                <p class="field-label">Setup</p>
+                <p class="field-value" id="setup-value">--</p>
+            </article>
+            <article class="field-card field-card-wide">
+                <p class="field-label">Punchline</p>
+                <p class="field-value" id="punchline-value">--</p>
+            </article>
+        </section>
+
+        <section class="payload-panel" aria-label="Raw category payload">
+            <div class="payload-header">
+                <h2>Structured Payload</h2>
+                <p>Stable summary fields stay above. Raw category data stays below for future UI expansion.</p>
+            </div>
+            <pre id="raw-data">{}</pre>
+        </section>
+    </main>
+
+    <script src="/dashboard.js" defer></script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import sys
 import time
 from datetime import datetime
 
+from current_display_state import save_current_display_state
 from db_manager import init_db
 from display_manager import DisplayManager
 from rotation_engine import (
@@ -14,6 +15,12 @@ from rotation_engine import (
 )
 from apis.pokemon import get_pokemon_data, get_pokemon_fallback
 from apis.weather import get_weather_data, get_weather_fallback
+
+
+def build_runtime_payload(now: datetime | None = None) -> dict:
+    payload = build_content_for_now(now)
+    save_current_display_state(payload)
+    return payload
 
 
 def build_content_for_now(now: datetime | None = None) -> dict:
@@ -86,7 +93,7 @@ def print_payload(payload: dict) -> None:
 
 def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     init_db()
-    payload = build_content_for_now(now)
+    payload = build_runtime_payload(now)
     print_payload(payload)
     display.display_payload(payload)
     return payload
@@ -105,7 +112,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         slot_key = get_current_slot_key(now)
 
         if slot_key != last_slot_key:
-            payload = build_content_for_now(now)
+            payload = build_runtime_payload(now)
             print_payload(payload)
             duration = seconds_until_next_slot(now)
             display.display_payload(payload, duration_seconds=duration)

@@ -1,0 +1,152 @@
+:root {
+    --bg-top: #0f1f2f;
+    --bg-bottom: #d9cbb6;
+    --panel: rgba(11, 18, 28, 0.82);
+    --panel-soft: rgba(255, 248, 238, 0.14);
+    --text-main: #f6efe5;
+    --text-muted: #d8c9b7;
+    --accent: #f1a84e;
+    --accent-soft: #8cc7bb;
+    --shadow: rgba(7, 11, 17, 0.34);
+    --border: rgba(255, 248, 238, 0.16);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    background:
+        radial-gradient(circle at top left, rgba(241, 168, 78, 0.18), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(140, 199, 187, 0.18), transparent 26%),
+        linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+    color: var(--text-main);
+}
+
+.dashboard-shell {
+    width: min(1080px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 28px 0 36px;
+}
+
+.hero-panel,
+.field-card,
+.payload-panel {
+    backdrop-filter: blur(8px);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    box-shadow: 0 20px 40px var(--shadow);
+}
+
+.hero-panel {
+    padding: 24px;
+}
+
+.eyebrow,
+.field-label {
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-family: "Courier New", monospace;
+    font-size: 0.72rem;
+    color: var(--accent-soft);
+}
+
+.hero-panel h1 {
+    margin: 10px 0 8px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(2rem, 5vw, 3.4rem);
+    line-height: 1.05;
+}
+
+.hero-copy,
+.payload-header p {
+    margin: 0;
+    max-width: 56ch;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 18px;
+    color: var(--text-muted);
+}
+
+.status-row span {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: var(--panel-soft);
+}
+
+.field-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 18px;
+}
+
+.field-card {
+    padding: 18px;
+    min-height: 126px;
+}
+
+.field-card-wide {
+    grid-column: span 3;
+}
+
+.field-value {
+    margin: 14px 0 0;
+    font-size: clamp(1.1rem, 2.4vw, 1.5rem);
+    line-height: 1.35;
+    word-break: break-word;
+}
+
+.payload-panel {
+    margin-top: 18px;
+    overflow: hidden;
+}
+
+.payload-header {
+    padding: 18px 18px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.payload-header h2 {
+    margin: 0 0 6px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.4rem;
+}
+
+#raw-data {
+    margin: 0;
+    padding: 18px;
+    min-height: 220px;
+    overflow-x: auto;
+    background: rgba(4, 7, 12, 0.42);
+    color: var(--text-main);
+    font-family: "Courier New", monospace;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+    .dashboard-shell {
+        width: min(100%, calc(100% - 20px));
+        padding-top: 18px;
+    }
+
+    .field-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .field-card-wide {
+        grid-column: span 1;
+    }
+}
