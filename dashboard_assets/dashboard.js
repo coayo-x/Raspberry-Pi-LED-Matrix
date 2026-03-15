@@ -7,7 +7,6 @@ const elements = {
     category: document.getElementById("category-value"),
     setup: document.getElementById("setup-value"),
     punchline: document.getElementById("punchline-value"),
-    rawData: document.getElementById("raw-data"),
     refreshStatus: document.getElementById("refresh-status"),
     lastUpdated: document.getElementById("last-updated"),
 };
@@ -25,7 +24,6 @@ function applyState(state) {
     elements.category.textContent = displayText(state.category);
     elements.setup.textContent = displayText(state.setup);
     elements.punchline.textContent = displayText(state.punchline);
-    elements.rawData.textContent = JSON.stringify(state.data || {}, null, 2);
     elements.refreshStatus.textContent = state.has_data ? "Live snapshot loaded" : "Waiting for runtime state";
     elements.lastUpdated.textContent = state.updated_at
         ? `Updated ${state.updated_at}`
