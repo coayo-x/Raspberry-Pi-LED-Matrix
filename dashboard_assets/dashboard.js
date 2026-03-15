@@ -36,14 +36,19 @@ const elements = {
     pokemonImageFallback: document.getElementById("pokemon-image-fallback"),
     pokemonName: document.getElementById("pokemon-name"),
     pokemonMeta: document.getElementById("pokemon-meta"),
+    adminControlButton: document.getElementById("admin-control-button"),
+    adminLoginModal: document.getElementById("admin-login-modal"),
+    adminControlsModal: document.getElementById("admin-controls-modal"),
+    modalCloseButtons: Array.from(document.querySelectorAll("[data-close-modal]")),
     adminDisabledMessage: document.getElementById("admin-disabled-message"),
+    adminLoginCopy: document.getElementById("admin-login-copy"),
     adminLoginForm: document.getElementById("admin-login-form"),
     adminUsername: document.getElementById("admin-username"),
     adminPassword: document.getElementById("admin-password"),
     adminLoginButton: document.getElementById("admin-login-button"),
     adminLoginStatus: document.getElementById("admin-login-status"),
     adminPanel: document.getElementById("admin-panel"),
-    adminSummary: document.getElementById("admin-summary"),
+    adminControlsSummary: document.getElementById("admin-controls-summary"),
     adminSessionBadge: document.getElementById("admin-session-badge"),
     adminSkipLockState: document.getElementById("admin-skip-lock-state"),
     adminSwitchLockState: document.getElementById("admin-switch-lock-state"),
@@ -120,6 +125,68 @@ async function fetchJson(url, options = {}) {
         throw error;
     }
     return payload;
+}
+
+function hasOpenModal() {
+    return (
+        Boolean(elements.adminLoginModal && !elements.adminLoginModal.hidden) ||
+        Boolean(elements.adminControlsModal && !elements.adminControlsModal.hidden)
+    );
+}
+
+function syncBodyModalState() {
+    document.body.classList.toggle("modal-open", hasOpenModal());
+}
+
+function showModal(modal) {
+    if (!modal) {
+        return;
+    }
+    modal.hidden = false;
+    syncBodyModalState();
+}
+
+function hideModal(modal) {
+    if (!modal) {
+        return;
+    }
+    modal.hidden = true;
+    syncBodyModalState();
+}
+
+function closeAllModals() {
+    hideModal(elements.adminLoginModal);
+    hideModal(elements.adminControlsModal);
+}
+
+function openLoginModal() {
+    hideModal(elements.adminControlsModal);
+    showModal(elements.adminLoginModal);
+    if (
+        elements.adminUsername &&
+        elements.adminLoginForm &&
+        !elements.adminLoginForm.hidden
+    ) {
+        elements.adminUsername.focus();
+    }
+}
+
+function openControlsModal() {
+    if (!latestControlPayload?.auth?.authenticated) {
+        openLoginModal();
+        return;
+    }
+
+    hideModal(elements.adminLoginModal);
+    showModal(elements.adminControlsModal);
+}
+
+function openAdminControlFlow() {
+    if (latestControlPayload?.auth?.authenticated) {
+        openControlsModal();
+        return;
+    }
+    openLoginModal();
 }
 
 function showPokemonFallback(message) {
@@ -241,7 +308,9 @@ function applyAdminLockState(control, button, labelElement) {
     labelElement.textContent = control.locked
         ? "Locked for public use."
         : "Public access is open.";
-    button.textContent = control.locked ? `Unlock ${control.label}` : `Lock ${control.label}`;
+    button.textContent = control.locked
+        ? `Unlock ${control.label}`
+        : `Lock ${control.label}`;
     button.disabled = false;
 }
 
@@ -283,9 +352,11 @@ function applyControlPayload(payload) {
         elements.adminDisabledMessage.hidden = false;
         elements.adminLoginForm.hidden = true;
         elements.adminPanel.hidden = true;
+        elements.adminLoginCopy.textContent =
+            "Local admin credentials are not configured on this dashboard host.";
+        elements.adminControlsSummary.textContent =
+            "Configure local admin credentials to use protected controls.";
         elements.adminSessionBadge.textContent = "Unavailable";
-        elements.adminSummary.textContent =
-            "Configure local admin credentials to unlock protected controls.";
         elements.serviceButtons.forEach((button) => {
             button.disabled = true;
         });
@@ -297,16 +368,19 @@ function applyControlPayload(payload) {
             "Admin auth is disabled until credentials are configured.",
             "error",
         );
+        hideModal(elements.adminControlsModal);
         return;
     }
 
     elements.adminDisabledMessage.hidden = true;
+    elements.adminLoginForm.hidden = false;
+    elements.adminLoginCopy.textContent =
+        "Sign in with the configured admin account to access protected controls.";
 
     if (isAdmin) {
-        elements.adminLoginForm.hidden = true;
         elements.adminPanel.hidden = false;
         elements.adminSessionBadge.textContent = `${displayText(auth.username)} active`;
-        elements.adminSummary.textContent = auth.expires_at
+        elements.adminControlsSummary.textContent = auth.expires_at
             ? `Admin session active until ${auth.expires_at}.`
             : "Admin session active.";
         setMessage(
@@ -315,17 +389,17 @@ function applyControlPayload(payload) {
             "success",
         );
     } else {
-        elements.adminLoginForm.hidden = false;
         elements.adminPanel.hidden = true;
         elements.adminSessionBadge.textContent = "Signed out";
-        elements.adminSummary.textContent =
-            "Sign in with the configured admin account to manage locks and service actions.";
+        elements.adminControlsSummary.textContent =
+            "Sign in to manage locks and service actions.";
         if (
             !elements.adminLoginStatus.dataset.state ||
             elements.adminLoginStatus.dataset.state === "success"
         ) {
             setMessage(elements.adminLoginStatus, "Admin session inactive.", "idle");
         }
+        hideModal(elements.adminControlsModal);
     }
 
     applyAdminLockState(
@@ -447,7 +521,11 @@ async function signInAdmin(event) {
     const username = elements.adminUsername?.value?.trim() || "";
     const password = elements.adminPassword?.value || "";
     if (!username || !password) {
-        setMessage(elements.adminLoginStatus, "Username and password are required.", "error");
+        setMessage(
+            elements.adminLoginStatus,
+            "Username and password are required.",
+            "error",
+        );
         return;
     }
 
@@ -469,6 +547,7 @@ async function signInAdmin(event) {
             "success",
         );
         await refreshDashboard();
+        openControlsModal();
     } catch (error) {
         setMessage(
             elements.adminLoginStatus,
@@ -490,6 +569,7 @@ async function signOutAdmin() {
     try {
         await fetchJson(adminLogoutApi, { method: "POST" });
         setMessage(elements.adminActionStatus, "Admin session ended.", "success");
+        closeAllModals();
     } catch (error) {
         setMessage(
             elements.adminActionStatus,
@@ -497,6 +577,9 @@ async function signOutAdmin() {
             "error",
         );
     } finally {
+        if (elements.adminLoginForm) {
+            elements.adminLoginForm.reset();
+        }
         await refreshDashboard();
     }
 }
@@ -504,7 +587,11 @@ async function signOutAdmin() {
 async function toggleControlLock(action) {
     const control = latestControlPayload?.controls?.[action];
     if (!control) {
-        setMessage(elements.adminActionStatus, "Control state is not loaded yet.", "error");
+        setMessage(
+            elements.adminActionStatus,
+            "Control state is not loaded yet.",
+            "error",
+        );
         return;
     }
 
@@ -578,6 +665,42 @@ async function requestServiceAction(service, action) {
     }
 }
 
+function bindModalInteractions() {
+    [elements.adminLoginModal, elements.adminControlsModal].forEach((modal) => {
+        if (!modal) {
+            return;
+        }
+        modal.addEventListener("click", (event) => {
+            if (event.target === modal) {
+                hideModal(modal);
+            }
+        });
+    });
+
+    elements.modalCloseButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            const modalId = button.dataset.closeModal;
+            const modal = document.getElementById(modalId);
+            hideModal(modal);
+        });
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") {
+            return;
+        }
+
+        if (!elements.adminControlsModal.hidden) {
+            hideModal(elements.adminControlsModal);
+            return;
+        }
+
+        if (!elements.adminLoginModal.hidden) {
+            hideModal(elements.adminLoginModal);
+        }
+    });
+}
+
 if (elements.pokemonImage) {
     elements.pokemonImage.addEventListener("error", () => {
         showPokemonFallback("Artwork unavailable");
@@ -590,6 +713,10 @@ if (elements.skipCategoryButton) {
 
 if (elements.switchCategoryButton) {
     elements.switchCategoryButton.addEventListener("click", switchCategory);
+}
+
+if (elements.adminControlButton) {
+    elements.adminControlButton.addEventListener("click", openAdminControlFlow);
 }
 
 if (elements.adminLoginForm) {
@@ -618,6 +745,7 @@ elements.serviceButtons.forEach((button) => {
     });
 });
 
+bindModalInteractions();
 refreshDashboard();
 window.setInterval(() => {
     refreshDashboard().catch(() => {});

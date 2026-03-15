@@ -27,9 +27,10 @@
                     Public runtime visibility with protected admin controls layered on top of the existing single-process LED matrix loop.
                 </p>
             </div>
-            <div class="hero-status">
+            <div class="hero-actions">
                 <span class="status-pill" id="refresh-status">Connecting</span>
                 <span class="status-pill" id="last-updated">Waiting for state</span>
+                <button class="admin-entry-button" id="admin-control-button" type="button">Admin Control</button>
             </div>
         </section>
 
@@ -122,21 +123,22 @@
                 </article>
             </aside>
         </section>
+    </main>
 
-        <section class="admin-card" id="admin-card">
-            <div class="admin-header">
-                <div>
-                    <p class="section-kicker admin-kicker">Admin Control</p>
-                    <h2>Protected operations</h2>
-                    <p class="admin-subtitle" id="admin-summary">
-                        Sign in with the configured admin account to manage locks and service actions.
-                    </p>
-                </div>
-                <span class="admin-session-badge" id="admin-session-badge">Signed out</span>
+    <div class="modal-backdrop" id="admin-login-modal" hidden>
+        <div class="modal-dialog admin-modal admin-login-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
+            <button class="modal-close" type="button" data-close-modal="admin-login-modal" aria-label="Close admin login">Close</button>
+
+            <div class="modal-heading">
+                <p class="modal-kicker">Admin Control</p>
+                <h2 id="admin-login-title">Sign In</h2>
+                <p class="modal-subtitle" id="admin-login-copy">
+                    Sign in with the configured admin account to access protected controls.
+                </p>
             </div>
 
             <div class="admin-disabled-message" id="admin-disabled-message" hidden>
-                Admin authentication is not configured on this host yet. Add `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` in your local environment before using admin controls.
+                Admin authentication is not configured on this host yet. Add local `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` values before using admin controls.
             </div>
 
             <form class="admin-login-form" id="admin-login-form">
@@ -149,8 +151,26 @@
                     <input id="admin-password" name="password" type="password" autocomplete="current-password">
                 </label>
                 <button class="admin-button admin-button-primary" id="admin-login-button" type="submit">Sign In</button>
-                <p class="admin-status-message" id="admin-login-status" aria-live="polite">Admin session inactive.</p>
             </form>
+
+            <p class="admin-status-message" id="admin-login-status" aria-live="polite">Admin session inactive.</p>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="admin-controls-modal" hidden>
+        <div class="modal-dialog admin-modal admin-controls-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-controls-title">
+            <button class="modal-close" type="button" data-close-modal="admin-controls-modal" aria-label="Close admin controls">Close</button>
+
+            <div class="admin-modal-header">
+                <div>
+                    <p class="modal-kicker admin-kicker">Admin Control</p>
+                    <h2 id="admin-controls-title">Protected Operations</h2>
+                    <p class="modal-subtitle admin-subtitle" id="admin-controls-summary">
+                        Authenticated admin session required.
+                    </p>
+                </div>
+                <span class="admin-session-badge" id="admin-session-badge">Signed out</span>
+            </div>
 
             <div class="admin-panel" id="admin-panel" hidden>
                 <div class="admin-grid">
@@ -205,8 +225,8 @@
                     <p class="admin-status-message" id="admin-action-status" aria-live="polite">Admin controls ready.</p>
                 </div>
             </div>
-        </section>
-    </main>
+        </div>
+    </div>
 
     <script src="/dashboard.js" defer></script>
 </body>

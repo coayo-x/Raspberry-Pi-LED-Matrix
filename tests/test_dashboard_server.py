@@ -131,6 +131,9 @@ def test_dashboard_api_returns_stable_response_shape(
     assert state["data"]["image_url"] == "https://example.test/bulbasaur.png"
     assert control_state["auth"]["configured"] is True
     assert "data-control-state-api=" in page
+    assert 'id="admin-control-button"' in page
+    assert 'id="admin-login-modal"' in page
+    assert 'id="admin-controls-modal"' in page
     assert 'id="pokemon-image"' in page
     assert "/api/admin/login" in page
 
