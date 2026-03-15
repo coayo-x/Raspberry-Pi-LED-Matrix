@@ -328,6 +328,7 @@ def get_current_science_fact(now: datetime | None = None, db_path: str = "conten
             ),
         )
         conn.commit()
-        return fact
-    finally:
-        conn.close()
+
+
+        
+i don't like this!
