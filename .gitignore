@@ -21,6 +21,8 @@ preview_frames/
 .pytest_cache/
 pytest-cache-files-*/
 
+# temp
+tmp/
 
 tmp/
 *.log
