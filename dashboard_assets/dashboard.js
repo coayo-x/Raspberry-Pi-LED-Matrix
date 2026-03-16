@@ -394,6 +394,7 @@ function applyControlPayload(payload) {
         elements.adminPanel.hidden = true;
         elements.adminSessionBadge.textContent = "Signed out";
         elements.adminControlsSummary.textContent =
+            "Sign in to manage public control locks.";
             "Sign in to manage access locks.";
         if (
             !elements.adminLoginStatus.dataset.state ||

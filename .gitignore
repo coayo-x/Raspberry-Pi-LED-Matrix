@@ -1,15 +1,28 @@
 __pycache__/
-
-# Trash generated files
 *.pyc
-
-
 
 # databases
 content.db
 *.db
 *.db-wal
 *.db-shm
+
+# env
+.env
+.env.local
+
+# preview
+preview_frames/
+
+# pre-commit
+.pre-commit-cache/
+
+# pytest
+.pytest_cache/
+pytest-cache-files-*/
+
+# temp
+tmp/
 .env
 .env.local
 preview_frames/
