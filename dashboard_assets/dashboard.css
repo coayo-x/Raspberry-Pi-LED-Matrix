@@ -279,11 +279,8 @@ select {
 
 .switch-row {
     display: grid;
-    gap: 8px;
-}
-
-.switch-row {
     grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
 }
 
 .category-select,
@@ -423,7 +420,7 @@ select {
 }
 
 .admin-controls-dialog {
-    width: min(100%, 760px);
+    width: min(100%, 600px);
 }
 
 .modal-close {
@@ -477,8 +474,9 @@ select {
     border-color: rgba(255, 231, 168, 0.22);
     background: rgba(239, 209, 113, 0.1);
     color: var(--admin-muted);
-    min-height: 34px;
-    padding: 8px 12px;
+    min-height: 38px;
+    min-width: 132px;
+    padding: 8px 14px;
 }
 
 .admin-disabled-message {
@@ -511,31 +509,47 @@ select {
 
 .admin-panel {
     display: grid;
-    gap: 14px;
-    margin-top: 14px;
-}
-
-.admin-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 18px;
+    margin-top: 18px;
 }
 
 .admin-subcard {
-    padding: 14px;
-    border-radius: 18px;
+    width: min(100%, 460px);
+    margin: 0 auto;
+    padding: 20px;
+    border-radius: 20px;
     border: 1px solid rgba(255, 231, 168, 0.16);
-    background: linear-gradient(180deg, rgba(85, 63, 14, 0.28), rgba(45, 33, 9, 0.36));
+    background: linear-gradient(180deg, rgba(90, 66, 15, 0.3), rgba(40, 28, 8, 0.46));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 240, 192, 0.05),
+        0 18px 28px rgba(17, 11, 0, 0.18);
     display: grid;
-    gap: 12px;
+    gap: 16px;
+}
+
+.admin-subcard-header {
+    display: grid;
+    gap: 8px;
+}
+
+.admin-subcard-copy {
+    margin: 0;
+    color: var(--admin-muted);
+    line-height: 1.46;
+    font-size: 0.92rem;
+}
+
+.lock-copy {
+    display: grid;
+    gap: 4px;
 }
 
 .lock-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
     align-items: center;
-    padding: 10px 0;
+    padding: 14px 0;
     border-top: 1px solid rgba(255, 231, 168, 0.12);
 }
 
@@ -547,7 +561,11 @@ select {
 .admin-button {
     color: var(--admin-ink);
     border-color: rgba(255, 231, 168, 0.22);
-    background: linear-gradient(180deg, rgba(255, 231, 168, 0.16), rgba(184, 145, 45, 0.12));
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.18), rgba(184, 145, 45, 0.14));
+    min-height: 46px;
+    padding: 11px 18px;
+    justify-content: center;
+    box-shadow: inset 0 1px 0 rgba(255, 246, 219, 0.08);
 }
 
 .admin-button-primary {
@@ -555,15 +573,58 @@ select {
 }
 
 .admin-button-ghost {
-    background: transparent;
+    background: rgba(255, 231, 168, 0.06);
+    border-color: rgba(255, 231, 168, 0.18);
+}
+
+.admin-lock-button {
+    min-width: 196px;
+}
+
+.admin-logout-button {
+    min-width: 140px;
+}
+
+.admin-button:hover:not(:disabled),
+.admin-button:focus-visible {
+    border-color: rgba(255, 231, 168, 0.42);
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.24), rgba(208, 165, 49, 0.2));
+    box-shadow: 0 12px 22px rgba(17, 11, 0, 0.24);
+}
+
+.admin-controls-dialog.admin-modal {
+    padding: 24px;
+}
+
+.admin-modal-header {
+    gap: 16px;
+    align-items: center;
+}
+
+.admin-footer {
+    width: min(100%, 460px);
+    margin: 0 auto;
+    gap: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 231, 168, 0.12);
+    align-items: center;
+}
+
+.admin-footer-status {
+    flex: 1 1 auto;
+    min-height: 46px;
+    padding: 11px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 231, 168, 0.12);
+    background: rgba(255, 248, 226, 0.03);
+    display: flex;
+    align-items: center;
 }
 
 @media (max-width: 980px) {
     .hero-card,
     .card-heading,
-    .control-block-header,
-    .admin-modal-header,
-    .admin-footer {
+    .control-block-header {
         flex-direction: column;
         align-items: stretch;
     }
@@ -573,8 +634,7 @@ select {
         width: 100%;
     }
 
-    .main-grid,
-    .admin-grid {
+    .main-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -606,5 +666,25 @@ select {
 
     .admin-modal {
         padding: 16px;
+    }
+
+    .admin-controls-dialog.admin-modal {
+        padding: 18px;
+    }
+
+    .admin-modal-header,
+    .admin-footer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .lock-row {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-lock-button,
+    .admin-logout-button {
+        width: 100%;
+        min-width: 0;
     }
 }
