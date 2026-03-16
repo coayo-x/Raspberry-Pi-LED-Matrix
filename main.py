@@ -153,6 +153,9 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         else:
             _, skip_handled_count = get_skip_category_state()
             _, switch_handled_count, _ = get_switch_category_state()
+        else:
+            _, skip_handled_count = get_skip_category_state()
+            _, switch_handled_count, _ = get_switch_category_state()
             handled_count = consume_skip_category_request()
             if handled_count is None:
                 time.sleep(1)

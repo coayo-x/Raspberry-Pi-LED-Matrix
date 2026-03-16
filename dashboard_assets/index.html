@@ -189,6 +189,8 @@
             </div>
 
             <div class="admin-panel" id="admin-panel" hidden>
+                <article class="admin-subcard admin-subcard-primary">
+                    <div class="admin-subcard-header">
                 <div class="admin-grid">
                     <article class="admin-subcard">
                         <div class="card-heading">
@@ -221,6 +223,25 @@
                             <p class="section-kicker admin-kicker">Access Locks</p>
                             <h3>Public control gates</h3>
                         </div>
+                        <p class="admin-subcard-copy">
+                            Control whether public visitors can trigger skip or switch actions from the dashboard.
+                        </p>
+                    </div>
+
+                    <div class="lock-row">
+                        <div class="lock-copy">
+                            <p class="lock-title">Skip Category</p>
+                            <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
+                        </div>
+                        <button class="admin-button admin-lock-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                    </div>
+
+                    <div class="lock-row">
+                        <div class="lock-copy">
+                            <p class="lock-title">Switch Category</p>
+                            <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
+                        </div>
+                        <button class="admin-button admin-lock-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
                     </div>
 
                     <div class="lock-row">
@@ -241,6 +262,8 @@
                 </article>
 
                 <div class="admin-footer">
+                    <p class="admin-status-message admin-footer-status" id="admin-action-status" aria-live="polite">Admin controls ready.</p>
+                    <button class="admin-button admin-button-ghost admin-logout-button" id="admin-logout-button" type="button">Log Out</button>
                     <button class="admin-button admin-button-ghost" id="admin-logout-button" type="button">Log Out</button>
                     <p class="admin-status-message" id="admin-action-status" aria-live="polite">Admin controls ready.</p>
                 </div>
