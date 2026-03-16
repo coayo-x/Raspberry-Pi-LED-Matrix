@@ -10,6 +10,8 @@
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
     data-poll-interval-ms="__POLL_INTERVAL_MS__"
 >
+<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-switch-api-path="/api/switch-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
+<html lang="en" data-api-path="/api/current-display-state" data-skip-api-path="/api/skip-category" data-poll-interval-ms="__POLL_INTERVAL_MS__">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -98,6 +100,21 @@
                         </div>
                         <div class="switch-row">
                             <select class="category-select" id="switch-category-select" name="switch-category">
+        <section class="dashboard-header">
+            <div class="header-copy">
+                <p class="eyebrow">Phase 2 Dashboard</p>
+                <h1>Current LED Matrix Screen</h1>
+                <p class="header-subtitle">Live runtime view with a lightweight category skip control.</p>
+            </div>
+            <div class="header-actions">
+                <div class="control-panel" aria-label="Dashboard controls">
+                    <div class="control-row control-row-skip">
+                        <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+                    </div>
+                    <div class="control-row control-row-switch">
+                        <label class="control-label" for="switch-category-select">Switch Category</label>
+                        <div class="control-input-row">
+                            <select class="control-select" id="switch-category-select" name="switch-category">
                                 <option value="pokemon">Pokemon</option>
                                 <option value="weather">Weather</option>
                                 <option value="joke">Joke</option>
@@ -175,6 +192,34 @@
             <div class="admin-panel" id="admin-panel" hidden>
                 <article class="admin-subcard admin-subcard-primary">
                     <div class="admin-subcard-header">
+                <div class="admin-grid">
+                    <article class="admin-subcard">
+                        <div class="card-heading">
+                            <div>
+                                <p class="section-kicker admin-kicker">Access Locks</p>
+                                <h3>Public control gates</h3>
+                            </div>
+                        </div>
+
+                        <div class="lock-row">
+                            <div>
+                                <p class="lock-title">Skip Category</p>
+                                <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
+                            </div>
+                            <button class="admin-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                        </div>
+
+                        <div class="lock-row">
+                            <div>
+                                <p class="lock-title">Switch Category</p>
+                                <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
+                            </div>
+                            <button class="admin-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                        </div>
+                    </article>
+                </div>
+                <article class="admin-subcard">
+                    <div class="card-heading">
                         <div>
                             <p class="section-kicker admin-kicker">Access Locks</p>
                             <h3>Public control gates</h3>
@@ -199,15 +244,69 @@
                         </div>
                         <button class="admin-button admin-lock-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
                     </div>
+
+                    <div class="lock-row">
+                        <div>
+                            <p class="lock-title">Skip Category</p>
+                            <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
+                        </div>
+                        <button class="admin-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                    </div>
+
+                    <div class="lock-row">
+                        <div>
+                            <p class="lock-title">Switch Category</p>
+                            <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
+                        </div>
+                        <button class="admin-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                    </div>
                 </article>
 
                 <div class="admin-footer">
                     <p class="admin-status-message admin-footer-status" id="admin-action-status" aria-live="polite">Admin controls ready.</p>
                     <button class="admin-button admin-button-ghost admin-logout-button" id="admin-logout-button" type="button">Log Out</button>
+                    <button class="admin-button admin-button-ghost" id="admin-logout-button" type="button">Log Out</button>
+                    <p class="admin-status-message" id="admin-action-status" aria-live="polite">Admin controls ready.</p>
                 </div>
             </div>
         </div>
     </div>
+                            <button class="control-button control-button-secondary" id="switch-category-button" type="button">Apply</button>
+                        </div>
+                    </div>
+                    <button class="control-button" id="skip-category-button" type="button">Skip Category</button>
+                    <p class="control-message" id="action-status">No action requested</p>
+                </div>
+                <div class="status-row">
+                    <span class="status-pill" id="refresh-status">Connecting</span>
+                    <span class="status-pill" id="last-updated">Waiting for state</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="field-grid" aria-label="Current display summary">
+            <article class="field-card field-card-time">
+                <p class="field-label">Time</p>
+                <p class="field-value" id="time-value">--</p>
+            </article>
+            <article class="field-card field-card-slot">
+                <p class="field-label">Slot</p>
+                <p class="field-value" id="slot-value">--</p>
+            </article>
+            <article class="field-card field-card-category">
+                <p class="field-label">Category</p>
+                <p class="field-value" id="category-value">--</p>
+            </article>
+            <article class="field-card field-card-setup">
+                <p class="field-label">Setup</p>
+                <p class="field-value" id="setup-value">--</p>
+            </article>
+            <article class="field-card field-card-punchline">
+                <p class="field-label">Punchline</p>
+                <p class="field-value" id="punchline-value">--</p>
+            </article>
+        </section>
+    </main>
 
     <script src="/dashboard.js" defer></script>
 </body>
