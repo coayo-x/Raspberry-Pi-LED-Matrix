@@ -27,6 +27,7 @@ ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
 STATIC_ROUTES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/icon.svg": ("icon.svg", "image/svg+xml"),
     "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
     "/dashboard.js": ("dashboard.js", "application/javascript; charset=utf-8"),
 }
