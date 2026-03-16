@@ -5,12 +5,15 @@ import pytest
 from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
+    get_alien_mode_state,
     get_runtime_control_state,
     get_skip_category_state,
     get_switch_category_state,
     request_skip_category,
     request_switch_category,
     set_control_lock,
+    start_alien_mode,
+    stop_alien_mode,
 )
 
 
@@ -122,3 +125,19 @@ def test_runtime_control_state_reports_lock_and_cooldown(isolated_db_path) -> No
     assert admin_state["switch_category"]["locked"] is True
     assert admin_state["switch_category"]["admin_override"] is True
     assert admin_state["switch_category"]["available"] is True
+
+
+def test_alien_mode_start_and_stop_persist_runtime_override(isolated_db_path) -> None:
+    initial = get_alien_mode_state(str(isolated_db_path))
+    started = start_alien_mode(str(isolated_db_path), updated_at="2026-03-15T13:35:00")
+    runtime_state = get_runtime_control_state(str(isolated_db_path))
+    stopped = stop_alien_mode(str(isolated_db_path), updated_at="2026-03-15T13:36:00")
+
+    assert initial["active"] is False
+    assert initial["status"] == "inactive"
+    assert started["active"] is True
+    assert started["status"] == "active"
+    assert started["updated_at"] == "2026-03-15T13:35:00"
+    assert runtime_state["alien_mode"]["active"] is True
+    assert stopped["active"] is False
+    assert stopped["updated_at"] == "2026-03-15T13:36:00"

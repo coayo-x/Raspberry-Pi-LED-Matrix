@@ -93,3 +93,59 @@ def test_run_forever_switches_category_immediately_within_active_slot(
         main.run_forever(display, boot_delay=0)
 
     assert display.categories == ["pokemon", "weather"]
+
+
+class AlienResumeDisplay:
+    def __init__(self, alien_state: dict) -> None:
+        self.alien_state = alien_state
+        self.alien_runs = 0
+        self.categories: list[str] = []
+
+    def run_alien_animation(self, should_interrupt=None) -> None:
+        self.alien_runs += 1
+        assert should_interrupt is not None
+        assert should_interrupt() is False
+        self.alien_state["active"] = False
+
+    def display_payload(
+        self,
+        payload: dict,
+        duration_seconds=None,
+        should_interrupt=None,
+    ) -> None:
+        self.categories.append(payload["category"])
+        raise StopRuntimeLoop
+
+
+def test_run_forever_resumes_rotation_after_alien_mode_stops(monkeypatch) -> None:
+    alien_state = {"active": True}
+
+    monkeypatch.setattr(main, "datetime", FakeDateTime)
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "print_payload", lambda payload: None)
+    monkeypatch.setattr(main, "save_current_display_state", lambda payload: payload)
+    monkeypatch.setattr(main, "alien_mode_active", lambda: alien_state["active"])
+    monkeypatch.setattr(main, "get_current_slot_key", lambda now=None: "2026-03-15:144")
+    monkeypatch.setattr(main, "seconds_until_next_slot", lambda now=None: 60)
+    monkeypatch.setattr(main, "get_skip_category_state", lambda: (0, 0))
+    monkeypatch.setattr(main, "consume_skip_category_request", lambda: None)
+    monkeypatch.setattr(main, "get_switch_category_state", lambda: (0, 0, None))
+    monkeypatch.setattr(main, "consume_switch_category_request", lambda: None)
+    monkeypatch.setattr(
+        main,
+        "build_runtime_payload",
+        lambda now, category_override=None: {
+            "slot_key": "2026-03-15:144",
+            "time": "2026-03-15 12:00:00",
+            "category": category_override or "pokemon",
+            "data": {},
+        },
+    )
+
+    display = AlienResumeDisplay(alien_state)
+
+    with pytest.raises(StopRuntimeLoop):
+        main.run_forever(display, boot_delay=0)
+
+    assert display.alien_runs == 1
+    assert display.categories == ["pokemon"]

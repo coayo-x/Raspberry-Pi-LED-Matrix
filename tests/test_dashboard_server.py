@@ -10,6 +10,7 @@ from dashboard_server import create_dashboard_server
 from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
+    get_alien_mode_state,
     get_skip_category_state,
     get_switch_category_state,
     set_control_lock,
@@ -134,7 +135,10 @@ def test_dashboard_api_returns_stable_response_shape(
     assert 'id="admin-login-modal"' in page
     assert 'id="admin-controls-modal"' in page
     assert 'id="pokemon-image"' in page
+    assert 'id="alien-start-button"' in page
+    assert 'id="alien-stop-button"' in page
     assert "/api/admin/login" in page
+    assert "/api/alien/start" in page
 
 
 def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) -> None:
@@ -277,6 +281,31 @@ def test_dashboard_switch_category_endpoint_rejects_invalid_category(
 
     assert status == 400
     assert "Invalid category" in body["error"]
+
+
+def test_dashboard_alien_mode_start_and_stop_endpoints(isolated_db_path) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        start_status, start_body = _post_json(f"{base_url}/api/alien/start")
+        control_state = _fetch_json(f"{base_url}/api/control-state")
+        stop_status, stop_body = _post_json(f"{base_url}/api/alien/stop")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert start_status == 200
+    assert start_body["active"] is True
+    assert control_state["controls"]["alien_mode"]["active"] is True
+    assert get_alien_mode_state(str(isolated_db_path))["active"] is False
+    assert stop_status == 200
+    assert stop_body["active"] is False
 
 
 def test_dashboard_protected_admin_endpoint_rejects_unauthorized_request(

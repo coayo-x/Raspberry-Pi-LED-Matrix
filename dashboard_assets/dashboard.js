@@ -6,6 +6,10 @@ const skipApiPath =
     document.documentElement.dataset.skipApiPath || "/api/skip-category";
 const switchApiPath =
     document.documentElement.dataset.switchApiPath || "/api/switch-category";
+const alienStartApi =
+    document.documentElement.dataset.alienStartApi || "/api/alien/start";
+const alienStopApi =
+    document.documentElement.dataset.alienStopApi || "/api/alien/stop";
 const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
@@ -29,6 +33,11 @@ const elements = {
     skipCategoryNote: document.getElementById("skip-category-note"),
     switchCategoryNote: document.getElementById("switch-category-note"),
     actionStatus: document.getElementById("action-status"),
+    alienModeState: document.getElementById("alien-mode-state"),
+    alienModeNote: document.getElementById("alien-mode-note"),
+    alienStartButton: document.getElementById("alien-start-button"),
+    alienStopButton: document.getElementById("alien-stop-button"),
+    alienActionStatus: document.getElementById("alien-action-status"),
     pokemonCard: document.getElementById("pokemon-card"),
     pokemonImage: document.getElementById("pokemon-image"),
     pokemonImageFallback: document.getElementById("pokemon-image-fallback"),
@@ -296,6 +305,38 @@ function applyPublicControlState(control, button, noteElement) {
     button.disabled = !control.available;
 }
 
+function buildAlienModeNote(control) {
+    if (!control) {
+        return "Alien override state unavailable.";
+    }
+
+    if (control.active) {
+        return control.updated_at
+            ? `Alien override active since ${control.updated_at}.`
+            : "Alien override active.";
+    }
+
+    return "Normal slot rotation is active.";
+}
+
+function applyAlienControlState(control) {
+    if (
+        !elements.alienModeState ||
+        !elements.alienModeNote ||
+        !elements.alienStartButton ||
+        !elements.alienStopButton
+    ) {
+        return;
+    }
+
+    const isActive = Boolean(control?.active);
+    elements.alienModeState.textContent = isActive ? "Active" : "Idle";
+    elements.alienModeState.dataset.state = isActive ? "active" : "inactive";
+    elements.alienModeNote.textContent = buildAlienModeNote(control);
+    elements.alienStartButton.disabled = isActive;
+    elements.alienStopButton.disabled = !isActive;
+}
+
 function applyAdminLockState(control, button, labelElement) {
     if (!control || !button || !labelElement) {
         return;
@@ -329,6 +370,7 @@ function applyControlPayload(payload) {
         elements.switchCategoryButton,
         elements.switchCategoryNote,
     );
+    applyAlienControlState(controls.alien_mode);
 
     if (elements.switchCategorySelect) {
         const switchControl = controls.switch_category;
@@ -426,6 +468,11 @@ async function refreshDashboard() {
         applyControlPayload(controlResult.value);
     } else {
         setMessage(
+            elements.alienActionStatus,
+            describeResultError(controlResult.reason, "Alien control unavailable"),
+            "error",
+        );
+        setMessage(
             elements.actionStatus,
             describeResultError(controlResult.reason, "Control state unavailable"),
             "error",
@@ -493,6 +540,64 @@ async function switchCategory() {
         setMessage(
             elements.actionStatus,
             describeResultError(error, "Switch request failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard();
+    }
+}
+
+async function startAlienDance() {
+    if (!elements.alienStartButton || !elements.alienStopButton) {
+        return;
+    }
+
+    elements.alienStartButton.disabled = true;
+    elements.alienStopButton.disabled = true;
+    setMessage(elements.alienActionStatus, "Starting Alien Dance...", "pending");
+
+    try {
+        const result = await fetchJson(alienStartApi, { method: "POST" });
+        setMessage(
+            elements.alienActionStatus,
+            result.active
+                ? "Alien Dance is now overriding the matrix."
+                : "Alien Dance start request completed.",
+            "success",
+        );
+    } catch (error) {
+        setMessage(
+            elements.alienActionStatus,
+            describeResultError(error, "Alien Dance start failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard();
+    }
+}
+
+async function stopAlienDance() {
+    if (!elements.alienStartButton || !elements.alienStopButton) {
+        return;
+    }
+
+    elements.alienStartButton.disabled = true;
+    elements.alienStopButton.disabled = true;
+    setMessage(elements.alienActionStatus, "Stopping Alien Dance...", "pending");
+
+    try {
+        const result = await fetchJson(alienStopApi, { method: "POST" });
+        setMessage(
+            elements.alienActionStatus,
+            result.active
+                ? "Alien Dance is still active."
+                : "Alien Dance stopped. Normal rotation resumed.",
+            "success",
+        );
+    } catch (error) {
+        setMessage(
+            elements.alienActionStatus,
+            describeResultError(error, "Alien Dance stop failed"),
             "error",
         );
     } finally {
@@ -656,6 +761,14 @@ if (elements.skipCategoryButton) {
 
 if (elements.switchCategoryButton) {
     elements.switchCategoryButton.addEventListener("click", switchCategory);
+}
+
+if (elements.alienStartButton) {
+    elements.alienStartButton.addEventListener("click", startAlienDance);
+}
+
+if (elements.alienStopButton) {
+    elements.alienStopButton.addEventListener("click", stopAlienDance);
 }
 
 if (elements.adminControlButton) {

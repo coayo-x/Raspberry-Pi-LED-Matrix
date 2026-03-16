@@ -5,6 +5,8 @@
     data-control-state-api="__CONTROL_STATE_API__"
     data-skip-api-path="__SKIP_API__"
     data-switch-api-path="__SWITCH_API__"
+    data-alien-start-api="__ALIEN_START_API__"
+    data-alien-stop-api="__ALIEN_STOP_API__"
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
@@ -120,6 +122,28 @@
                         <h2 id="pokemon-name">--</h2>
                         <p class="pokemon-meta" id="pokemon-meta">Waiting for Pokemon state.</p>
                     </div>
+                </article>
+
+                <article class="alien-card">
+                    <div class="card-heading">
+                        <div>
+                            <p class="section-kicker">Override Mode</p>
+                            <h2>Alien Dance</h2>
+                        </div>
+                        <span class="state-chip alien-mode-chip" id="alien-mode-state">Idle</span>
+                    </div>
+
+                    <p class="alien-copy">
+                        Override the normal slot rotation with a looping alien dance animation and soundtrack until you stop it.
+                    </p>
+                    <p class="control-note" id="alien-mode-note">Normal slot rotation is active.</p>
+
+                    <div class="alien-button-row">
+                        <button class="public-button" id="alien-start-button" type="button">Alien Dance</button>
+                        <button class="public-button public-button-secondary" id="alien-stop-button" type="button">Stop Alien Dance</button>
+                    </div>
+
+                    <p class="action-message" id="alien-action-status" aria-live="polite">Alien override idle.</p>
                 </article>
             </aside>
         </section>

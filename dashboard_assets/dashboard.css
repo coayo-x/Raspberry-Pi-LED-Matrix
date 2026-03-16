@@ -9,6 +9,8 @@
     --text-soft: #758aa0;
     --teal: #6ed4bf;
     --teal-strong: #8ce6ff;
+    --alien: #c8ff86;
+    --alien-strong: #f4ffd0;
     --danger: #ffb09a;
     --shadow: rgba(1, 8, 18, 0.45);
     --admin-bg: linear-gradient(180deg, rgba(63, 47, 11, 0.97), rgba(28, 21, 7, 0.98));
@@ -64,7 +66,8 @@ select {
 .hero-card,
 .snapshot-card,
 .public-controls-card,
-.pokemon-card {
+.pokemon-card,
+.alien-card {
     border: 1px solid var(--border);
     border-radius: 20px;
     background: linear-gradient(180deg, var(--panel-strong), var(--panel));
@@ -93,7 +96,8 @@ select {
 
 .snapshot-card h2,
 .public-controls-card h2,
-.pokemon-card h2 {
+.pokemon-card h2,
+.alien-card h2 {
     font-size: 1.2rem;
 }
 
@@ -244,6 +248,12 @@ select {
     padding: 16px;
 }
 
+.alien-card {
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+}
+
 .card-heading,
 .control-block-header,
 .admin-footer {
@@ -350,6 +360,34 @@ select {
 .action-message[data-state="pending"],
 .admin-status-message[data-state="pending"] {
     color: var(--teal);
+}
+
+.alien-mode-chip {
+    border-color: rgba(200, 255, 134, 0.18);
+    background: rgba(200, 255, 134, 0.08);
+}
+
+.alien-mode-chip[data-state="active"] {
+    border-color: rgba(200, 255, 134, 0.38);
+    background: linear-gradient(180deg, rgba(200, 255, 134, 0.2), rgba(132, 193, 57, 0.12));
+    color: var(--alien-strong);
+}
+
+.alien-mode-chip[data-state="inactive"] {
+    color: var(--text-muted);
+}
+
+.alien-copy {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.42;
+    font-size: 0.92rem;
+}
+
+.alien-button-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
 }
 
 .pokemon-card {
@@ -647,6 +685,7 @@ select {
 
     .metric-row,
     .switch-row,
+    .alien-button-row,
     .pokemon-card {
         grid-template-columns: 1fr;
     }

@@ -17,6 +17,8 @@ from config import (
 )
 from current_display_state import load_current_display_state
 from runtime_control import (
+    start_alien_mode,
+    stop_alien_mode,
     get_runtime_control_state,
     request_skip_category,
     request_switch_category,
@@ -35,6 +37,8 @@ API_PATH = "/api/current-display-state"
 CONTROL_STATE_API_PATH = "/api/control-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
 SWITCH_CATEGORY_API_PATH = "/api/switch-category"
+ALIEN_START_API_PATH = "/api/alien/start"
+ALIEN_STOP_API_PATH = "/api/alien/stop"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
@@ -135,6 +139,14 @@ def create_dashboard_server(
                     return
 
                 self._send_json(self._control_status_code(result), result)
+                return
+
+            if route == ALIEN_START_API_PATH:
+                self._send_json(HTTPStatus.OK, start_alien_mode(db_path=db_path))
+                return
+
+            if route == ALIEN_STOP_API_PATH:
+                self._send_json(HTTPStatus.OK, stop_alien_mode(db_path=db_path))
                 return
 
             if route == ADMIN_LOGIN_API_PATH:
@@ -348,6 +360,8 @@ def _render_html() -> bytes:
         "__CONTROL_STATE_API__": CONTROL_STATE_API_PATH,
         "__SKIP_API__": SKIP_CATEGORY_API_PATH,
         "__SWITCH_API__": SWITCH_CATEGORY_API_PATH,
+        "__ALIEN_START_API__": ALIEN_START_API_PATH,
+        "__ALIEN_STOP_API__": ALIEN_STOP_API_PATH,
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,

@@ -22,6 +22,9 @@ SWITCH_CATEGORY_LAST_ACCEPTED_AT_KEY = "switch_category_last_accepted_at"
 SWITCH_CATEGORY_VALUE_KEY = "switch_category_value"
 SWITCH_CATEGORY_LOCKED_KEY = "switch_category_locked"
 
+ALIEN_MODE_ACTIVE_KEY = "alien_mode_active"
+ALIEN_MODE_UPDATED_AT_KEY = "alien_mode_updated_at"
+
 CONTROL_ACTIONS = {
     "skip_category": {
         "label": "Skip Category",
@@ -178,6 +181,28 @@ def _build_action_state(
     }
 
 
+def _build_alien_mode_state(conn) -> dict:
+    active = _get_meta_bool(conn, ALIEN_MODE_ACTIVE_KEY)
+    updated_at = _get_meta_text(conn, ALIEN_MODE_UPDATED_AT_KEY) or ""
+    return {
+        "action": "alien_mode",
+        "label": "Alien Dance",
+        "locked": False,
+        "admin_override": False,
+        "cooldown_seconds": 0,
+        "cooldown_remaining_seconds": 0,
+        "request_count": 0,
+        "handled_count": 0,
+        "pending_request_count": 0,
+        "last_requested_at": updated_at,
+        "last_accepted_at": updated_at,
+        "available": True,
+        "status": "active" if active else "inactive",
+        "active": active,
+        "updated_at": updated_at,
+    }
+
+
 def _request_action(
     action: str,
     *,
@@ -281,14 +306,57 @@ def get_runtime_control_state(
     current = _now_or_default(now)
     conn = connect(db_path)
     try:
-        return {
+        controls = {
             action: _build_action_state(
                 conn, action, current=current, is_admin=is_admin
             )
             for action in CONTROL_ACTIONS
         }
+        controls["alien_mode"] = _build_alien_mode_state(conn)
+        return controls
     finally:
         conn.close()
+
+
+def get_alien_mode_state(db_path: str = DB_PATH) -> dict:
+    conn = connect(db_path)
+    try:
+        return _build_alien_mode_state(conn)
+    finally:
+        conn.close()
+
+
+def set_alien_mode(
+    active: bool,
+    db_path: str = DB_PATH,
+    updated_at: str | None = None,
+) -> dict:
+    current = _parse_timestamp(updated_at) if updated_at else None
+    timestamp = updated_at or _isoformat(_now_or_default(current))
+
+    conn = connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _set_meta(conn, ALIEN_MODE_ACTIVE_KEY, "1" if active else "0")
+        _set_meta(conn, ALIEN_MODE_UPDATED_AT_KEY, timestamp)
+        conn.commit()
+        return _build_alien_mode_state(conn)
+    finally:
+        conn.close()
+
+
+def start_alien_mode(
+    db_path: str = DB_PATH,
+    updated_at: str | None = None,
+) -> dict:
+    return set_alien_mode(True, db_path=db_path, updated_at=updated_at)
+
+
+def stop_alien_mode(
+    db_path: str = DB_PATH,
+    updated_at: str | None = None,
+) -> dict:
+    return set_alien_mode(False, db_path=db_path, updated_at=updated_at)
 
 
 def set_control_lock(

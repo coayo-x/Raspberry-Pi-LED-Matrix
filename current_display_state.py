@@ -74,6 +74,17 @@ def _normalize_dashboard_fields(category: str, data: dict) -> tuple[str, str]:
             f"Atomic {atomic_number}",
         )
 
+    if category == "alien":
+        return (
+            str(data.get("label", "Alien Dance Mode")),
+            str(
+                data.get(
+                    "detail",
+                    "Looping alien animation and Alien.mp3 until stopped.",
+                )
+            ),
+        )
+
     return ("", "")
 
 

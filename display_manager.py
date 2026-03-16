@@ -1,11 +1,14 @@
+import atexit
 import io
+import shutil
+import subprocess
 import time
 import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageSequence
 from config import ROTATION_INTERVAL
 
 try:
@@ -41,6 +44,9 @@ class DisplayManager:
         self.use_matrix = use_matrix and piomatter is not None
         self.save_previews = save_previews
         self.preview_dir = Path(preview_dir)
+        self.assets_dir = Path(__file__).with_name("assets")
+        self.alien_animation_path = self.assets_dir / "alien.gif"
+        self.alien_audio_path = self.assets_dir / "Alien.mp3"
         if self.save_previews:
             self.preview_dir.mkdir(parents=True, exist_ok=True)
 
@@ -52,6 +58,8 @@ class DisplayManager:
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
+        self._alien_frames: Optional[list[tuple[Image.Image, float]]] = None
+        self._alien_audio_process: subprocess.Popen | None = None
 
         if self.use_matrix:
             geometry = piomatter.Geometry(
@@ -63,6 +71,8 @@ class DisplayManager:
             self.matrix = piomatter.PioMatter(
                 colorspace, pinout, self.framebuffer, geometry
             )
+
+        atexit.register(self._stop_alien_audio_loop)
 
     def _load_small_font(self):
         candidates = [
@@ -229,6 +239,223 @@ class DisplayManager:
         y = (target_height - working.height) // 2
         canvas.paste(working, (x, y), working)
         return canvas
+
+    def _draw_alien_frame(self, phase: int) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+
+        star_offsets = [0, 9, 18, 27, 36, 45, 54, 63]
+        for offset in star_offsets:
+            x = (offset + (phase * 3)) % self.width
+            y = (7 + offset + (phase * 5)) % self.height
+            draw.point((x, y), fill=(120, 180, 255, 255))
+
+        floor_y = 26
+        draw.line((0, floor_y, self.width - 1, floor_y), fill=(44, 84, 108, 255))
+
+        body_x = 22 + (1 if phase % 2 == 0 else -1)
+        body_y = 12 + (-1 if phase in {0, 3} else 0)
+        accent = (164, 255, 138, 255)
+        accent_soft = (118, 216, 248, 255)
+        eye_fill = (8, 14, 18, 255)
+
+        draw.polygon(
+            [
+                (body_x + 1, body_y + 2),
+                (body_x + 5, body_y - 2),
+                (body_x + 7, body_y + 4),
+            ],
+            fill=accent,
+        )
+        draw.polygon(
+            [
+                (body_x + 13, body_y + 2),
+                (body_x + 9, body_y - 2),
+                (body_x + 7, body_y + 4),
+            ],
+            fill=accent,
+        )
+        draw.ellipse((body_x, body_y, body_x + 14, body_y + 10), fill=accent)
+        draw.ellipse((body_x + 3, body_y + 3, body_x + 6, body_y + 6), fill=eye_fill)
+        draw.ellipse((body_x + 8, body_y + 3, body_x + 11, body_y + 6), fill=eye_fill)
+        draw.arc(
+            (body_x + 3, body_y + 5, body_x + 11, body_y + 9), 15, 165, fill=eye_fill
+        )
+
+        torso_x = body_x + 4
+        torso_y = body_y + 9
+        draw.rounded_rectangle(
+            (torso_x, torso_y, torso_x + 7, torso_y + 8),
+            radius=3,
+            fill=accent_soft,
+        )
+
+        left_arm_y = torso_y + (phase % 3)
+        right_arm_y = torso_y + 1 + ((phase + 1) % 3)
+        draw.line(
+            (torso_x, torso_y + 2, torso_x - 4, left_arm_y - 3),
+            fill=accent_soft,
+            width=2,
+        )
+        draw.line(
+            (torso_x + 7, torso_y + 2, torso_x + 12, right_arm_y - 4),
+            fill=accent_soft,
+            width=2,
+        )
+        draw.line(
+            (torso_x - 4, left_arm_y - 3, torso_x - 2, left_arm_y),
+            fill=accent,
+            width=2,
+        )
+        draw.line(
+            (torso_x + 12, right_arm_y - 4, torso_x + 14, right_arm_y),
+            fill=accent,
+            width=2,
+        )
+
+        left_leg_shift = -2 if phase in {0, 2} else 1
+        right_leg_shift = 2 if phase in {1, 3} else -1
+        draw.line(
+            (torso_x + 2, torso_y + 8, torso_x + left_leg_shift, floor_y - 1),
+            fill=accent_soft,
+            width=2,
+        )
+        draw.line(
+            (torso_x + 5, torso_y + 8, torso_x + 7 + right_leg_shift, floor_y - 1),
+            fill=accent_soft,
+            width=2,
+        )
+
+        pet_x = 40 + (-1 if phase in {0, 3} else 1)
+        pet_y = 14
+        pet_fill = (255, 208, 110, 255)
+        draw.ellipse((pet_x, pet_y, pet_x + 12, pet_y + 8), fill=pet_fill)
+        draw.polygon(
+            [(pet_x + 2, pet_y + 1), (pet_x + 4, pet_y - 3), (pet_x + 6, pet_y + 2)],
+            fill=pet_fill,
+        )
+        draw.polygon(
+            [(pet_x + 8, pet_y + 2), (pet_x + 10, pet_y - 2), (pet_x + 11, pet_y + 3)],
+            fill=pet_fill,
+        )
+        draw.ellipse((pet_x + 8, pet_y + 2, pet_x + 10, pet_y + 4), fill=eye_fill)
+        draw.line(
+            (pet_x + 3, pet_y + 8, pet_x + 2, floor_y - 2), fill=pet_fill, width=2
+        )
+        draw.line(
+            (pet_x + 8, pet_y + 8, pet_x + 9, floor_y - 1), fill=pet_fill, width=2
+        )
+        tail_shift = -3 if phase in {0, 2} else 3
+        draw.arc(
+            (
+                pet_x + 9 + min(0, tail_shift),
+                pet_y + 2,
+                pet_x + 18 + max(0, tail_shift),
+                pet_y + 11,
+            ),
+            280 if tail_shift > 0 else 160,
+            80 if tail_shift > 0 else 340,
+            fill=pet_fill,
+            width=2,
+        )
+
+        banner = "ALIEN DANCE"
+        banner_width = self._text_width(banner, font=self.small_font)
+        banner_x = max(0, (self.width - banner_width) // 2)
+        self._draw_line(draw, banner_x, 1, banner, fill=accent, font=self.small_font)
+        return img
+
+    def _build_alien_fallback_frames(self) -> list[tuple[Image.Image, float]]:
+        return [(self._draw_alien_frame(phase), 0.12) for phase in range(4)]
+
+    def _load_alien_frames(self) -> list[tuple[Image.Image, float]]:
+        if self._alien_frames is not None:
+            return self._alien_frames
+
+        frames: list[tuple[Image.Image, float]] = []
+        if self.alien_animation_path.exists():
+            try:
+                with Image.open(self.alien_animation_path) as animation:
+                    for frame in ImageSequence.Iterator(animation):
+                        duration_ms = (
+                            frame.info.get("duration")
+                            or animation.info.get("duration")
+                            or 80
+                        )
+                        frames.append(
+                            (
+                                self._fit_image(
+                                    frame.convert("RGBA"), self.width, self.height
+                                ),
+                                max(0.04, duration_ms / 1000.0),
+                            )
+                        )
+            except Exception:
+                frames = []
+
+        self._alien_frames = frames or self._build_alien_fallback_frames()
+        return self._alien_frames
+
+    def _resolve_alien_audio_command(self) -> list[str] | None:
+        if not self.alien_audio_path.exists():
+            return None
+
+        audio_file = str(self.alien_audio_path)
+        candidates = [
+            [
+                "ffplay",
+                "-nodisp",
+                "-autoexit",
+                "-loglevel",
+                "quiet",
+                "-stream_loop",
+                "-1",
+                audio_file,
+            ],
+            ["mpg123", "--quiet", "--loop", "-1", audio_file],
+            ["mpv", "--no-video", "--really-quiet", "--loop-file=inf", audio_file],
+            ["cvlc", "--intf", "dummy", "--loop", audio_file],
+        ]
+        for command in candidates:
+            if shutil.which(command[0]):
+                return command
+        return None
+
+    def _ensure_alien_audio_loop(self) -> None:
+        if (
+            self._alien_audio_process is not None
+            and self._alien_audio_process.poll() is None
+        ):
+            return
+
+        command = self._resolve_alien_audio_command()
+        if command is None:
+            return
+
+        try:
+            self._alien_audio_process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            self._alien_audio_process = None
+
+    def _stop_alien_audio_loop(self) -> None:
+        process = self._alien_audio_process
+        self._alien_audio_process = None
+        if process is None:
+            return
+
+        if process.poll() is not None:
+            return
+
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
 
     def _draw_line(
         self,
@@ -789,6 +1016,37 @@ class DisplayManager:
             if self._sleep_with_interrupt(0.06, should_interrupt):
                 return True
         return False
+
+    def run_alien_animation(
+        self,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+    ) -> None:
+        frames = self._load_alien_frames()
+        self._ensure_alien_audio_loop()
+
+        try:
+            first_frame, _ = frames[0]
+            if self._transition_to(
+                first_frame,
+                preview_name="alien_mode.png",
+                steps=6,
+                delay=0.03,
+                should_interrupt=should_interrupt,
+            ):
+                return
+
+            frame_index = 0
+            while True:
+                if self._is_interrupted(should_interrupt):
+                    return
+
+                frame, delay = frames[frame_index % len(frames)]
+                self._show_frame(frame, preview_name="alien_mode.png")
+                frame_index += 1
+                if self._sleep_with_interrupt(delay, should_interrupt):
+                    return
+        finally:
+            self._stop_alien_audio_loop()
 
     def display_payload(
         self,

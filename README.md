@@ -58,6 +58,7 @@ Public controls:
 
 - `Skip Category`
 - `Switch Category`
+- `Alien Dance` / `Stop Alien Dance`
 
 Backend enforcement now applies to both actions:
 
@@ -69,6 +70,15 @@ Admin-only controls:
 
 - lock/unlock public skip access
 - lock/unlock public switch access
+
+## Alien Dance Mode
+
+The dashboard includes an Alien Dance override card beneath the Pokemon artwork card.
+
+- `Alien Dance` pauses the normal slot rotation and starts a looping animation plus looping `assets/Alien.mp3` audio.
+- `Stop Alien Dance` stops the override and returns the runtime to the normal slot-based schedule.
+
+The runtime looks for its media under `assets/alien.gif` and `assets/Alien.mp3`. For audio playback on the Raspberry Pi, install at least one supported player such as `ffplay`, `mpg123`, `mpv`, or `cvlc`.
 
 When the current category is `pokemon`, the dashboard shows the normalized Pokemon artwork from the existing payload when available.
 

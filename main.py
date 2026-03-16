@@ -17,6 +17,7 @@ from rotation_engine import (
 from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
+    get_alien_mode_state,
     get_skip_category_state,
     get_switch_category_state,
 )
@@ -30,6 +31,25 @@ def build_runtime_payload(
     payload = build_content_for_now(now, category_override=category_override)
     save_current_display_state(payload)
     return payload
+
+
+def build_alien_runtime_payload(now: datetime | None = None) -> dict:
+    current = now or datetime.now()
+    return {
+        "slot_key": get_current_slot_key(current),
+        "time": current.strftime("%Y-%m-%d %H:%M:%S"),
+        "category": "alien",
+        "data": {
+            "label": "Alien Dance Mode",
+            "detail": "Looping alien animation and Alien.mp3 until stopped.",
+            "animation": "alien.gif",
+            "audio": "Alien.mp3",
+        },
+    }
+
+
+def alien_mode_active() -> bool:
+    return bool(get_alien_mode_state().get("active"))
 
 
 def build_content_for_now(
@@ -101,9 +121,21 @@ def print_payload(payload: dict) -> None:
     elif category == "science":
         print(f"Science Fact: {data['text']}")
 
+    elif category == "alien":
+        print("Alien Dance Mode is active")
+        print(f"Animation: {data['animation']}")
+        print(f"Audio: {data['audio']}")
+
 
 def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     init_db()
+    if alien_mode_active():
+        payload = build_alien_runtime_payload(now)
+        save_current_display_state(payload)
+        print_payload(payload)
+        display.run_alien_animation(should_interrupt=lambda: not alien_mode_active())
+        return payload
+
     payload = build_runtime_payload(now)
     print_payload(payload)
     display.display_payload(payload)
@@ -120,6 +152,17 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
     active_category = None
 
     while True:
+        if alien_mode_active():
+            alien_payload = build_alien_runtime_payload()
+            save_current_display_state(alien_payload)
+            print_payload(alien_payload)
+            display.run_alien_animation(
+                should_interrupt=lambda: not alien_mode_active()
+            )
+            active_slot_key = None
+            active_category = None
+            continue
+
         now = datetime.now()
         slot_key = get_current_slot_key(now)
         category_override = None
@@ -154,10 +197,16 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
             payload,
             duration_seconds=duration,
             should_interrupt=lambda skip_baseline=skip_handled_count, switch_baseline=switch_handled_count: (
-                get_skip_category_state()[0] > skip_baseline
+                alien_mode_active()
+                or get_skip_category_state()[0] > skip_baseline
                 or get_switch_category_state()[0] > switch_baseline
             ),
         )
+        if alien_mode_active():
+            active_slot_key = None
+            active_category = None
+            continue
+
         active_slot_key = slot_key
         active_category = payload["category"]
 
