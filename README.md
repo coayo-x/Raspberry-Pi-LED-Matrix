@@ -69,8 +69,6 @@ Admin-only controls:
 
 - lock/unlock public skip access
 - lock/unlock public switch access
-- stop/restart `main.py` systemd service
-- stop/restart `dashboard_server.py` systemd service
 
 When the current category is `pokemon`, the dashboard shows the normalized Pokemon artwork from the existing payload when available.
 
@@ -79,10 +77,3 @@ When the current category is `pokemon`, the dashboard shows the normalized Pokem
 Checked-in units live in [`systemd/led-matrix.service`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/systemd/led-matrix.service) and [`systemd/led-matrix-dashboard.service`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/systemd/led-matrix-dashboard.service).
 
 Install and enable them with the steps in [`Notes/systemd.md`](/C:/Users/amina/Raspberry-Pi-LED-Matrix/Notes/systemd.md).
-
-The dashboard service-control API uses `systemctl` by default. The dashboard service user must already have permission to stop/restart both units:
-
-- run the dashboard service with sufficient privileges, or
-- configure narrowly scoped passwordless sudo and set `SYSTEMCTL_USE_SUDO=1`
-
-Without that permission, admin service actions will return an execution error for backend commands or fail in service logs for frontend self-restarts/stops.

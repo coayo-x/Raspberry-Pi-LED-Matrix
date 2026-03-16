@@ -12,8 +12,6 @@ const adminLogoutApi =
     document.documentElement.dataset.adminLogoutApi || "/api/admin/logout";
 const adminControlLockApi =
     document.documentElement.dataset.adminControlLockApi || "/api/admin/control-lock";
-const adminServiceActionApi =
-    document.documentElement.dataset.adminServiceActionApi || "/api/admin/service-action";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
 
 const elements = {
@@ -54,10 +52,8 @@ const elements = {
     adminSwitchLockState: document.getElementById("admin-switch-lock-state"),
     toggleSkipLockButton: document.getElementById("toggle-skip-lock-button"),
     toggleSwitchLockButton: document.getElementById("toggle-switch-lock-button"),
-    serviceCopy: document.getElementById("service-copy"),
     adminLogoutButton: document.getElementById("admin-logout-button"),
     adminActionStatus: document.getElementById("admin-action-status"),
-    serviceButtons: Array.from(document.querySelectorAll("[data-service][data-action]")),
 };
 
 let latestControlPayload = null;
@@ -318,7 +314,6 @@ function applyControlPayload(payload) {
     latestControlPayload = payload;
     const auth = payload?.auth || {};
     const controls = payload?.controls || {};
-    const services = payload?.services || {};
     const isAdmin = Boolean(auth.authenticated);
     const anyPublicLock = Object.values(controls).some(
         (control) => control && control.locked,
@@ -357,9 +352,6 @@ function applyControlPayload(payload) {
         elements.adminControlsSummary.textContent =
             "Configure local admin credentials to use protected controls.";
         elements.adminSessionBadge.textContent = "Unavailable";
-        elements.serviceButtons.forEach((button) => {
-            button.disabled = true;
-        });
         elements.toggleSkipLockButton.disabled = true;
         elements.toggleSwitchLockButton.disabled = true;
         elements.adminLogoutButton.disabled = true;
@@ -392,7 +384,7 @@ function applyControlPayload(payload) {
         elements.adminPanel.hidden = true;
         elements.adminSessionBadge.textContent = "Signed out";
         elements.adminControlsSummary.textContent =
-            "Sign in to manage locks and service actions.";
+            "Sign in to manage public control locks.";
         if (
             !elements.adminLoginStatus.dataset.state ||
             elements.adminLoginStatus.dataset.state === "success"
@@ -412,14 +404,6 @@ function applyControlPayload(payload) {
         elements.toggleSwitchLockButton,
         elements.adminSwitchLockState,
     );
-
-    const backendService = displayText(services.backend_service);
-    const frontendService = displayText(services.frontend_service);
-    elements.serviceCopy.textContent =
-        `Backend: ${backendService} | Frontend: ${frontendService}`;
-    elements.serviceButtons.forEach((button) => {
-        button.disabled = !isAdmin;
-    });
     elements.toggleSkipLockButton.disabled = !isAdmin;
     elements.toggleSwitchLockButton.disabled = !isAdmin;
     elements.adminLogoutButton.disabled = !isAdmin;
@@ -624,47 +608,6 @@ async function toggleControlLock(action) {
     }
 }
 
-async function requestServiceAction(service, action) {
-    const confirmation = window.confirm(
-        `${titleCase(action)} ${titleCase(service)} service?`,
-    );
-    if (!confirmation) {
-        return;
-    }
-
-    setMessage(
-        elements.adminActionStatus,
-        `${titleCase(action)} ${titleCase(service)} service...`,
-        "pending",
-    );
-
-    try {
-        const result = await fetchJson(adminServiceActionApi, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ service, action }),
-        });
-        setMessage(
-            elements.adminActionStatus,
-            result.message || `${titleCase(service)} service action accepted.`,
-            "success",
-        );
-        if (service !== "frontend") {
-            await refreshDashboard();
-        } else {
-            window.setTimeout(() => {
-                refreshDashboard().catch(() => {});
-            }, 2000);
-        }
-    } catch (error) {
-        setMessage(
-            elements.adminActionStatus,
-            describeResultError(error, "Service action failed"),
-            "error",
-        );
-    }
-}
-
 function bindModalInteractions() {
     [elements.adminLoginModal, elements.adminControlsModal].forEach((modal) => {
         if (!modal) {
@@ -738,12 +681,6 @@ if (elements.toggleSwitchLockButton) {
         toggleControlLock("switch_category"),
     );
 }
-
-elements.serviceButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-        requestServiceAction(button.dataset.service, button.dataset.action);
-    });
-});
 
 bindModalInteractions();
 refreshDashboard();

@@ -5,7 +5,6 @@ import urllib.error
 import urllib.request
 
 import admin_auth
-import dashboard_server
 from current_display_state import save_current_display_state
 from dashboard_server import create_dashboard_server
 from runtime_control import (
@@ -374,118 +373,6 @@ def test_dashboard_admin_login_lockout_after_failed_attempts(
     assert second_body["status"] == "locked"
     assert third_status == 429
     assert third_body["status"] == "locked"
-
-
-def test_dashboard_admin_service_actions_require_auth_and_can_execute_backend_action(
-    monkeypatch,
-    isolated_db_path,
-) -> None:
-    _install_admin(monkeypatch)
-    opener = _build_opener()
-    observed = {}
-
-    def fake_execute(service, action):
-        observed["service"] = service
-        observed["action"] = action
-        return {
-            "ok": True,
-            "service": service,
-            "action": action,
-            "service_name": "led-matrix.service",
-            "command": ["systemctl", action, "led-matrix.service"],
-            "returncode": 0,
-            "stdout": "",
-            "stderr": "",
-        }
-
-    monkeypatch.setattr(dashboard_server, "execute_service_action", fake_execute)
-
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_address[1]}"
-
-    try:
-        _post_json(
-            f"{base_url}/api/admin/login",
-            {"username": "admin", "password": "s3cret!"},
-            opener=opener,
-        )
-        status, result = _post_json(
-            f"{base_url}/api/admin/service-action",
-            {"service": "backend", "action": "restart"},
-            opener=opener,
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 200
-    assert result["ok"] is True
-    assert observed == {"service": "backend", "action": "restart"}
-
-
-def test_dashboard_admin_service_actions_schedule_frontend_restart(
-    monkeypatch,
-    isolated_db_path,
-) -> None:
-    _install_admin(monkeypatch)
-    opener = _build_opener()
-    observed = {}
-
-    def fake_schedule(service, action, delay_seconds=0.5):
-        observed["service"] = service
-        observed["action"] = action
-        observed["delay_seconds"] = delay_seconds
-        return {
-            "scheduled": True,
-            "service": service,
-            "action": action,
-            "delay_seconds": delay_seconds,
-            "service_name": "led-matrix-dashboard.service",
-        }
-
-    monkeypatch.setattr(dashboard_server, "schedule_service_action", fake_schedule)
-
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_address[1]}"
-
-    try:
-        _post_json(
-            f"{base_url}/api/admin/login",
-            {"username": "admin", "password": "s3cret!"},
-            opener=opener,
-        )
-        request = urllib.request.Request(
-            f"{base_url}/api/admin/service-action",
-            data=json.dumps({"service": "frontend", "action": "restart"}).encode(
-                "utf-8"
-            ),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with opener.open(request, timeout=5) as response:
-            status = response.status
-            result = json.loads(response.read().decode("utf-8"))
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 202
-    assert result["scheduled"] is True
-    assert observed == {
-        "service": "frontend",
-        "action": "restart",
-        "delay_seconds": 0.5,
-    }
 
 
 def test_dashboard_control_state_reflects_public_lock(isolated_db_path) -> None:
