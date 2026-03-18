@@ -19,6 +19,16 @@
     --admin-accent-strong: #ffe7a8;
     --admin-ink: #fff7db;
     --admin-muted: #d9c68f;
+    --bg: #09111d;
+    --bg-glow: rgba(70, 112, 163, 0.2);
+    --panel: rgba(10, 18, 31, 0.88);
+    --panel-alt: rgba(13, 27, 44, 0.92);
+    --panel-border: rgba(165, 191, 222, 0.14);
+    --text-main: #eff5fb;
+    --text-muted: #97abc2;
+    --accent: #57c2a1;
+    --accent-strong: #7fd8ff;
+    --shadow: rgba(1, 6, 14, 0.42);
 }
 
 * {
@@ -28,6 +38,7 @@
 html,
 body {
     min-height: 100%;
+    height: 100%;
 }
 
 body {
@@ -68,6 +79,7 @@ select {
 .public-controls-card,
 .pokemon-card,
 .alien-card {
+.pokemon-card {
     border: 1px solid var(--border);
     border-radius: 20px;
     background: linear-gradient(180deg, var(--panel-strong), var(--panel));
@@ -98,6 +110,7 @@ select {
 .public-controls-card h2,
 .pokemon-card h2,
 .alien-card h2 {
+.pokemon-card h2 {
     font-size: 1.2rem;
 }
 
@@ -293,6 +306,13 @@ select {
     gap: 8px;
 }
 
+    gap: 8px;
+}
+
+.switch-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .category-select,
 .public-button,
 .admin-button,
@@ -459,6 +479,7 @@ select {
 
 .admin-controls-dialog {
     width: min(100%, 600px);
+    width: min(100%, 760px);
 }
 
 .modal-close {
@@ -515,6 +536,8 @@ select {
     min-height: 38px;
     min-width: 132px;
     padding: 8px 14px;
+    min-height: 34px;
+    padding: 8px 12px;
 }
 
 .admin-disabled-message {
@@ -588,6 +611,36 @@ select {
     gap: 16px;
     align-items: center;
     padding: 14px 0;
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.admin-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.admin-subcard {
+    justify-items: center;
+}
+
+.admin-subcard {
+    width: min(100%, 560px);
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 231, 168, 0.16);
+    background: linear-gradient(180deg, rgba(85, 63, 14, 0.28), rgba(45, 33, 9, 0.36));
+    display: grid;
+    gap: 12px;
+}
+
+.lock-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 0;
     border-top: 1px solid rgba(255, 231, 168, 0.12);
 }
 
@@ -604,6 +657,7 @@ select {
     padding: 11px 18px;
     justify-content: center;
     box-shadow: inset 0 1px 0 rgba(255, 246, 219, 0.08);
+    background: linear-gradient(180deg, rgba(255, 231, 168, 0.16), rgba(184, 145, 45, 0.12));
 }
 
 .admin-button-primary {
@@ -657,12 +711,21 @@ select {
     background: rgba(255, 248, 226, 0.03);
     display: flex;
     align-items: center;
+.admin-button-danger {
+    background: linear-gradient(180deg, rgba(255, 176, 154, 0.16), rgba(142, 65, 48, 0.18));
+}
+
+.admin-button-ghost {
+    background: transparent;
 }
 
 @media (max-width: 980px) {
     .hero-card,
     .card-heading,
     .control-block-header {
+    .control-block-header,
+    .admin-modal-header,
+    .admin-footer {
         flex-direction: column;
         align-items: stretch;
     }
@@ -672,6 +735,8 @@ select {
         width: 100%;
     }
 
+    .main-grid,
+    .admin-grid {
     .main-grid {
         grid-template-columns: 1fr;
     }
@@ -725,5 +790,277 @@ select {
     .admin-logout-button {
         width: 100%;
         min-width: 0;
+    overflow: hidden;
+    font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    background:
+        radial-gradient(circle at top left, var(--bg-glow), transparent 28%),
+        linear-gradient(160deg, #0b1625 0%, #09111d 44%, #0f1c2f 100%);
+    color: var(--text-main);
+}
+
+.dashboard-shell {
+    width: min(1180px, calc(100% - 36px));
+    height: 100vh;
+    margin: 0 auto;
+    padding: 18px 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 14px;
+}
+
+.dashboard-header,
+.field-card {
+    border: 1px solid var(--panel-border);
+    border-radius: 18px;
+    background: linear-gradient(180deg, var(--panel-alt), var(--panel));
+    box-shadow: 0 18px 38px var(--shadow);
+}
+
+.dashboard-header {
+    padding: 18px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.header-copy {
+    min-width: 0;
+}
+
+.header-actions {
+    display: grid;
+    gap: 10px;
+    min-width: 280px;
+}
+
+.eyebrow,
+.field-label {
+    margin: 0;
+    font-family: "Courier New", monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.dashboard-header h1 {
+    margin: 6px 0 4px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(1.8rem, 3vw, 2.6rem);
+    line-height: 1.05;
+}
+
+.header-subtitle {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+.status-row {
+    display: grid;
+    gap: 10px;
+    justify-items: stretch;
+    min-width: 0;
+}
+
+.control-panel {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(87, 194, 161, 0.08);
+    border: 1px solid rgba(127, 216, 255, 0.16);
+}
+
+.control-row {
+    display: grid;
+    gap: 8px;
+}
+
+.control-row-switch {
+    padding-top: 8px;
+    border-top: 1px solid rgba(127, 216, 255, 0.12);
+}
+
+.control-label {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.control-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.control-select,
+.control-button {
+    border: 1px solid rgba(127, 216, 255, 0.24);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(127, 216, 255, 0.2), rgba(87, 194, 161, 0.12));
+    color: var(--text-main);
+    font: inherit;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.control-select {
+    appearance: none;
+    font-weight: 600;
+    padding: 10px 12px;
+}
+
+.control-button:hover:not(:disabled),
+.control-button:focus-visible,
+.control-select:focus-visible {
+.control-button:hover:not(:disabled),
+.control-button:focus-visible {
+    transform: translateY(-1px);
+    border-color: rgba(127, 216, 255, 0.4);
+    background: linear-gradient(180deg, rgba(127, 216, 255, 0.28), rgba(87, 194, 161, 0.18));
+}
+
+.control-button-secondary {
+    min-width: 86px;
+}
+
+.control-button:disabled {
+    cursor: progress;
+    opacity: 0.7;
+}
+
+.control-message {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.88rem;
+}
+
+.control-message[data-state="success"] {
+    color: var(--accent-strong);
+}
+
+.control-message[data-state="error"] {
+    color: #ffb0a8;
+}
+
+.control-message[data-state="pending"] {
+    color: var(--accent);
+}
+
+.status-pill {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: rgba(87, 194, 161, 0.08);
+    border: 1px solid rgba(127, 216, 255, 0.16);
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.field-grid {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+        "time slot category"
+        "setup setup setup"
+        "punchline punchline punchline";
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+}
+
+.field-card {
+    min-height: 0;
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+}
+
+.field-card-time {
+    grid-area: time;
+}
+
+.field-card-slot {
+    grid-area: slot;
+}
+
+.field-card-category {
+    grid-area: category;
+}
+
+.field-card-setup {
+    grid-area: setup;
+}
+
+.field-card-punchline {
+    grid-area: punchline;
+}
+
+.field-value {
+    margin: 10px 0 0;
+    min-height: 0;
+    overflow: auto;
+    font-size: clamp(1rem, 1.7vw, 1.35rem);
+    line-height: 1.35;
+    word-break: break-word;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(127, 216, 255, 0.3) transparent;
+}
+
+.field-card-time .field-value,
+.field-card-slot .field-value,
+.field-card-category .field-value {
+    font-size: clamp(1.1rem, 1.8vw, 1.45rem);
+}
+
+@media (max-width: 900px) {
+    body {
+        overflow: auto;
+    }
+
+    .dashboard-shell {
+        width: min(100%, calc(100% - 20px));
+        height: auto;
+        min-height: 100vh;
+        padding: 14px 0;
+    }
+
+    .dashboard-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .header-actions {
+        width: 100%;
+    }
+
+    .status-row {
+        width: 100%;
+    }
+
+    .control-input-row {
+        grid-template-columns: 1fr;
+    }
+
+    .field-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "time"
+            "slot"
+            "category"
+            "setup"
+            "punchline";
+        grid-template-rows: repeat(5, auto);
+    }
+
+    .field-card {
+        min-height: 120px;
     }
 }

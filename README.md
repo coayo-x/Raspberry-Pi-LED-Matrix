@@ -3,6 +3,7 @@
 All detailed architecture notes remain in the [project Wiki](https://github.com/coayo-x/Raspberry-Pi-LED-Matrix/wiki). This repository now also includes a lightweight dashboard with public runtime visibility plus an authenticated admin control panel.
 
 ## Local Setup
+Key pages:
 
 Install dependencies:
 

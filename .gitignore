@@ -23,3 +23,13 @@ pytest-cache-files-*/
 
 # temp
 tmp/
+tmp/
+
+tmp/
+*.log
+*.err
+
+
+.env
+.env.local
+preview_frames/

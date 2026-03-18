@@ -21,6 +21,10 @@ from runtime_control import (
     get_skip_category_state,
     get_switch_category_state,
 )
+    get_skip_category_state,
+    get_switch_category_state,
+)
+from runtime_control import consume_skip_category_request, get_skip_category_state
 from apis.pokemon import get_pokemon_data, get_pokemon_fallback
 from apis.weather import get_weather_data, get_weather_fallback
 
@@ -189,6 +193,30 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         else:
             _, skip_handled_count = get_skip_category_state()
             _, switch_handled_count, _ = get_switch_category_state()
+        else:
+            _, skip_handled_count = get_skip_category_state()
+            _, switch_handled_count, _ = get_switch_category_state()
+        else:
+            _, skip_handled_count = get_skip_category_state()
+            _, switch_handled_count, _ = get_switch_category_state()
+        else:
+            _, skip_handled_count = get_skip_category_state()
+            _, switch_handled_count, _ = get_switch_category_state()
+        else:
+            _, skip_handled_count = get_skip_category_state()
+            _, switch_handled_count, _ = get_switch_category_state()
+        else:
+            _, skip_handled_count = get_skip_category_state()
+            _, switch_handled_count, _ = get_switch_category_state()
+            handled_count = consume_skip_category_request()
+            if handled_count is None:
+                time.sleep(1)
+                continue
+
+          
+            category_override = get_next_category(active_category)
+        else:
+            _, handled_count = get_skip_category_state()
 
         payload = build_runtime_payload(now, category_override=category_override)
         print_payload(payload)
@@ -207,6 +235,12 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
             active_category = None
             continue
 
+                get_skip_category_state()[0] > skip_baseline
+                or get_switch_category_state()[0] > switch_baseline
+            should_interrupt=lambda baseline=handled_count: (
+                get_skip_category_state()[0] > baseline
+            ),
+        )
         active_slot_key = slot_key
         active_category = payload["category"]
 

@@ -11,6 +11,11 @@ from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
     get_alien_mode_state,
+from dashboard_server import create_dashboard_server
+from current_display_state import save_current_display_state
+from runtime_control import (
+    consume_skip_category_request,
+    consume_switch_category_request,
     get_skip_category_state,
     get_switch_category_state,
     set_control_lock,
@@ -56,6 +61,21 @@ def _post_json_expect_error(
     payload: dict | None = None,
     opener: urllib.request.OpenerDirector | None = None,
 ) -> tuple[int, dict]:
+)
+from runtime_control import consume_skip_category_request, get_skip_category_state
+
+
+def _fetch_json(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _fetch_text(url: str) -> str:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        return response.read().decode("utf-8")
+
+
+def _post_json(url: str, payload: dict | None = None) -> dict:
     data = None
     headers = {}
     if payload is not None:
@@ -82,6 +102,13 @@ def test_dashboard_api_returns_stable_response_shape(
     monkeypatch, isolated_db_path
 ) -> None:
     _install_admin(monkeypatch)
+def _post_json(url: str) -> dict:
+    request = urllib.request.Request(url, method="POST")
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
     save_current_display_state(
         {
             "time": "2026-03-15 11:00:00",
@@ -94,6 +121,12 @@ def test_dashboard_api_returns_stable_response_shape(
                 "attack": 49,
                 "defense": 49,
                 "image_url": "https://example.test/bulbasaur.png",
+            "category": "weather",
+            "data": {
+                "location": "Erie, PA",
+                "condition": "Clear",
+                "temperature_f": 41,
+                "wind_mph": 8,
             },
         },
         db_path=str(isolated_db_path),
@@ -130,6 +163,7 @@ def test_dashboard_api_returns_stable_response_shape(
     assert state["category"] == "pokemon"
     assert state["data"]["image_url"] == "https://example.test/bulbasaur.png"
     assert control_state["auth"]["configured"] is True
+    assert "services" not in control_state
     assert "data-control-state-api=" in page
     assert 'id="admin-control-button"' in page
     assert 'id="admin-login-modal"' in page
@@ -139,6 +173,17 @@ def test_dashboard_api_returns_stable_response_shape(
     assert 'id="alien-stop-button"' in page
     assert "/api/admin/login" in page
     assert "/api/alien/start" in page
+    assert "/api/admin/login" in page
+    assert 'id="toggle-skip-lock-button"' in page
+    assert 'id="toggle-switch-lock-button"' in page
+    assert page.count('class="admin-subcard"') == 1
+    assert page.count('class="lock-row"') == 2
+    assert state["setup"] == "Erie, PA"
+    assert state["punchline"] == "Clear | 41F | Wind 8 mph"
+    assert "data-poll-interval-ms=" in page
+    assert "/api/current-display-state" in page
+    assert "/api/skip-category" in page
+    assert "/api/switch-category" in page
 
 
 def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) -> None:
@@ -189,6 +234,9 @@ def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) 
 
     assert first_state["category"] == "pokemon"
     assert second_state["category"] == "joke"
+    assert first_state["slot"] == "2026-03-15:144"
+    assert second_state["category"] == "joke"
+    assert second_state["slot"] == "2026-03-15:145"
     assert second_state["setup"] == "I told my Pi a joke. It needed more bytes."
 
 
@@ -204,6 +252,7 @@ def test_dashboard_skip_category_endpoint_records_runtime_request(
 
     try:
         status, result = _post_json(url)
+        result = _post_json(url)
     finally:
         server.shutdown()
         server.server_close()
@@ -211,6 +260,7 @@ def test_dashboard_skip_category_endpoint_records_runtime_request(
 
     assert status == 200
     assert result["accepted"] is True
+    assert result["requested"] is True
     assert result["request_count"] == 1
     assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
     assert consume_skip_category_request(str(isolated_db_path)) == 1
@@ -250,6 +300,7 @@ def test_dashboard_switch_category_endpoint_records_runtime_request(
 
     try:
         status, result = _post_json(url, {"category": "weather"})
+        result = _post_json(url, {"category": "weather"})
     finally:
         server.shutdown()
         server.server_close()
@@ -258,6 +309,9 @@ def test_dashboard_switch_category_endpoint_records_runtime_request(
     assert status == 200
     assert result["accepted"] is True
     assert result["category"] == "weather"
+    assert result["requested"] is True
+    assert result["category"] == "weather"
+    assert result["request_count"] == 1
     assert get_switch_category_state(str(isolated_db_path)) == (1, 0, "weather")
     assert consume_switch_category_request(str(isolated_db_path)) == (1, "weather")
 
@@ -295,6 +349,19 @@ def test_dashboard_alien_mode_start_and_stop_endpoints(isolated_db_path) -> None
         start_status, start_body = _post_json(f"{base_url}/api/alien/start")
         control_state = _fetch_json(f"{base_url}/api/control-state")
         stop_status, stop_body = _post_json(f"{base_url}/api/alien/stop")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server.server_address[1]}/api/switch-category",
+        data=json.dumps({"category": "invalid"}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=5):
+            pass
+    except urllib.error.HTTPError as error:
+        status = error.code
+        body = json.loads(error.read().decode("utf-8"))
     finally:
         server.shutdown()
         server.server_close()
@@ -309,6 +376,12 @@ def test_dashboard_alien_mode_start_and_stop_endpoints(isolated_db_path) -> None
 
 
 def test_dashboard_protected_admin_endpoint_rejects_unauthorized_request(
+    assert status == 400
+    assert "Invalid category" in body["error"]
+
+
+def test_dashboard_protected_admin_endpoint_rejects_unauthorized_request(
+def test_dashboard_skip_category_endpoint_returns_not_found_for_unknown_post(
     isolated_db_path,
 ) -> None:
     server = create_dashboard_server(
@@ -416,6 +489,16 @@ def test_dashboard_control_state_reflects_public_lock(isolated_db_path) -> None:
 
     try:
         state = _fetch_json(url)
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server.server_address[1]}/api/unknown",
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=5):
+            pass
+    except urllib.error.HTTPError as error:
+        status = error.code
     finally:
         server.shutdown()
         server.server_close()
@@ -424,3 +507,4 @@ def test_dashboard_control_state_reflects_public_lock(isolated_db_path) -> None:
     assert state["auth"]["authenticated"] is False
     assert state["controls"]["switch_category"]["locked"] is True
     assert state["controls"]["switch_category"]["available"] is False
+    assert status == 404
