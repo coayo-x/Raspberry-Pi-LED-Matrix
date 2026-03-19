@@ -1,11 +1,14 @@
 import sys
 import time
 from datetime import datetime
+from typing import Callable
 
+from config import DB_PATH
 from current_display_state import save_current_display_state
-from db_manager import init_db
+from db_manager import connect, init_db
 from display_manager import DisplayManager
 from rotation_engine import (
+    DISPLAY_SEQUENCE,
     get_current_category,
     get_current_joke,
     get_next_category,
@@ -14,15 +17,115 @@ from rotation_engine import (
     get_today_pokemon_id,
     seconds_until_next_slot,
 )
-from runtime_control import (
-    consume_skip_category_request,
-    consume_switch_category_request,
-    get_skip_category_state,
-    get_switch_category_state,
-)
-from runtime_control import consume_skip_category_request, get_skip_category_state
 from apis.pokemon import get_pokemon_data, get_pokemon_fallback
 from apis.weather import get_weather_data, get_weather_fallback
+
+try:
+    from runtime_control import (
+        consume_skip_category_request,
+        consume_switch_category_request,
+        get_skip_category_state,
+        get_switch_category_state,
+    )
+except Exception:
+    SKIP_CATEGORY_REQUEST_KEY = "skip_category_request_count"
+    SKIP_CATEGORY_HANDLED_KEY = "skip_category_handled_count"
+    SWITCH_CATEGORY_REQUEST_KEY = "switch_category_request_count"
+    SWITCH_CATEGORY_HANDLED_KEY = "switch_category_handled_count"
+    SWITCH_CATEGORY_VALUE_KEY = "switch_category_value"
+
+    def _get_meta_text(conn, key: str) -> str | None:
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM meta WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row["value"] if row else None
+
+    def _get_meta_int(conn, key: str) -> int:
+        value = _get_meta_text(conn, key)
+        if value is None:
+            return 0
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    def _set_meta(conn, key: str, value: str) -> None:
+        conn.execute(
+            """
+            INSERT INTO meta (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+
+    def get_skip_category_state(db_path: str = DB_PATH) -> tuple[int, int]:
+        conn = connect(db_path)
+        try:
+            return (
+                _get_meta_int(conn, SKIP_CATEGORY_REQUEST_KEY),
+                _get_meta_int(conn, SKIP_CATEGORY_HANDLED_KEY),
+            )
+        finally:
+            conn.close()
+
+    def get_switch_category_state(
+        db_path: str = DB_PATH,
+    ) -> tuple[int, int, str | None]:
+        conn = connect(db_path)
+        try:
+            return (
+                _get_meta_int(conn, SWITCH_CATEGORY_REQUEST_KEY),
+                _get_meta_int(conn, SWITCH_CATEGORY_HANDLED_KEY),
+                _get_meta_text(conn, SWITCH_CATEGORY_VALUE_KEY),
+            )
+        finally:
+            conn.close()
+
+    def consume_skip_category_request(db_path: str = DB_PATH) -> int | None:
+        conn = connect(db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            request_count = _get_meta_int(conn, SKIP_CATEGORY_REQUEST_KEY)
+            handled_count = _get_meta_int(conn, SKIP_CATEGORY_HANDLED_KEY)
+
+            if handled_count >= request_count:
+                conn.rollback()
+                return None
+
+            handled_count += 1
+            _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(handled_count))
+            conn.commit()
+            return handled_count
+        finally:
+            conn.close()
+
+    def consume_switch_category_request(
+        db_path: str = DB_PATH,
+    ) -> tuple[int, str] | None:
+        conn = connect(db_path)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            request_count = _get_meta_int(conn, SWITCH_CATEGORY_REQUEST_KEY)
+            handled_count = _get_meta_int(conn, SWITCH_CATEGORY_HANDLED_KEY)
+
+            if handled_count >= request_count:
+                conn.rollback()
+                return None
+
+            category = (_get_meta_text(conn, SWITCH_CATEGORY_VALUE_KEY) or "").strip()
+            if category not in DISPLAY_SEQUENCE:
+                _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
+                conn.commit()
+                return None
+
+            handled_count = request_count
+            _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(handled_count))
+            conn.commit()
+            return handled_count, category
+        finally:
+            conn.close()
 
 
 def build_runtime_payload(
@@ -111,6 +214,31 @@ def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     return payload
 
 
+def _get_interrupt_baselines() -> tuple[int, int]:
+    _, skip_handled_count = get_skip_category_state()
+    _, switch_handled_count, _ = get_switch_category_state()
+    return skip_handled_count, switch_handled_count
+
+
+def _build_interrupt_checker(
+    skip_baseline: int, switch_baseline: int
+) -> Callable[[], bool]:
+    return lambda: (
+        get_skip_category_state()[0] > skip_baseline
+        or get_switch_category_state()[0] > switch_baseline
+    )
+
+
+def _clear_expired_runtime_control_requests() -> tuple[int, int]:
+    while consume_switch_category_request() is not None:
+        pass
+
+    while consume_skip_category_request() is not None:
+        pass
+
+    return _get_interrupt_baselines()
+
+
 def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
     init_db()
 
@@ -124,8 +252,14 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         now = datetime.now()
         slot_key = get_current_slot_key(now)
         category_override = None
+        skip_handled_count: int
+        switch_handled_count: int
 
-        if slot_key == active_slot_key:
+        if slot_key != active_slot_key:
+            skip_handled_count, switch_handled_count = (
+                _clear_expired_runtime_control_requests()
+            )
+        else:
             if active_category is None:
                 time.sleep(1)
                 continue
@@ -141,33 +275,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                     continue
 
                 _, switch_handled_count, _ = get_switch_category_state()
-
-                # Skip only overrides the currently active category within this slot.
                 category_override = get_next_category(active_category)
-        else:
-            _, skip_handled_count = get_skip_category_state()
-            _, switch_handled_count, _ = get_switch_category_state()
-        else:
-            _, skip_handled_count = get_skip_category_state()
-            _, switch_handled_count, _ = get_switch_category_state()
-        else:
-            _, skip_handled_count = get_skip_category_state()
-            _, switch_handled_count, _ = get_switch_category_state()
-        else:
-            _, skip_handled_count = get_skip_category_state()
-            _, switch_handled_count, _ = get_switch_category_state()
-        else:
-            _, skip_handled_count = get_skip_category_state()
-            _, switch_handled_count, _ = get_switch_category_state()
-            handled_count = consume_skip_category_request()
-            if handled_count is None:
-                time.sleep(1)
-                continue
-
-          
-            category_override = get_next_category(active_category)
-        else:
-            _, handled_count = get_skip_category_state()
 
         payload = build_runtime_payload(now, category_override=category_override)
         print_payload(payload)
@@ -175,11 +283,9 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         display.display_payload(
             payload,
             duration_seconds=duration,
-            should_interrupt=lambda skip_baseline=skip_handled_count, switch_baseline=switch_handled_count: (
-                get_skip_category_state()[0] > skip_baseline
-                or get_switch_category_state()[0] > switch_baseline
-            should_interrupt=lambda baseline=handled_count: (
-                get_skip_category_state()[0] > baseline
+            should_interrupt=_build_interrupt_checker(
+                skip_handled_count,
+                switch_handled_count,
             ),
         )
         active_slot_key = slot_key
