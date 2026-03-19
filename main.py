@@ -301,6 +301,7 @@ def main() -> None:
         use_matrix=use_matrix,
         save_previews=save_previews,
     )
+    display.run_startup_test()
 
     if "--once" in args:
         run_once(display)

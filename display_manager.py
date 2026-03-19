@@ -17,6 +17,8 @@ except ImportError:
 PANEL_ROWS = 32
 PANEL_COLS = 64
 PANEL_CHAIN_LENGTH = 3
+MATRIX_ADDR_LINES = 4
+MATRIX_STARTUP_TEST_SECONDS = 0.25
 
 WIDTH = PANEL_COLS * PANEL_CHAIN_LENGTH
 HEIGHT = PANEL_ROWS
@@ -42,7 +44,8 @@ class DisplayManager:
     ) -> None:
         self.width = width
         self.height = height
-        self.use_matrix = use_matrix and piomatter is not None
+        self.use_matrix_requested = use_matrix
+        self.use_matrix = False
         self.save_previews = save_previews
         self.preview_dir = Path(preview_dir)
         if self.save_previews:
@@ -55,18 +58,57 @@ class DisplayManager:
 
         self.matrix = None
         self.framebuffer = None
+        self.matrix_show_count = 0
         self.last_frame: Optional[Image.Image] = None
 
-        if self.use_matrix:
-            geometry = piomatter.Geometry(
-                width=self.width, height=self.height, n_addr_lines=4
+        if self.use_matrix_requested:
+            self._initialize_matrix()
+
+    def _initialize_matrix(self) -> None:
+        if piomatter is None:
+            raise RuntimeError(
+                "Matrix output requested but adafruit_blinka_raspberry_pi5_piomatter is not installed."
             )
+
+        try:
+            geometry_kwargs = {
+                "width": self.width,
+                "height": self.height,
+                "n_addr_lines": MATRIX_ADDR_LINES,
+            }
+            orientation = getattr(getattr(piomatter, "Orientation", None), "Normal", None)
+            if orientation is not None:
+                geometry_kwargs["rotation"] = orientation
+
+            geometry = piomatter.Geometry(**geometry_kwargs)
             pinout = piomatter.Pinout.AdafruitMatrixHatBGR
-            colorspace = piomatter.Colorspace.RGB888
-            self.framebuffer = np.zeros((self.height, self.width, 4), dtype=np.uint8)
+            colorspace_name = (
+                "RGB888Packed"
+                if hasattr(piomatter.Colorspace, "RGB888Packed")
+                else "RGB888"
+            )
+            colorspace = getattr(piomatter.Colorspace, colorspace_name)
+            channel_count = 3 if colorspace_name == "RGB888Packed" else 4
+            self.framebuffer = np.zeros(
+                (geometry.height, geometry.width, channel_count), dtype=np.uint8
+            )
             self.matrix = piomatter.PioMatter(
                 colorspace, pinout, self.framebuffer, geometry
             )
+        except Exception as exc:
+            print(f"[display] Matrix initialization failed: {exc}")
+            raise
+
+        if self.matrix is None:
+            raise RuntimeError("Matrix initialization returned None.")
+
+        self.use_matrix = True
+        print(
+            "[display] Matrix initialized: "
+            f"{self.width}x{self.height}, rows={PANEL_ROWS}, cols={PANEL_COLS}, "
+            f"chain_length={PANEL_CHAIN_LENGTH}, addr_lines={MATRIX_ADDR_LINES}, "
+            f"pinout=AdafruitMatrixHatBGR, colorspace={colorspace_name}"
+        )
 
     def _load_small_font(self):
         candidates = [
@@ -136,9 +178,63 @@ class DisplayManager:
 
     def _push_prepared(self, image: Image.Image) -> None:
         if self.use_matrix and self.matrix is not None and self.framebuffer is not None:
-            arr = np.array(image, dtype=np.uint8)
+            channel_count = self.framebuffer.shape[2]
+            mode = "RGB" if channel_count == 3 else "RGBA"
+            arr = np.array(image.convert(mode), dtype=np.uint8)
             self.framebuffer[:] = np.flipud(np.fliplr(arr))
             self.matrix.show()
+            self.matrix_show_count += 1
+            if self.matrix_show_count == 1:
+                print(
+                    f"[display] matrix.show() called for first frame at {self.width}x{self.height}."
+                )
+
+    def run_startup_test(
+        self, duration: float = MATRIX_STARTUP_TEST_SECONDS
+    ) -> None:
+        if not self.use_matrix or self.matrix is None:
+            return
+
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        panel_width = max(1, self.width // max(1, PANEL_CHAIN_LENGTH))
+        panel_colors = [
+            (48, 0, 0, 255),
+            (0, 48, 0, 255),
+            (0, 0, 48, 255),
+        ]
+
+        for index in range(PANEL_CHAIN_LENGTH):
+            left = index * panel_width
+            right = (
+                self.width - 1
+                if index == PANEL_CHAIN_LENGTH - 1
+                else ((index + 1) * panel_width) - 1
+            )
+            draw.rectangle(
+                (left, 0, right, self.height - 1),
+                fill=panel_colors[index % len(panel_colors)],
+            )
+
+        draw.rectangle((0, 0, self.width - 1, self.height - 1), outline=TEXT_ACCENT)
+        self._draw_line(
+            draw, 2, 2, "LED TEST", fill=(255, 255, 255, 255), font=self.small_font
+        )
+        self._draw_line(
+            draw,
+            2,
+            12,
+            f"{self.width}x{self.height}",
+            fill=TEXT_ACCENT,
+            font=self.small_font,
+        )
+
+        self._push_prepared(self._prepare_image(img))
+        print(
+            f"[display] Startup test frame rendered at {self.width}x{self.height}."
+        )
+        if duration > 0:
+            time.sleep(duration)
 
     def _save_prepared(self, image: Image.Image, preview_name: Optional[str]) -> None:
         if self.save_previews and preview_name:
