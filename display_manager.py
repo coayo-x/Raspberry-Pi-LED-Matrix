@@ -52,6 +52,7 @@ class DisplayManager:
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
+        self._animation_generation = 0
 
         if self.use_matrix:
             geometry = piomatter.Geometry(
@@ -147,6 +148,25 @@ class DisplayManager:
         self._push_prepared(prepared)
         self._save_prepared(prepared, preview_name)
         self.last_frame = prepared
+
+    def clear(self) -> None:
+        blank = self._prepare_image(self._new_canvas())
+        self._push_prepared(blank)
+        self.last_frame = blank
+
+    def _start_animation(self) -> int:
+        self._animation_generation += 1
+        return self._animation_generation
+
+    def _wrap_interrupt(
+        self,
+        animation_generation: int,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+    ) -> Callable[[], bool]:
+        return lambda: (
+            animation_generation != self._animation_generation
+            or self._is_interrupted(should_interrupt)
+        )
 
     def _is_interrupted(
         self, should_interrupt: Optional[Callable[[], bool]] = None
@@ -801,32 +821,39 @@ class DisplayManager:
         total_duration = (
             duration_seconds if duration_seconds is not None else ROTATION_INTERVAL
         )
+        animation_generation = self._start_animation()
+        active_interrupt = self._wrap_interrupt(animation_generation, should_interrupt)
+
+        self.clear()
 
         if category == "pokemon":
-            self._animate_pokemon(
+            if self._animate_pokemon(
                 payload,
                 total_duration,
                 safe_slot,
-                should_interrupt=should_interrupt,
-            )
+                should_interrupt=active_interrupt,
+            ):
+                self.clear()
             return
 
         if category == "joke":
-            self._animate_joke(
+            if self._animate_joke(
                 payload,
                 total_duration,
                 safe_slot,
-                should_interrupt=should_interrupt,
-            )
+                should_interrupt=active_interrupt,
+            ):
+                self.clear()
             return
 
         if category == "weather":
-            self._animate_weather_ticker(
+            if self._animate_weather_ticker(
                 payload,
                 total_duration,
                 safe_slot,
-                should_interrupt=should_interrupt,
-            )
+                should_interrupt=active_interrupt,
+            ):
+                self.clear()
             return
 
         image = self.render_payload(payload)
@@ -835,11 +862,13 @@ class DisplayManager:
             preview_name=f"{safe_slot}_{category}.png",
             steps=5,
             delay=0.03,
-            should_interrupt=should_interrupt,
+            should_interrupt=active_interrupt,
         ):
+            self.clear()
             return
 
         if duration_seconds is not None:
             sleep_time = max(0, duration_seconds - 0.20)
             if sleep_time > 0:
-                self._sleep_with_interrupt(sleep_time, should_interrupt)
+                if self._sleep_with_interrupt(sleep_time, active_interrupt):
+                    self.clear()

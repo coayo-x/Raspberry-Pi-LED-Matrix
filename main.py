@@ -221,10 +221,11 @@ def _get_interrupt_baselines() -> tuple[int, int]:
 
 
 def _build_interrupt_checker(
-    skip_baseline: int, switch_baseline: int
+    skip_baseline: int, switch_baseline: int, slot_key: str
 ) -> Callable[[], bool]:
     return lambda: (
-        get_skip_category_state()[0] > skip_baseline
+        get_current_slot_key() != slot_key
+        or get_skip_category_state()[0] > skip_baseline
         or get_switch_category_state()[0] > switch_baseline
     )
 
@@ -286,6 +287,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
             should_interrupt=_build_interrupt_checker(
                 skip_handled_count,
                 switch_handled_count,
+                payload["slot_key"],
             ),
         )
         active_slot_key = slot_key
