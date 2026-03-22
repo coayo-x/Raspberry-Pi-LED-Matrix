@@ -93,3 +93,35 @@ def test_run_forever_switches_category_immediately_within_active_slot(
         main.run_forever(display, boot_delay=0)
 
     assert display.categories == ["pokemon", "weather"]
+
+
+def test_run_once_uses_short_duration_for_single_render(monkeypatch) -> None:
+    captured: dict = {}
+    payload = {
+        "slot_key": "2026-03-15:144",
+        "time": "2026-03-15 12:00:00",
+        "category": "pokemon",
+        "data": {},
+    }
+
+    class FakeOneShotDisplay:
+        def display_payload(
+            self,
+            active_payload: dict,
+            duration_seconds=None,
+            should_interrupt=None,
+        ) -> None:
+            captured["payload"] = active_payload
+            captured["duration_seconds"] = duration_seconds
+            captured["should_interrupt"] = should_interrupt
+
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "build_runtime_payload", lambda now=None: payload)
+    monkeypatch.setattr(main, "print_payload", lambda active_payload: None)
+
+    result = main.run_once(FakeOneShotDisplay(), now=real_datetime(2026, 3, 15, 12, 0, 0))
+
+    assert result == payload
+    assert captured["payload"] == payload
+    assert captured["duration_seconds"] == 1
+    assert captured["should_interrupt"] is None

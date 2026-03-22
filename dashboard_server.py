@@ -7,9 +7,9 @@ from pathlib import Path
 
 from admin_auth import authenticate_admin, get_admin_status, logout_admin
 from config import (
-    ADMIN_SESSION_TTL_SECONDS,
     ADMIN_SESSION_COOKIE_NAME,
     ADMIN_SESSION_COOKIE_SECURE,
+    ADMIN_SESSION_TTL_SECONDS,
     DASHBOARD_HOST,
     DASHBOARD_POLL_INTERVAL_MS,
     DASHBOARD_PORT,
@@ -22,13 +22,6 @@ from runtime_control import (
     request_switch_category,
     set_control_lock,
 )
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
-from config import DASHBOARD_HOST, DASHBOARD_POLL_INTERVAL_MS, DASHBOARD_PORT, DB_PATH
-from current_display_state import load_current_display_state
-from runtime_control import request_skip_category, request_switch_category
-from runtime_control import request_skip_category
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
 STATIC_ROUTES = {
@@ -38,6 +31,7 @@ STATIC_ROUTES = {
     "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
     "/dashboard.js": ("dashboard.js", "application/javascript; charset=utf-8"),
 }
+LOGIN_PAGE_PATH = "/login"
 API_PATH = "/api/current-display-state"
 CONTROL_STATE_API_PATH = "/api/control-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
@@ -45,6 +39,12 @@ SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
+LOCK_SKIP_API_PATH = "/api/lock-skip"
+UNLOCK_SKIP_API_PATH = "/api/unlock-skip"
+LOCK_SWITCH_API_PATH = "/api/lock-switch"
+UNLOCK_SWITCH_API_PATH = "/api/unlock-switch"
+LOCK_CONTROLS_API_PATH = "/api/lock-controls"
+UNLOCK_CONTROLS_API_PATH = "/api/unlock-controls"
 
 CSP_HEADER = (
     "default-src 'self'; "
@@ -55,8 +55,16 @@ CSP_HEADER = (
     "connect-src 'self'; "
     "img-src 'self' https: data:;"
 )
-SKIP_CATEGORY_API_PATH = "/api/skip-category"
-SWITCH_CATEGORY_API_PATH = "/api/switch-category"
+LOGIN_CSP_HEADER = (
+    "default-src 'self'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src 'self'; "
+    "img-src 'self' data:;"
+)
 
 
 def _read_asset(filename: str) -> bytes:
@@ -88,6 +96,233 @@ def _expired_cookie_header() -> str:
     return cookie.output(header="").strip()
 
 
+def _render_login_html(configured: bool) -> bytes:
+    html = """
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LED Matrix Dashboard Login</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg-1: #08111b;
+            --bg-2: #102134;
+            --panel: rgba(10, 18, 28, 0.92);
+            --border: rgba(164, 192, 214, 0.18);
+            --text-main: #eef5fb;
+            --text-muted: #9db1c5;
+            --accent: #6ed4bf;
+            --danger: #ffb09a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            font-family: "Gill Sans", "Trebuchet MS", sans-serif;
+            color: var(--text-main);
+            background:
+                radial-gradient(circle at top left, rgba(110, 212, 191, 0.14), transparent 28%),
+                linear-gradient(155deg, var(--bg-1) 0%, var(--bg-2) 100%);
+        }
+
+        .login-card {
+            width: min(100%, 420px);
+            padding: 24px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            box-shadow: 0 18px 36px rgba(1, 8, 18, 0.45);
+        }
+
+        .eyebrow {
+            margin: 0;
+            color: var(--accent);
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            font-size: 0.68rem;
+        }
+
+        h1 {
+            margin: 8px 0 10px;
+            font-family: Georgia, "Palatino Linotype", serif;
+            font-size: 1.9rem;
+            line-height: 1.05;
+        }
+
+        p {
+            margin: 0;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        form {
+            display: grid;
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+            font-size: 0.92rem;
+            color: var(--text-main);
+        }
+
+        input,
+        button {
+            font: inherit;
+            border-radius: 12px;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid rgba(140, 230, 255, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+        }
+
+        button {
+            border: 1px solid rgba(140, 230, 255, 0.24);
+            background: linear-gradient(180deg, rgba(140, 230, 255, 0.18), rgba(110, 212, 191, 0.12));
+            color: var(--text-main);
+            cursor: pointer;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            padding: 10px 14px;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .status {
+            margin-top: 14px;
+            min-height: 1.4em;
+        }
+
+        .status[data-state="error"] {
+            color: var(--danger);
+        }
+
+        .status[data-state="success"] {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <main class="login-card">
+        <p class="eyebrow">Restricted Access</p>
+        <h1>LED Matrix Dashboard</h1>
+        <p id="login-copy">
+            Sign in with the configured dashboard credentials to manage admin control locks.
+        </p>
+
+        <form id="login-form" __FORM_ATTRS__>
+            <label>
+                <span>Username</span>
+                <input id="username" name="username" type="text" autocomplete="username" __INPUT_ATTRS__>
+            </label>
+            <label>
+                <span>Password</span>
+                <input id="password" name="password" type="password" autocomplete="current-password" __INPUT_ATTRS__>
+            </label>
+            <button id="login-button" type="submit" __BUTTON_ATTRS__>Sign In</button>
+        </form>
+
+        <p class="status" id="status" data-state="idle">__INITIAL_STATUS__</p>
+    </main>
+
+    <script>
+        const loginApi = "__LOGIN_API__";
+        const configured = __CONFIGURED__;
+        const redirectPath = "/";
+        const form = document.getElementById("login-form");
+        const button = document.getElementById("login-button");
+        const status = document.getElementById("status");
+        const copy = document.getElementById("login-copy");
+
+        if (!configured) {
+            copy.textContent =
+                "Dashboard access is disabled until ADMIN_USERNAME and ADMIN_PASSWORD_HASH are configured on this host.";
+        }
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (!configured) {
+                return;
+            }
+
+            const username = document.getElementById("username").value.trim();
+            const password = document.getElementById("password").value;
+            if (!username || !password) {
+                status.dataset.state = "error";
+                status.textContent = "Username and password are required.";
+                return;
+            }
+
+            button.disabled = true;
+            status.dataset.state = "idle";
+            status.textContent = "Signing in...";
+
+            try {
+                const response = await fetch(loginApi, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    status.dataset.state = "error";
+                    status.textContent = payload.error || `HTTP ${response.status}`;
+                    return;
+                }
+
+                status.dataset.state = "success";
+                status.textContent = "Authentication successful. Redirecting...";
+                window.location.assign(redirectPath);
+            } catch (error) {
+                status.dataset.state = "error";
+                status.textContent = error?.message || "Sign-in failed.";
+            } finally {
+                button.disabled = false;
+                document.getElementById("password").value = "";
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+    return (
+        html.replace("__LOGIN_API__", ADMIN_LOGIN_API_PATH)
+        .replace("__CONFIGURED__", "true" if configured else "false")
+        .replace(
+            "__FORM_ATTRS__",
+            "" if configured else 'aria-disabled="true"',
+        )
+        .replace("__INPUT_ATTRS__", "" if configured else "disabled")
+        .replace("__BUTTON_ATTRS__", "" if configured else "disabled")
+        .replace(
+            "__INITIAL_STATUS__",
+            "Dashboard authentication is ready."
+            if configured
+            else "Dashboard credentials are not configured on this host.",
+        )
+        .encode("utf-8")
+    )
+
+
 def create_dashboard_server(
     host: str = DASHBOARD_HOST,
     port: int = DASHBOARD_PORT,
@@ -97,15 +332,23 @@ def create_dashboard_server(
         def do_GET(self) -> None:
             route = self.path.split("?", 1)[0]
 
+            if route == LOGIN_PAGE_PATH:
+                admin_status = self._get_admin_status()
+                if admin_status["authenticated"]:
+                    self._send_redirect("/")
+                else:
+                    self._send_login_page(admin_status["configured"])
+                return
+
             if route == API_PATH:
                 self._send_json(HTTPStatus.OK, load_current_display_state(db_path))
                 return
 
             if route == CONTROL_STATE_API_PATH:
-                self._send_json(HTTPStatus.OK, self._build_control_state_payload())
-                body = json.dumps(load_current_display_state(db_path)).encode("utf-8")
-                self._send_response(
-                    HTTPStatus.OK, "application/json; charset=utf-8", body
+                admin_status = self._get_admin_status()
+                self._send_json(
+                    HTTPStatus.OK,
+                    self._build_control_state_payload(admin_status),
                 )
                 return
 
@@ -123,6 +366,43 @@ def create_dashboard_server(
 
         def do_POST(self) -> None:
             route = self.path.split("?", 1)[0]
+
+            if route == ADMIN_LOGIN_API_PATH:
+                try:
+                    payload = self._read_json_body()
+                    username = self._require_text_field(payload, "username")
+                    password = self._require_text_field(payload, "password")
+                except ValueError as error:
+                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+
+                result = authenticate_admin(
+                    username=username,
+                    password=password,
+                    client_ip=self.client_address[0],
+                    db_path=db_path,
+                )
+                headers = {}
+                if result.get("authenticated") and result.get("session_token"):
+                    headers["Set-Cookie"] = _cookie_header(result["session_token"])
+
+                response_body = {
+                    key: value
+                    for key, value in result.items()
+                    if key != "session_token"
+                }
+                status = HTTPStatus.OK
+                if result["status"] == "invalid_credentials":
+                    status = HTTPStatus.UNAUTHORIZED
+                elif result["status"] == "locked":
+                    status = HTTPStatus.TOO_MANY_REQUESTS
+                    if result.get("retry_after_seconds"):
+                        headers["Retry-After"] = str(result["retry_after_seconds"])
+                elif result["status"] == "disabled":
+                    status = HTTPStatus.SERVICE_UNAVAILABLE
+
+                self._send_json(status, response_body, extra_headers=headers)
+                return
 
             if route == SKIP_CATEGORY_API_PATH:
                 admin_status = self._get_admin_status()
@@ -150,42 +430,10 @@ def create_dashboard_server(
                 self._send_json(self._control_status_code(result), result)
                 return
 
-            if route == ADMIN_LOGIN_API_PATH:
-                try:
-                    payload = self._read_json_body()
-                    username = self._require_text_field(payload, "username")
-                    password = self._require_text_field(payload, "password")
-                except ValueError as error:
-                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+            if route == ADMIN_LOGOUT_API_PATH:
+                if self._require_authenticated_api() is None:
                     return
 
-                result = authenticate_admin(
-                    username=username,
-                    password=password,
-                    client_ip=self.client_address[0],
-                    db_path=db_path,
-                )
-                headers = {}
-                if result.get("authenticated") and result.get("session_token"):
-                    headers["Set-Cookie"] = _cookie_header(result["session_token"])
-
-                response_body = {
-                    k: v for k, v in result.items() if k != "session_token"
-                }
-                status = HTTPStatus.OK
-                if result["status"] == "invalid_credentials":
-                    status = HTTPStatus.UNAUTHORIZED
-                elif result["status"] == "locked":
-                    status = HTTPStatus.TOO_MANY_REQUESTS
-                    if result.get("retry_after_seconds"):
-                        headers["Retry-After"] = str(result["retry_after_seconds"])
-                elif result["status"] == "disabled":
-                    status = HTTPStatus.SERVICE_UNAVAILABLE
-
-                self._send_json(status, response_body, extra_headers=headers)
-                return
-
-            if route == ADMIN_LOGOUT_API_PATH:
                 logout_admin(self._get_session_token(), db_path=db_path)
                 self._send_json(
                     HTTPStatus.OK,
@@ -197,8 +445,114 @@ def create_dashboard_server(
                 )
                 return
 
+            if route == LOCK_SKIP_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "skip_category",
+                            True,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == UNLOCK_SKIP_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "skip_category",
+                            False,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == LOCK_SWITCH_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "switch_category",
+                            True,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == UNLOCK_SWITCH_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "switch_category",
+                            False,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == LOCK_CONTROLS_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                set_control_lock("skip_category", True, db_path=db_path)
+                set_control_lock("switch_category", True, db_path=db_path)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "controls_locked": True,
+                        "controls": get_runtime_control_state(
+                            db_path=db_path,
+                            is_admin=True,
+                        ),
+                    },
+                )
+                return
+
+            if route == UNLOCK_CONTROLS_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                set_control_lock("skip_category", False, db_path=db_path)
+                set_control_lock("switch_category", False, db_path=db_path)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "controls_locked": False,
+                        "controls": get_runtime_control_state(
+                            db_path=db_path,
+                            is_admin=True,
+                        ),
+                    },
+                )
+                return
+
             if route == ADMIN_CONTROL_LOCK_API_PATH:
-                if not self._require_admin():
+                if self._require_authenticated_api() is None:
                     return
 
                 try:
@@ -216,30 +570,6 @@ def create_dashboard_server(
                         "updated": True,
                         "control": control_state,
                     },
-                result = request_skip_category(db_path=db_path)
-                body = json.dumps(result).encode("utf-8")
-                self._send_response(
-                    HTTPStatus.OK, "application/json; charset=utf-8", body
-                )
-                return
-
-            if route == SWITCH_CATEGORY_API_PATH:
-                try:
-                    payload = self._read_json_body()
-                    category = payload.get("category")
-                    result = request_switch_category(category=category, db_path=db_path)
-                except ValueError as error:
-                    body = json.dumps({"error": str(error)}).encode("utf-8")
-                    self._send_response(
-                        HTTPStatus.BAD_REQUEST,
-                        "application/json; charset=utf-8",
-                        body,
-                    )
-                    return
-
-                body = json.dumps(result).encode("utf-8")
-                self._send_response(
-                    HTTPStatus.OK, "application/json; charset=utf-8", body
                 )
                 return
 
@@ -283,14 +613,13 @@ def create_dashboard_server(
             body: bytes,
             *,
             extra_headers: dict | None = None,
-        def _send_response(
-            self, status: HTTPStatus, content_type: str, body: bytes
+            content_security_policy: str = CSP_HEADER,
         ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Content-Security-Policy", CSP_HEADER)
+            self.send_header("Content-Security-Policy", content_security_policy)
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
@@ -299,6 +628,28 @@ def create_dashboard_server(
                     self.send_header(header, value)
             self.end_headers()
             self.wfile.write(body)
+
+        def _send_redirect(
+            self, location: str, *, extra_headers: dict | None = None
+        ) -> None:
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("Location", location)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            if extra_headers:
+                for header, value in extra_headers.items():
+                    self.send_header(header, value)
+            self.end_headers()
+
+        def _send_login_page(self, configured: bool) -> None:
+            self._send_response(
+                HTTPStatus.OK,
+                "text/html; charset=utf-8",
+                _render_login_html(configured),
+                content_security_policy=LOGIN_CSP_HEADER,
+            )
 
         def _read_json_body(self) -> dict:
             content_length = int(self.headers.get("Content-Length", "0"))
@@ -344,26 +695,35 @@ def create_dashboard_server(
                 db_path=db_path,
             )
 
-        def _require_admin(self) -> bool:
+        def _require_authenticated_api(self) -> dict | None:
             admin_status = self._get_admin_status()
             if admin_status["authenticated"]:
-                return True
+                return admin_status
+
+            message = "Dashboard authentication is required."
+            if not admin_status["configured"]:
+                message = (
+                    "Dashboard authentication is not configured on this host."
+                )
 
             self._send_json_error(
                 HTTPStatus.UNAUTHORIZED,
-                "Admin authentication is required for this action.",
-                extra={"authenticated": False},
+                message,
+                extra={
+                    "authenticated": False,
+                    "configured": admin_status["configured"],
+                },
                 headers={"Set-Cookie": _expired_cookie_header()},
             )
-            return False
+            return None
 
-        def _build_control_state_payload(self) -> dict:
-            admin_status = self._get_admin_status()
+        def _build_control_state_payload(self, admin_status: dict | None = None) -> dict:
+            auth_state = admin_status or self._get_admin_status()
             return {
-                "auth": admin_status,
+                "auth": auth_state,
                 "controls": get_runtime_control_state(
                     db_path=db_path,
-                    is_admin=admin_status["authenticated"],
+                    is_admin=auth_state["authenticated"],
                 ),
             }
 
@@ -390,13 +750,16 @@ def _render_html() -> bytes:
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,
+        "__LOCK_SKIP_API__": LOCK_SKIP_API_PATH,
+        "__UNLOCK_SKIP_API__": UNLOCK_SKIP_API_PATH,
+        "__LOCK_SWITCH_API__": LOCK_SWITCH_API_PATH,
+        "__UNLOCK_SWITCH_API__": UNLOCK_SWITCH_API_PATH,
+        "__LOCK_CONTROLS_API__": LOCK_CONTROLS_API_PATH,
+        "__UNLOCK_CONTROLS_API__": UNLOCK_CONTROLS_API_PATH,
     }
     for placeholder, value in replacements.items():
         html = html.replace(placeholder, value)
     return html.encode("utf-8")
-    return html.replace("__POLL_INTERVAL_MS__", str(DASHBOARD_POLL_INTERVAL_MS)).encode(
-        "utf-8"
-    )
 
 
 def _parse_args() -> argparse.Namespace:

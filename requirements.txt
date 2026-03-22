@@ -4,6 +4,7 @@ adafruit-blinka
 adafruit-circuitpython-rgb-display
 requests
 python-dotenv
+bcrypt
 
 ruff
 black

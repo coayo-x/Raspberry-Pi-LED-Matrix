@@ -1,6 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 
+import admin_auth
 import pytest
 
 
@@ -13,3 +14,10 @@ def isolated_db_path():
         candidate = Path(f"{db_path}{suffix}")
         if candidate.exists():
             candidate.unlink()
+
+
+@pytest.fixture(autouse=True)
+def reset_admin_login_attempts():
+    admin_auth.reset_login_attempts()
+    yield
+    admin_auth.reset_login_attempts()

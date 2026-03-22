@@ -10,17 +10,36 @@ const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
     document.documentElement.dataset.adminLogoutApi || "/api/admin/logout";
-const adminControlLockApi =
-    document.documentElement.dataset.adminControlLockApi || "/api/admin/control-lock";
-const apiPath = document.documentElement.dataset.apiPath || "/api/current-display-state";
-const skipApiPath = document.documentElement.dataset.skipApiPath || "/api/skip-category";
-const switchApiPath = document.documentElement.dataset.switchApiPath || "/api/switch-category";
+const lockSkipApi =
+    document.documentElement.dataset.lockSkipApi || "/api/lock-skip";
+const unlockSkipApi =
+    document.documentElement.dataset.unlockSkipApi || "/api/unlock-skip";
+const lockSwitchApi =
+    document.documentElement.dataset.lockSwitchApi || "/api/lock-switch";
+const unlockSwitchApi =
+    document.documentElement.dataset.unlockSwitchApi || "/api/unlock-switch";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
+const controlDefinitions = {
+    skip_category: { action: "skip_category", label: "Skip Category" },
+    switch_category: { action: "switch_category", label: "Switch Category" },
+};
+const categoryFieldLabels = {
+    joke: { primary: "Setup", secondary: "Punchline" },
+    weather: { primary: "Location", secondary: "Details" },
+    science: { primary: "Title", secondary: "Description" },
+    pokemon: { primary: "Name", secondary: "Stats" },
+};
+const defaultCategoryFieldLabels = {
+    primary: "Content",
+    secondary: "Details",
+};
 
 const elements = {
     time: document.getElementById("time-value"),
     slot: document.getElementById("slot-value"),
     category: document.getElementById("category-value"),
+    contentPrimaryLabel: document.getElementById("content-primary-label"),
+    contentSecondaryLabel: document.getElementById("content-secondary-label"),
     setup: document.getElementById("setup-value"),
     punchline: document.getElementById("punchline-value"),
     refreshStatus: document.getElementById("refresh-status"),
@@ -59,13 +78,7 @@ const elements = {
     adminActionStatus: document.getElementById("admin-action-status"),
 };
 
-let latestControlPayload = null;
-
-    skipCategoryButton: document.getElementById("skip-category-button"),
-    switchCategorySelect: document.getElementById("switch-category-select"),
-    switchCategoryButton: document.getElementById("switch-category-button"),
-    actionStatus: document.getElementById("action-status"),
-};
+let latestControlPayload = createGuestControlPayload(true);
 
 function displayText(value) {
     if (value === null || value === undefined || value === "") {
@@ -81,6 +94,56 @@ function titleCase(value) {
 
     const text = String(value);
     return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function createGuestControlPayload(configured = true) {
+    return {
+        auth: {
+            configured,
+            authenticated: false,
+            username: "",
+            expires_at: "",
+        },
+        controls: Object.fromEntries(
+            Object.values(controlDefinitions).map((control) => [
+                control.action,
+                {
+                    action: control.action,
+                    label: control.label,
+                    locked: false,
+                    action_locked: false,
+                    admin_override: false,
+                    cooldown_seconds: 0,
+                    cooldown_remaining_seconds: 0,
+                    request_count: 0,
+                    handled_count: 0,
+                    pending_request_count: 0,
+                    last_requested_at: "",
+                    last_accepted_at: "",
+                    available: true,
+                    status: "ready",
+                    requested_category: null,
+                },
+            ]),
+        ),
+    };
+}
+
+function getCategoryFieldLabels(category) {
+    return (
+        categoryFieldLabels[String(category || "").toLowerCase()] ||
+        defaultCategoryFieldLabels
+    );
+}
+
+function applyCategoryFieldLabels(category) {
+    const labels = getCategoryFieldLabels(category);
+    if (elements.contentPrimaryLabel) {
+        elements.contentPrimaryLabel.textContent = labels.primary;
+    }
+    if (elements.contentSecondaryLabel) {
+        elements.contentSecondaryLabel.textContent = labels.secondary;
+    }
 }
 
 function setMessage(element, message, state = "idle") {
@@ -191,7 +254,35 @@ function openAdminControlFlow() {
         openControlsModal();
         return;
     }
+
+    refreshControlState()
+        .catch(() => null)
+        .finally(() => {
+            if (latestControlPayload?.auth?.authenticated) {
+                openControlsModal();
+                return;
+            }
+            openLoginModal();
+        });
+}
+
+function setGuestControlState(configured = true) {
+    applyControlPayload(createGuestControlPayload(configured));
+}
+
+function applyUnauthorizedControlState(error) {
+    setGuestControlState(error?.result?.configured !== false);
+}
+
+function handleUnauthorizedAdminAction(error, statusElement, fallbackMessage) {
+    if (error?.status !== 401) {
+        return false;
+    }
+
+    applyUnauthorizedControlState(error);
+    setMessage(statusElement, describeResultError(error, fallbackMessage), "error");
     openLoginModal();
+    return true;
 }
 
 function showPokemonFallback(message) {
@@ -258,7 +349,7 @@ function renderPokemonCard(state) {
 }
 
 function applySnapshotState(state) {
-function applyState(state) {
+    applyCategoryFieldLabels(state.category);
     elements.time.textContent = displayText(state.time);
     elements.slot.textContent = displayText(state.slot);
     elements.category.textContent = displayText(state.category);
@@ -273,17 +364,27 @@ function applyState(state) {
     renderPokemonCard(state);
 }
 
-function buildControlNote(control) {
+function getControlLockMessage(control) {
+    if (!control) {
+        return "Control state unavailable.";
+    }
+
+    return control.action === "skip_category"
+        ? "Skip locked by admin."
+        : "Switch locked by admin.";
+}
+
+function buildControlNote(control, auth) {
     if (!control) {
         return "Control state unavailable.";
     }
 
     if (control.locked && !control.admin_override) {
-        return "Locked by admin.";
+        return getControlLockMessage(control);
     }
 
     if (control.admin_override) {
-        return "Publicly locked. Admin override active.";
+        return `${getControlLockMessage(control)} Admin override active.`;
     }
 
     if (control.cooldown_remaining_seconds > 0) {
@@ -294,15 +395,105 @@ function buildControlNote(control) {
         return "Accepted. Waiting for runtime handoff.";
     }
 
-    return "Ready.";
+    return "Controls are active.";
 }
 
-function applyPublicControlState(control, button, noteElement) {
+function syncPublicActionStatus(auth, controls, previousPayload) {
+    if (!elements.actionStatus) {
+        return;
+    }
+
+    const previousAuth = previousPayload?.auth;
+    const previousSkip = previousPayload?.controls?.skip_category;
+    const previousSwitch = previousPayload?.controls?.switch_category;
+    const nextSkip = controls?.skip_category;
+    const nextSwitch = controls?.switch_category;
+    const lockStateChanged =
+        previousSkip?.locked !== nextSkip?.locked ||
+        previousSkip?.admin_override !== nextSkip?.admin_override ||
+        previousSwitch?.locked !== nextSwitch?.locked ||
+        previousSwitch?.admin_override !== nextSwitch?.admin_override;
+    const authStateChanged =
+        previousAuth?.configured !== auth?.configured ||
+        previousAuth?.authenticated !== auth?.authenticated;
+    if (
+        !lockStateChanged &&
+        !authStateChanged &&
+        elements.actionStatus.dataset.state &&
+        elements.actionStatus.dataset.state !== "idle"
+    ) {
+        return;
+    }
+
+    const skipLocked = Boolean(nextSkip?.locked && !nextSkip?.admin_override);
+    const switchLocked = Boolean(nextSwitch?.locked && !nextSwitch?.admin_override);
+    const skipOverride = Boolean(nextSkip?.admin_override);
+    const switchOverride = Boolean(nextSwitch?.admin_override);
+
+    if (skipLocked && switchLocked) {
+        setMessage(
+            elements.actionStatus,
+            "Skip and switch locked by admin.",
+            "error",
+        );
+        return;
+    }
+
+    if (skipLocked) {
+        setMessage(elements.actionStatus, "Skip locked by admin.", "error");
+        return;
+    }
+
+    if (switchLocked) {
+        setMessage(elements.actionStatus, "Switch locked by admin.", "error");
+        return;
+    }
+
+    if (skipOverride && switchOverride) {
+        setMessage(
+            elements.actionStatus,
+            "Admin override active for skip and switch locks.",
+            "idle",
+        );
+        return;
+    }
+
+    if (skipOverride) {
+        setMessage(
+            elements.actionStatus,
+            "Skip locked by admin. Admin override active.",
+            "idle",
+        );
+        return;
+    }
+
+    if (switchOverride) {
+        setMessage(
+            elements.actionStatus,
+            "Switch locked by admin. Admin override active.",
+            "idle",
+        );
+        return;
+    }
+
+    const hasAvailableAction =
+        Boolean(controls?.skip_category?.available) ||
+        Boolean(controls?.switch_category?.available);
+    setMessage(
+        elements.actionStatus,
+        hasAvailableAction
+            ? "Controls are active."
+            : "Waiting for controls to become available.",
+        "idle",
+    );
+}
+
+function applyPublicControlState(control, button, noteElement, auth) {
     if (!control || !button || !noteElement) {
         return;
     }
 
-    noteElement.textContent = buildControlNote(control);
+    noteElement.textContent = buildControlNote(control, auth);
     button.disabled = !control.available;
 }
 
@@ -321,37 +512,51 @@ function applyAdminLockState(control, button, labelElement) {
 }
 
 function applyControlPayload(payload) {
-    latestControlPayload = payload;
-    const auth = payload?.auth || {};
-    const controls = payload?.controls || {};
+    const nextPayload =
+        payload || createGuestControlPayload(latestControlPayload?.auth?.configured);
+    const previousPayload = latestControlPayload;
+    latestControlPayload = nextPayload;
+    const auth = nextPayload.auth || createGuestControlPayload(true).auth;
+    const controls =
+        nextPayload.controls || createGuestControlPayload(auth.configured).controls;
     const isAdmin = Boolean(auth.authenticated);
-    const anyPublicLock = Object.values(controls).some(
-        (control) => control && control.locked,
+    const skipControl = controls.skip_category;
+    const switchControl = controls.switch_category;
+    const publicLockedCount = [skipControl, switchControl].filter(
+        (control) => Boolean(control?.locked && !control?.admin_override),
+    ).length;
+    const adminOverride = [skipControl, switchControl].some((control) =>
+        Boolean(control?.admin_override),
     );
 
     applyPublicControlState(
-        controls.skip_category,
+        skipControl,
         elements.skipCategoryButton,
         elements.skipCategoryNote,
+        auth,
     );
     applyPublicControlState(
-        controls.switch_category,
+        switchControl,
         elements.switchCategoryButton,
         elements.switchCategoryNote,
+        auth,
     );
 
     if (elements.switchCategorySelect) {
-        const switchControl = controls.switch_category;
         elements.switchCategorySelect.disabled = !switchControl?.available;
     }
 
     if (elements.publicControlMode) {
-        elements.publicControlMode.textContent = isAdmin
-            ? "Admin Session"
-            : anyPublicLock
-              ? "Restricted"
-              : "Open";
+        elements.publicControlMode.textContent = publicLockedCount === 2
+            ? "Locked"
+            : publicLockedCount === 1
+                ? "Partial Lock"
+            : adminOverride
+                ? "Admin Override"
+                : "Active";
     }
+
+    syncPublicActionStatus(auth, controls, previousPayload);
 
     if (!auth.configured) {
         elements.adminDisabledMessage.hidden = false;
@@ -360,7 +565,7 @@ function applyControlPayload(payload) {
         elements.adminLoginCopy.textContent =
             "Local admin credentials are not configured on this dashboard host.";
         elements.adminControlsSummary.textContent =
-            "Configure local admin credentials to use protected controls.";
+            "Configure local admin credentials to manage dashboard control locks.";
         elements.adminSessionBadge.textContent = "Unavailable";
         elements.toggleSkipLockButton.disabled = true;
         elements.toggleSwitchLockButton.disabled = true;
@@ -377,14 +582,21 @@ function applyControlPayload(payload) {
     elements.adminDisabledMessage.hidden = true;
     elements.adminLoginForm.hidden = false;
     elements.adminLoginCopy.textContent =
-        "Sign in with the configured admin account to access protected controls.";
+        "Sign in with the configured admin account to manage dashboard control locks.";
 
     if (isAdmin) {
         elements.adminPanel.hidden = false;
         elements.adminSessionBadge.textContent = `${displayText(auth.username)} active`;
+        const lockedControls = [skipControl, switchControl]
+            .filter((control) => Boolean(control?.locked))
+            .map((control) => control.label);
+        const lockSummary =
+            lockedControls.length > 0
+                ? `${lockedControls.join(" and ")} locked for public use.`
+                : "Skip and switch controls are available to the public.";
         elements.adminControlsSummary.textContent = auth.expires_at
-            ? `Admin session active until ${auth.expires_at}.`
-            : "Admin session active.";
+            ? `Admin session active until ${auth.expires_at}. ${lockSummary}`
+            : `Admin session active. ${lockSummary}`;
         setMessage(
             elements.adminLoginStatus,
             `Signed in as ${displayText(auth.username)}.`,
@@ -394,8 +606,7 @@ function applyControlPayload(payload) {
         elements.adminPanel.hidden = true;
         elements.adminSessionBadge.textContent = "Signed out";
         elements.adminControlsSummary.textContent =
-            "Sign in to manage public control locks.";
-            "Sign in to manage access locks.";
+            "Sign in to lock or unlock dashboard controls.";
         if (
             !elements.adminLoginStatus.dataset.state ||
             elements.adminLoginStatus.dataset.state === "success"
@@ -406,85 +617,59 @@ function applyControlPayload(payload) {
     }
 
     applyAdminLockState(
-        controls.skip_category,
+        skipControl,
         elements.toggleSkipLockButton,
         elements.adminSkipLockState,
     );
     applyAdminLockState(
-        controls.switch_category,
+        switchControl,
         elements.toggleSwitchLockButton,
         elements.adminSwitchLockState,
     );
-
     elements.toggleSkipLockButton.disabled = !isAdmin;
     elements.toggleSwitchLockButton.disabled = !isAdmin;
     elements.adminLogoutButton.disabled = !isAdmin;
 }
 
 async function refreshDashboard() {
-    const [stateResult, controlResult] = await Promise.allSettled([
-        fetchJson(currentDisplayApi),
-        fetchJson(controlStateApi),
+    await Promise.all([
+        refreshSnapshotState(),
+        refreshControlState().catch(() => null),
     ]);
+}
 
-    if (stateResult.status === "fulfilled") {
-        applySnapshotState(stateResult.value);
-    } else {
+async function refreshSnapshotState() {
+    try {
+        const state = await fetchJson(currentDisplayApi);
+        applySnapshotState(state);
+    } catch (error) {
         elements.refreshStatus.textContent = "Snapshot refresh failed";
-        elements.lastUpdated.textContent = stateResult.reason.message;
+        elements.lastUpdated.textContent = error.message;
     }
+}
 
-    if (controlResult.status === "fulfilled") {
-        applyControlPayload(controlResult.value);
-    } else {
+async function refreshControlState() {
+    try {
+        const payload = await fetchJson(controlStateApi);
+        applyControlPayload(payload);
+        return payload;
+    } catch (error) {
+        if (error?.status === 401) {
+            applyUnauthorizedControlState(error);
+            return latestControlPayload;
+        }
+
         setMessage(
             elements.actionStatus,
-            describeResultError(controlResult.reason, "Control state unavailable"),
+            describeResultError(error, "Control state unavailable"),
             "error",
         );
         setMessage(
             elements.adminActionStatus,
-            describeResultError(controlResult.reason, "Admin state unavailable"),
+            describeResultError(error, "Admin state unavailable"),
             "error",
         );
-    elements.refreshStatus.textContent = state.has_data ? "Live snapshot loaded" : "Waiting for runtime state";
-    elements.lastUpdated.textContent = state.updated_at
-        ? `Updated ${state.updated_at}`
-        : "No snapshot saved yet";
-}
-
-function setActionStatus(message, state = "idle") {
-    elements.actionStatus.textContent = message;
-    elements.actionStatus.dataset.state = state;
-}
-
-function formatCategoryLabel(category) {
-    if (!category) {
-        return "Unknown";
-    }
-
-    return String(category).charAt(0).toUpperCase() + String(category).slice(1);
-}
-
-async function parseJsonResponse(response) {
-    try {
-        return await response.json();
-    } catch {
-        return null;
-    }
-}
-
-async function refreshState() {
-    try {
-        const response = await fetch(apiPath, { cache: "no-store" });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const state = await response.json();
-        applyState(state);
-    } catch (error) {
-        elements.refreshStatus.textContent = "Refresh failed";
-        elements.lastUpdated.textContent = error.message;
+        throw error;
     }
 }
 
@@ -504,6 +689,15 @@ async function skipCategory() {
             "success",
         );
     } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.actionStatus,
+                "Skip request failed",
+            )
+        ) {
+            return;
+        }
         setMessage(
             elements.actionStatus,
             describeResultError(error, "Skip request failed"),
@@ -511,29 +705,6 @@ async function skipCategory() {
         );
     } finally {
         await refreshDashboard();
-    setActionStatus("Requesting category skip...", "pending");
-
-    try {
-        const response = await fetch(skipApiPath, {
-            method: "POST",
-            cache: "no-store",
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-
-        const result = await parseJsonResponse(response);
-        const result = await response.json();
-        elements.refreshStatus.textContent = "Skip requested";
-        setActionStatus(
-            `Skip requested at ${displayText(result.requested_at)}`,
-            "success",
-        );
-        await refreshState();
-    } catch (error) {
-        setActionStatus(`Skip failed: ${error.message}`, "error");
-    } finally {
-        elements.skipCategoryButton.disabled = false;
     }
 }
 
@@ -563,6 +734,15 @@ async function switchCategory() {
             "success",
         );
     } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.actionStatus,
+                "Switch request failed",
+            )
+        ) {
+            return;
+        }
         setMessage(
             elements.actionStatus,
             describeResultError(error, "Switch request failed"),
@@ -603,7 +783,7 @@ async function signInAdmin(event) {
             `Signed in as ${displayText(result.username)}.`,
             "success",
         );
-        await refreshDashboard();
+        await refreshControlState();
         openControlsModal();
     } catch (error) {
         setMessage(
@@ -628,6 +808,10 @@ async function signOutAdmin() {
         setMessage(elements.adminActionStatus, "Admin session ended.", "success");
         closeAllModals();
     } catch (error) {
+        if (error?.status === 401) {
+            applyUnauthorizedControlState(error);
+            closeAllModals();
+        }
         setMessage(
             elements.adminActionStatus,
             describeResultError(error, "Sign-out failed"),
@@ -637,7 +821,7 @@ async function signOutAdmin() {
         if (elements.adminLoginForm) {
             elements.adminLoginForm.reset();
         }
-        await refreshDashboard();
+        await refreshControlState().catch(() => null);
     }
 }
 
@@ -653,6 +837,9 @@ async function toggleControlLock(action) {
     }
 
     const nextLocked = !control.locked;
+    const isSkipAction = action === "skip_category";
+    const lockApi = isSkipAction ? lockSkipApi : lockSwitchApi;
+    const unlockApi = isSkipAction ? unlockSkipApi : unlockSwitchApi;
     setMessage(
         elements.adminActionStatus,
         `${nextLocked ? "Locking" : "Unlocking"} ${control.label}...`,
@@ -660,10 +847,8 @@ async function toggleControlLock(action) {
     );
 
     try {
-        const result = await fetchJson(adminControlLockApi, {
+        const result = await fetchJson(nextLocked ? lockApi : unlockApi, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action, locked: nextLocked }),
         });
         setMessage(
             elements.adminActionStatus,
@@ -671,13 +856,22 @@ async function toggleControlLock(action) {
             "success",
         );
     } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.adminActionStatus,
+                "Lock update failed",
+            )
+        ) {
+            return;
+        }
         setMessage(
             elements.adminActionStatus,
             describeResultError(error, "Lock update failed"),
             "error",
         );
     } finally {
-        await refreshDashboard();
+        await refreshControlState().catch(() => null);
     }
 }
 
@@ -723,35 +917,6 @@ if (elements.pokemonImage) {
     });
 }
 
-    setActionStatus(`Switching to ${formatCategoryLabel(category)}...`, "pending");
-
-    try {
-        const response = await fetch(switchApiPath, {
-            method: "POST",
-            cache: "no-store",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ category }),
-        });
-        const result = await parseJsonResponse(response);
-        if (!response.ok) {
-            throw new Error(result?.error || `HTTP ${response.status}`);
-        }
-
-        elements.refreshStatus.textContent = "Switch requested";
-        setActionStatus(
-            `Switch requested: ${formatCategoryLabel(result.category)}`,
-            "success",
-        );
-        await refreshState();
-    } catch (error) {
-        setActionStatus(`Switch failed: ${error.message}`, "error");
-    } finally {
-        elements.switchCategoryButton.disabled = false;
-    }
-}
-
 if (elements.skipCategoryButton) {
     elements.skipCategoryButton.addEventListener("click", skipCategory);
 }
@@ -785,9 +950,8 @@ if (elements.toggleSwitchLockButton) {
 }
 
 bindModalInteractions();
-refreshDashboard();
+applyControlPayload(latestControlPayload);
+refreshDashboard().catch(() => {});
 window.setInterval(() => {
     refreshDashboard().catch(() => {});
 }, pollIntervalMs);
-refreshState();
-window.setInterval(refreshState, pollIntervalMs);

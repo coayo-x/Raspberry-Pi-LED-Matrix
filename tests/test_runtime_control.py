@@ -11,10 +11,6 @@ from runtime_control import (
     request_skip_category,
     request_switch_category,
     set_control_lock,
-from runtime_control import (
-    consume_skip_category_request,
-    get_skip_category_state,
-    request_skip_category,
 )
 
 
@@ -31,10 +27,6 @@ def test_skip_category_requests_are_counted_and_consumed(isolated_db_path) -> No
     assert first["accepted"] is True
     assert first["request_count"] == 1
     assert second["accepted"] is True
-        str(isolated_db_path), requested_at="2026-03-15T13:00:01"
-    )
-
-    assert first["request_count"] == 1
     assert second["request_count"] == 2
     assert get_skip_category_state(str(isolated_db_path)) == (2, 0)
 
@@ -70,7 +62,6 @@ def test_switch_category_requests_validate_and_consume_latest_selection(
     )
     second = request_switch_category(
         "science", str(isolated_db_path), requested_at="2026-03-15T13:10:11"
-        "science", str(isolated_db_path), requested_at="2026-03-15T13:10:01"
     )
 
     assert first["category"] == "weather"
@@ -109,6 +100,35 @@ def test_control_lock_blocks_public_requests_but_allows_admin_override(
     assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
 
 
+def test_independent_control_locks_do_not_overlap(
+    isolated_db_path,
+) -> None:
+    set_control_lock("switch_category", True, str(isolated_db_path))
+
+    skip_result = request_skip_category(
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:24:00",
+    )
+    public_switch = request_switch_category(
+        "weather",
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:24:03",
+    )
+    admin_switch = request_switch_category(
+        "science",
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:24:10",
+        is_admin=True,
+    )
+
+    assert skip_result["accepted"] is True
+    assert public_switch["accepted"] is False
+    assert public_switch["locked"] is True
+    assert admin_switch["accepted"] is True
+    assert admin_switch["admin_override"] is True
+    assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
+
+
 def test_runtime_control_state_reports_lock_and_cooldown(isolated_db_path) -> None:
     set_control_lock("switch_category", True, str(isolated_db_path))
     request_skip_category(str(isolated_db_path), requested_at="2026-03-15T13:30:00")
@@ -131,3 +151,19 @@ def test_runtime_control_state_reports_lock_and_cooldown(isolated_db_path) -> No
     assert admin_state["switch_category"]["locked"] is True
     assert admin_state["switch_category"]["admin_override"] is True
     assert admin_state["switch_category"]["available"] is True
+
+
+def test_runtime_control_state_reports_independent_locks(
+    isolated_db_path,
+) -> None:
+    set_control_lock("skip_category", True, str(isolated_db_path))
+
+    public_state = get_runtime_control_state(str(isolated_db_path))
+    admin_state = get_runtime_control_state(str(isolated_db_path), is_admin=True)
+
+    assert public_state["skip_category"]["locked"] is True
+    assert public_state["skip_category"]["available"] is False
+    assert public_state["switch_category"]["locked"] is False
+    assert public_state["switch_category"]["available"] is True
+    assert admin_state["skip_category"]["admin_override"] is True
+    assert admin_state["switch_category"]["admin_override"] is False

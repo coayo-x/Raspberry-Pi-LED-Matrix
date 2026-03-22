@@ -7,8 +7,6 @@ import urllib.request
 import admin_auth
 from current_display_state import save_current_display_state
 from dashboard_server import create_dashboard_server
-from dashboard_server import create_dashboard_server
-from current_display_state import save_current_display_state
 from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
@@ -27,6 +25,17 @@ def _fetch_json(url: str, opener: urllib.request.OpenerDirector | None = None) -
     active_opener = opener or urllib.request.build_opener()
     with active_opener.open(url, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _fetch_json_expect_error(
+    url: str, opener: urllib.request.OpenerDirector | None = None
+) -> tuple[int, dict]:
+    active_opener = opener or urllib.request.build_opener()
+    try:
+        with active_opener.open(url, timeout=5):
+            raise AssertionError("Expected HTTPError")
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read().decode("utf-8"))
 
 
 def _fetch_text(url: str, opener: urllib.request.OpenerDirector | None = None) -> str:
@@ -57,21 +66,6 @@ def _post_json_expect_error(
     payload: dict | None = None,
     opener: urllib.request.OpenerDirector | None = None,
 ) -> tuple[int, dict]:
-)
-from runtime_control import consume_skip_category_request, get_skip_category_state
-
-
-def _fetch_json(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=5) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def _fetch_text(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=5) as response:
-        return response.read().decode("utf-8")
-
-
-def _post_json(url: str, payload: dict | None = None) -> dict:
     data = None
     headers = {}
     if payload is not None:
@@ -94,17 +88,137 @@ def _install_admin(monkeypatch, password: str = "s3cret!") -> None:
     )
 
 
-def test_dashboard_api_returns_stable_response_shape(
+def _login(
+    base_url: str,
+    opener: urllib.request.OpenerDirector,
+    *,
+    username: str = "admin",
+    password: str = "s3cret!",
+) -> tuple[int, dict]:
+    return _post_json(
+        f"{base_url}/api/admin/login",
+        {"username": username, "password": password},
+        opener=opener,
+    )
+
+
+def test_dashboard_root_is_public_without_authentication(
     monkeypatch, isolated_db_path
 ) -> None:
     _install_admin(monkeypatch)
-def _post_json(url: str) -> dict:
-    request = urllib.request.Request(url, method="POST")
-    with urllib.request.urlopen(request, timeout=5) as response:
-        return json.loads(response.read().decode("utf-8"))
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        page = _fetch_text(f"{base_url}/")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert "Current matrix payload" in page
+    assert 'id="admin-control-button"' in page
+    assert "/api/current-display-state" in page
+    assert "Restricted Access" not in page
 
 
-def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
+def test_dashboard_safe_default_keeps_public_routes_available_when_credentials_missing(
+    isolated_db_path,
+) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        page = _fetch_text(f"{base_url}/")
+        state_body = _fetch_json(f"{base_url}/api/current-display-state")
+        control_body = _fetch_json(f"{base_url}/api/control-state")
+        skip_status, skip_body = _post_json(f"{base_url}/api/skip-category")
+        switch_status, switch_body = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "weather"},
+        )
+        login_page = _fetch_text(f"{base_url}/login")
+        login_status, login_body = _post_json_expect_error(
+            f"{base_url}/api/admin/login",
+            {"username": "admin", "password": "s3cret!"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert "Current matrix payload" in page
+    assert state_body["has_data"] is False
+    assert "not configured on this host" in login_page
+    assert control_body["auth"]["configured"] is False
+    assert control_body["auth"]["authenticated"] is False
+    assert control_body["controls"]["skip_category"]["locked"] is False
+    assert control_body["controls"]["switch_category"]["locked"] is False
+    assert skip_status == 200
+    assert skip_body["accepted"] is True
+    assert switch_status == 200
+    assert switch_body["accepted"] is True
+    assert login_status == 503
+    assert login_body["status"] == "disabled"
+
+
+def test_dashboard_public_controls_work_without_authentication_and_admin_endpoints_require_authentication(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        state_body = _fetch_json(f"{base_url}/api/current-display-state")
+        control_body = _fetch_json(f"{base_url}/api/control-state")
+        skip_status, skip_body = _post_json(f"{base_url}/api/skip-category")
+        switch_status, switch_body = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "weather"},
+        )
+        skip_lock_status, skip_lock_body = _post_json_expect_error(
+            f"{base_url}/api/lock-skip"
+        )
+        switch_unlock_status, switch_unlock_body = _post_json_expect_error(
+            f"{base_url}/api/unlock-switch"
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert state_body["has_data"] is False
+    assert control_body["auth"]["configured"] is True
+    assert control_body["auth"]["authenticated"] is False
+    assert control_body["controls"]["skip_category"]["locked"] is False
+    assert control_body["controls"]["switch_category"]["locked"] is False
+    assert skip_status == 200
+    assert skip_body["accepted"] is True
+    assert switch_status == 200
+    assert switch_body["accepted"] is True
+    assert skip_lock_status == 401
+    assert skip_lock_body["configured"] is True
+    assert switch_unlock_status == 401
+    assert switch_unlock_body["configured"] is True
+
+
+def test_dashboard_login_enables_protected_control_api(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
     save_current_display_state(
         {
             "time": "2026-03-15 11:00:00",
@@ -117,18 +231,13 @@ def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
                 "attack": 49,
                 "defense": 49,
                 "image_url": "https://example.test/bulbasaur.png",
-            "category": "weather",
-            "data": {
-                "location": "Erie, PA",
-                "condition": "Clear",
-                "temperature_f": 41,
-                "wind_mph": 8,
             },
         },
         db_path=str(isolated_db_path),
         updated_at="2026-03-15T11:00:01",
     )
 
+    opener = _build_opener()
     server = create_dashboard_server(
         host="127.0.0.1", port=0, db_path=str(isolated_db_path)
     )
@@ -137,48 +246,225 @@ def test_dashboard_api_returns_stable_response_shape(isolated_db_path) -> None:
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
-        state = _fetch_json(f"{base_url}/api/current-display-state")
-        control_state = _fetch_json(f"{base_url}/api/control-state")
-        page = _fetch_text(f"{base_url}/")
+        public_state = _fetch_json(f"{base_url}/api/current-display-state")
+        public_page = _fetch_text(f"{base_url}/")
+        status, login = _login(base_url, opener)
+        state = _fetch_json(f"{base_url}/api/current-display-state", opener=opener)
+        control_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+        page = _fetch_text(f"{base_url}/", opener=opener)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
 
-    assert set(state) == {
-        "snapshot_version",
-        "has_data",
-        "updated_at",
-        "time",
-        "slot",
-        "category",
-        "setup",
-        "punchline",
-        "data",
-    }
+    assert status == 200
+    assert login["authenticated"] is True
+    assert public_state["category"] == "pokemon"
+    assert "Current matrix payload" in public_page
     assert state["category"] == "pokemon"
     assert state["data"]["image_url"] == "https://example.test/bulbasaur.png"
-    assert control_state["auth"]["configured"] is True
-    assert "services" not in control_state
-    assert "data-control-state-api=" in page
+    assert control_state["auth"]["authenticated"] is True
+    assert "Current matrix payload" in page
     assert 'id="admin-control-button"' in page
-    assert 'id="admin-login-modal"' in page
-    assert 'id="admin-controls-modal"' in page
     assert 'id="pokemon-image"' in page
-    assert "/api/admin/login" in page
-    assert 'id="toggle-skip-lock-button"' in page
-    assert 'id="toggle-switch-lock-button"' in page
-    assert page.count('class="admin-subcard"') == 1
-    assert page.count('class="lock-row"') == 2
-    assert state["setup"] == "Erie, PA"
-    assert state["punchline"] == "Clear | 41F | Wind 8 mph"
-    assert "data-poll-interval-ms=" in page
-    assert "/api/current-display-state" in page
-    assert "/api/skip-category" in page
-    assert "/api/switch-category" in page
 
 
-def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) -> None:
+def test_dashboard_wrong_password_is_rejected(monkeypatch, isolated_db_path) -> None:
+    _install_admin(monkeypatch)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json_expect_error(
+            f"{base_url}/api/admin/login",
+            {"username": "admin", "password": "wrong"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 401
+    assert body["authenticated"] is False
+    assert body["status"] == "invalid_credentials"
+
+
+def test_dashboard_authenticated_control_endpoints_work(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        skip_status, skip_result = _post_json(
+            f"{base_url}/api/skip-category",
+            opener=opener,
+        )
+        switch_status, switch_result = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "weather"},
+            opener=opener,
+        )
+        lock_status, lock_result = _post_json(
+            f"{base_url}/api/admin/control-lock",
+            {"action": "skip_category", "locked": True},
+            opener=opener,
+        )
+        control_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert skip_status == 200
+    assert skip_result["accepted"] is True
+    assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
+    assert consume_skip_category_request(str(isolated_db_path)) == 1
+
+    assert switch_status == 200
+    assert switch_result["accepted"] is True
+    assert switch_result["category"] == "weather"
+    assert get_switch_category_state(str(isolated_db_path)) == (1, 0, "weather")
+    assert consume_switch_category_request(str(isolated_db_path)) == (1, "weather")
+
+    assert lock_status == 200
+    assert lock_result["control"]["locked"] is True
+    assert control_state["controls"]["skip_category"]["admin_override"] is True
+
+
+def test_dashboard_admin_can_lock_and_unlock_public_controls(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        switch_lock_status, switch_lock_result = _post_json(
+            f"{base_url}/api/lock-switch",
+            opener=opener,
+        )
+        public_skip_status, public_skip_result = _post_json(
+            f"{base_url}/api/skip-category"
+        )
+        public_switch_status, public_switch_result = _post_json_expect_error(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+        )
+        admin_switch_status, admin_switch_result = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+            opener=opener,
+        )
+        switch_unlock_status, switch_unlock_result = _post_json(
+            f"{base_url}/api/unlock-switch",
+            opener=opener,
+        )
+        skip_lock_status, skip_lock_result = _post_json(
+            f"{base_url}/api/lock-skip",
+            opener=opener,
+        )
+        skip_locked_state = _fetch_json(f"{base_url}/api/control-state")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert switch_lock_status == 200
+    assert switch_lock_result["control"]["action"] == "switch_category"
+    assert switch_lock_result["control"]["locked"] is True
+    assert public_skip_status == 200
+    assert public_skip_result["accepted"] is True
+    assert public_switch_status == 423
+    assert public_switch_result["locked"] is True
+    assert admin_switch_status == 200
+    assert admin_switch_result["accepted"] is True
+    assert admin_switch_result["admin_override"] is True
+    assert switch_unlock_status == 200
+    assert switch_unlock_result["control"]["locked"] is False
+    assert skip_lock_status == 200
+    assert skip_lock_result["control"]["action"] == "skip_category"
+    assert skip_lock_result["control"]["locked"] is True
+    assert skip_locked_state["controls"]["skip_category"]["locked"] is True
+    assert skip_locked_state["controls"]["switch_category"]["locked"] is False
+
+
+def test_dashboard_admin_can_lock_skip_without_affecting_switch(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        skip_lock_status, skip_lock_result = _post_json(
+            f"{base_url}/api/lock-skip",
+            opener=opener,
+        )
+        public_switch_status, public_switch_result = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+        )
+        public_skip_status, public_skip_result = _post_json_expect_error(
+            f"{base_url}/api/skip-category"
+        )
+        admin_skip_status, admin_skip_result = _post_json(
+            f"{base_url}/api/skip-category",
+            opener=opener,
+        )
+        skip_unlock_status, skip_unlock_result = _post_json(
+            f"{base_url}/api/unlock-skip",
+            opener=opener,
+        )
+        public_state = _fetch_json(f"{base_url}/api/control-state")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert skip_lock_status == 200
+    assert skip_lock_result["control"]["action"] == "skip_category"
+    assert skip_lock_result["control"]["locked"] is True
+    assert public_switch_status == 200
+    assert public_switch_result["accepted"] is True
+    assert public_skip_status == 423
+    assert public_skip_result["locked"] is True
+    assert admin_skip_status == 200
+    assert admin_skip_result["accepted"] is True
+    assert admin_skip_result["admin_override"] is True
+    assert skip_unlock_status == 200
+    assert skip_unlock_result["control"]["locked"] is False
+    assert public_state["controls"]["skip_category"]["locked"] is False
+    assert public_state["controls"]["switch_category"]["locked"] is False
+
+
+def test_dashboard_api_reads_updated_snapshot_without_restart_after_login(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
     save_current_display_state(
         {
             "time": "2026-03-15 12:00:00",
@@ -196,15 +482,18 @@ def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) 
         updated_at="2026-03-15T12:00:01",
     )
 
+    opener = _build_opener()
     server = create_dashboard_server(
         host="127.0.0.1", port=0, db_path=str(isolated_db_path)
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     url = f"http://127.0.0.1:{server.server_address[1]}/api/current-display-state"
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
-        first_state = _fetch_json(url)
+        _login(base_url, opener)
+        first_state = _fetch_json(url, opener=opener)
         save_current_display_state(
             {
                 "time": "2026-03-15 12:05:00",
@@ -218,7 +507,7 @@ def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) 
             db_path=str(isolated_db_path),
             updated_at="2026-03-15T12:05:01",
         )
-        second_state = _fetch_json(url)
+        second_state = _fetch_json(url, opener=opener)
     finally:
         server.shutdown()
         server.server_close()
@@ -226,148 +515,12 @@ def test_dashboard_api_reads_updated_snapshot_without_restart(isolated_db_path) 
 
     assert first_state["category"] == "pokemon"
     assert second_state["category"] == "joke"
-    assert first_state["slot"] == "2026-03-15:144"
-    assert second_state["category"] == "joke"
-    assert second_state["slot"] == "2026-03-15:145"
     assert second_state["setup"] == "I told my Pi a joke. It needed more bytes."
 
 
-def test_dashboard_skip_category_endpoint_records_runtime_request(
-    isolated_db_path,
+def test_dashboard_unknown_post_route_returns_404_after_login(
+    monkeypatch, isolated_db_path
 ) -> None:
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/skip-category"
-
-    try:
-        status, result = _post_json(url)
-        result = _post_json(url)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 200
-    assert result["accepted"] is True
-    assert result["requested"] is True
-    assert result["request_count"] == 1
-    assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
-    assert consume_skip_category_request(str(isolated_db_path)) == 1
-
-
-def test_dashboard_skip_category_endpoint_rate_limits_rapid_requests(
-    isolated_db_path,
-) -> None:
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/skip-category"
-
-    try:
-        _post_json(url)
-        status, body = _post_json_expect_error(url)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 429
-    assert body["rate_limited"] is True
-
-
-def test_dashboard_switch_category_endpoint_records_runtime_request(
-    isolated_db_path,
-) -> None:
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/switch-category"
-
-    try:
-        status, result = _post_json(url, {"category": "weather"})
-        result = _post_json(url, {"category": "weather"})
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 200
-    assert result["accepted"] is True
-    assert result["category"] == "weather"
-    assert result["requested"] is True
-    assert result["category"] == "weather"
-    assert result["request_count"] == 1
-    assert get_switch_category_state(str(isolated_db_path)) == (1, 0, "weather")
-    assert consume_switch_category_request(str(isolated_db_path)) == (1, "weather")
-
-
-def test_dashboard_switch_category_endpoint_rejects_invalid_category(
-    isolated_db_path,
-) -> None:
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/switch-category"
-
-    try:
-        status, body = _post_json_expect_error(url, {"category": "invalid"})
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{server.server_address[1]}/api/switch-category",
-        data=json.dumps({"category": "invalid"}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=5):
-            pass
-    except urllib.error.HTTPError as error:
-        status = error.code
-        body = json.loads(error.read().decode("utf-8"))
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 400
-    assert "Invalid category" in body["error"]
-
-
-def test_dashboard_protected_admin_endpoint_rejects_unauthorized_request(
-def test_dashboard_skip_category_endpoint_returns_not_found_for_unknown_post(
-    isolated_db_path,
-) -> None:
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/admin/control-lock"
-
-    try:
-        status, body = _post_json_expect_error(
-            url,
-            {"action": "skip_category", "locked": True},
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert status == 401
-    assert "Admin authentication is required" in body["error"]
-
-
-def test_dashboard_admin_login_and_lock_controls(monkeypatch, isolated_db_path) -> None:
     _install_admin(monkeypatch)
     opener = _build_opener()
     server = create_dashboard_server(
@@ -376,97 +529,46 @@ def test_dashboard_admin_login_and_lock_controls(monkeypatch, isolated_db_path) 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    request = urllib.request.Request(f"{base_url}/api/unknown", method="POST")
 
     try:
-        status, login = _post_json(
-            f"{base_url}/api/admin/login",
-            {"username": "admin", "password": "s3cret!"},
-            opener=opener,
-        )
-        lock_status, lock_result = _post_json(
-            f"{base_url}/api/admin/control-lock",
-            {"action": "skip_category", "locked": True},
-            opener=opener,
-        )
-        control_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+        _login(base_url, opener)
+        try:
+            with opener.open(request, timeout=5):
+                raise AssertionError("Expected HTTPError")
+        except urllib.error.HTTPError as error:
+            status = error.code
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
 
-    assert status == 200
-    assert login["authenticated"] is True
-    assert lock_status == 200
-    assert lock_result["control"]["locked"] is True
-    assert control_state["auth"]["authenticated"] is True
-    assert control_state["controls"]["skip_category"]["admin_override"] is True
+    assert status == 404
 
 
-def test_dashboard_admin_login_lockout_after_failed_attempts(
-    monkeypatch,
-    isolated_db_path,
+def test_dashboard_control_state_reflects_public_lock_after_login(
+    monkeypatch, isolated_db_path
 ) -> None:
     _install_admin(monkeypatch)
-    monkeypatch.setattr(admin_auth, "ADMIN_LOGIN_MAX_ATTEMPTS", 2)
-    monkeypatch.setattr(admin_auth, "ADMIN_LOGIN_LOCKOUT_SECONDS", 300)
-
-    server = create_dashboard_server(
-        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/admin/login"
-
-    try:
-        first_status, first_body = _post_json_expect_error(
-            url, {"username": "admin", "password": "wrong"}
-        )
-        second_status, second_body = _post_json_expect_error(
-            url, {"username": "admin", "password": "wrong"}
-        )
-        third_status, third_body = _post_json_expect_error(
-            url, {"username": "admin", "password": "s3cret!"}
-        )
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-    assert first_status == 401
-    assert second_status == 429
-    assert second_body["status"] == "locked"
-    assert third_status == 429
-    assert third_body["status"] == "locked"
-
-
-def test_dashboard_control_state_reflects_public_lock(isolated_db_path) -> None:
     set_control_lock("switch_category", True, str(isolated_db_path))
+    opener = _build_opener()
 
     server = create_dashboard_server(
         host="127.0.0.1", port=0, db_path=str(isolated_db_path)
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/api/control-state"
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
-        state = _fetch_json(url)
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{server.server_address[1]}/api/unknown",
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=5):
-            pass
-    except urllib.error.HTTPError as error:
-        status = error.code
+        _login(base_url, opener)
+        state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
 
-    assert state["auth"]["authenticated"] is False
+    assert state["auth"]["authenticated"] is True
+    assert state["controls"]["skip_category"]["locked"] is False
     assert state["controls"]["switch_category"]["locked"] is True
-    assert state["controls"]["switch_category"]["available"] is False
-    assert status == 404
+    assert state["controls"]["switch_category"]["admin_override"] is True

@@ -6,9 +6,6 @@ from config import (
     SKIP_CATEGORY_COOLDOWN_SECONDS,
     SWITCH_CATEGORY_COOLDOWN_SECONDS,
 )
-from datetime import datetime
-
-from config import DB_PATH
 from db_manager import connect
 from rotation_engine import DISPLAY_SEQUENCE
 
@@ -65,10 +62,6 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
-SWITCH_CATEGORY_REQUEST_KEY = "switch_category_request_count"
-SWITCH_CATEGORY_HANDLED_KEY = "switch_category_handled_count"
-SWITCH_CATEGORY_LAST_REQUESTED_AT_KEY = "switch_category_last_requested_at"
-SWITCH_CATEGORY_VALUE_KEY = "switch_category_value"
 
 
 def _get_meta_text(conn, key: str) -> str | None:
@@ -85,24 +78,6 @@ def _get_meta_int(conn, key: str) -> int:
 
     try:
         return int(value)
-def _normalize_category(category: str) -> str:
-    normalized = str(category).strip().lower()
-    if normalized not in DISPLAY_SEQUENCE:
-        raise ValueError(
-            f"Invalid category '{category}'. Expected one of: {', '.join(DISPLAY_SEQUENCE)}"
-        )
-    return normalized
-
-
-def _get_meta_int(conn, key: str) -> int:
-    cur = conn.cursor()
-    cur.execute("SELECT value FROM meta WHERE key = ?", (key,))
-    row = cur.fetchone()
-    if row is None:
-        return 0
-
-    try:
-        return int(row["value"])
     except (TypeError, ValueError):
         return 0
 
@@ -166,7 +141,8 @@ def _build_action_state(
     definition = CONTROL_ACTIONS[normalized_action]
     request_count = _get_meta_int(conn, definition["request_key"])
     handled_count = _get_meta_int(conn, definition["handled_key"])
-    locked = _get_meta_bool(conn, definition["lock_key"])
+    action_locked = _get_meta_bool(conn, definition["lock_key"])
+    locked = action_locked
     cooldown_remaining = _cooldown_remaining_seconds(
         _get_meta_text(conn, definition["last_accepted_key"]),
         definition["cooldown_seconds"],
@@ -188,6 +164,7 @@ def _build_action_state(
         "action": normalized_action,
         "label": definition["label"],
         "locked": locked,
+        "action_locked": action_locked,
         "admin_override": bool(locked and is_admin),
         "cooldown_seconds": definition["cooldown_seconds"],
         "cooldown_remaining_seconds": cooldown_remaining,
@@ -311,22 +288,6 @@ def get_runtime_control_state(
                 conn, action, current=current, is_admin=is_admin
             )
             for action in CONTROL_ACTIONS
-def request_skip_category(
-    db_path: str = DB_PATH, requested_at: str | None = None
-) -> dict:
-    timestamp = requested_at or datetime.now().isoformat(timespec="seconds")
-
-    conn = connect(db_path)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        request_count = _get_meta_int(conn, SKIP_CATEGORY_REQUEST_KEY) + 1
-        _set_meta(conn, SKIP_CATEGORY_REQUEST_KEY, str(request_count))
-        _set_meta(conn, SKIP_CATEGORY_LAST_REQUESTED_AT_KEY, timestamp)
-        conn.commit()
-        return {
-            "requested": True,
-            "request_count": request_count,
-            "requested_at": timestamp,
         }
     finally:
         conn.close()
@@ -339,11 +300,6 @@ def set_control_lock(
 ) -> dict:
     normalized_action = _normalize_action(action)
     definition = CONTROL_ACTIONS[normalized_action]
-def request_switch_category(
-    category: str, db_path: str = DB_PATH, requested_at: str | None = None
-) -> dict:
-    normalized_category = _normalize_category(category)
-    timestamp = requested_at or datetime.now().isoformat(timespec="seconds")
 
     conn = connect(db_path)
     try:
@@ -356,17 +312,6 @@ def request_switch_category(
             current=datetime.now(),
             is_admin=True,
         )
-        request_count = _get_meta_int(conn, SWITCH_CATEGORY_REQUEST_KEY) + 1
-        _set_meta(conn, SWITCH_CATEGORY_REQUEST_KEY, str(request_count))
-        _set_meta(conn, SWITCH_CATEGORY_VALUE_KEY, normalized_category)
-        _set_meta(conn, SWITCH_CATEGORY_LAST_REQUESTED_AT_KEY, timestamp)
-        conn.commit()
-        return {
-            "requested": True,
-            "category": normalized_category,
-            "request_count": request_count,
-            "requested_at": timestamp,
-        }
     finally:
         conn.close()
 
