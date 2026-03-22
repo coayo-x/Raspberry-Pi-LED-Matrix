@@ -8,8 +8,10 @@
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
-    data-lock-controls-api="__LOCK_CONTROLS_API__"
-    data-unlock-controls-api="__UNLOCK_CONTROLS_API__"
+    data-lock-skip-api="__LOCK_SKIP_API__"
+    data-unlock-skip-api="__UNLOCK_SKIP_API__"
+    data-lock-switch-api="__LOCK_SWITCH_API__"
+    data-unlock-switch-api="__UNLOCK_SWITCH_API__"
     data-poll-interval-ms="__POLL_INTERVAL_MS__"
 >
 <head>
@@ -85,7 +87,7 @@
                         <div class="control-block-header">
                             <div>
                                 <p class="control-title">Skip Category</p>
-                                <p class="control-note" id="skip-category-note">Controls are live.</p>
+                                <p class="control-note" id="skip-category-note">Controls are active.</p>
                             </div>
                             <button class="public-button" id="skip-category-button" type="button">Skip</button>
                         </div>
@@ -95,7 +97,7 @@
                         <div class="control-block-header control-block-switch">
                             <div>
                                 <label class="control-title" for="switch-category-select">Switch Category</label>
-                                <p class="control-note" id="switch-category-note">Controls are live.</p>
+                                <p class="control-note" id="switch-category-note">Controls are active.</p>
                             </div>
                         </div>
                         <div class="switch-row">
@@ -178,7 +180,7 @@
                 <article class="admin-subcard admin-subcard-primary">
                     <div class="admin-subcard-header">
                         <div>
-                            <p class="section-kicker admin-kicker">Access Lock</p>
+                            <p class="section-kicker admin-kicker">Access Locks</p>
                             <h3>Dashboard controls</h3>
                         </div>
                         <p class="admin-subcard-copy">
@@ -188,10 +190,18 @@
 
                     <div class="lock-row">
                         <div class="lock-copy">
-                            <p class="lock-title">Public Controls</p>
-                            <p class="lock-state" id="admin-controls-lock-state">Loading...</p>
+                            <p class="lock-title">Skip Category</p>
+                            <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
                         </div>
-                        <button class="admin-button admin-lock-button" id="toggle-controls-lock-button" type="button">Lock Controls</button>
+                        <button class="admin-button admin-lock-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
+                    </div>
+
+                    <div class="lock-row">
+                        <div class="lock-copy">
+                            <p class="lock-title">Switch Category</p>
+                            <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
+                        </div>
+                        <button class="admin-button admin-lock-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
                     </div>
                 </article>
 

@@ -17,11 +17,9 @@ from config import (
 )
 from current_display_state import load_current_display_state
 from runtime_control import (
-    get_controls_lock_state,
     get_runtime_control_state,
     request_skip_category,
     request_switch_category,
-    set_controls_lock,
     set_control_lock,
 )
 
@@ -41,6 +39,10 @@ SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
+LOCK_SKIP_API_PATH = "/api/lock-skip"
+UNLOCK_SKIP_API_PATH = "/api/unlock-skip"
+LOCK_SWITCH_API_PATH = "/api/lock-switch"
+UNLOCK_SWITCH_API_PATH = "/api/unlock-switch"
 LOCK_CONTROLS_API_PATH = "/api/lock-controls"
 UNLOCK_CONTROLS_API_PATH = "/api/unlock-controls"
 
@@ -443,16 +445,85 @@ def create_dashboard_server(
                 )
                 return
 
-            if route == LOCK_CONTROLS_API_PATH:
+            if route == LOCK_SKIP_API_PATH:
                 if self._require_authenticated_api() is None:
                     return
 
-                controls_locked = set_controls_lock(True, db_path=db_path)
                 self._send_json(
                     HTTPStatus.OK,
                     {
                         "updated": True,
-                        "controls_locked": controls_locked,
+                        "control": set_control_lock(
+                            "skip_category",
+                            True,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == UNLOCK_SKIP_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "skip_category",
+                            False,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == LOCK_SWITCH_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "switch_category",
+                            True,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == UNLOCK_SWITCH_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_control_lock(
+                            "switch_category",
+                            False,
+                            db_path=db_path,
+                        ),
+                    },
+                )
+                return
+
+            if route == LOCK_CONTROLS_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                set_control_lock("skip_category", True, db_path=db_path)
+                set_control_lock("switch_category", True, db_path=db_path)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "controls_locked": True,
                         "controls": get_runtime_control_state(
                             db_path=db_path,
                             is_admin=True,
@@ -465,12 +536,13 @@ def create_dashboard_server(
                 if self._require_authenticated_api() is None:
                     return
 
-                controls_locked = set_controls_lock(False, db_path=db_path)
+                set_control_lock("skip_category", False, db_path=db_path)
+                set_control_lock("switch_category", False, db_path=db_path)
                 self._send_json(
                     HTTPStatus.OK,
                     {
                         "updated": True,
-                        "controls_locked": controls_locked,
+                        "controls_locked": False,
                         "controls": get_runtime_control_state(
                             db_path=db_path,
                             is_admin=True,
@@ -649,7 +721,6 @@ def create_dashboard_server(
             auth_state = admin_status or self._get_admin_status()
             return {
                 "auth": auth_state,
-                "controls_locked": get_controls_lock_state(db_path),
                 "controls": get_runtime_control_state(
                     db_path=db_path,
                     is_admin=auth_state["authenticated"],
@@ -679,6 +750,10 @@ def _render_html() -> bytes:
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,
+        "__LOCK_SKIP_API__": LOCK_SKIP_API_PATH,
+        "__UNLOCK_SKIP_API__": UNLOCK_SKIP_API_PATH,
+        "__LOCK_SWITCH_API__": LOCK_SWITCH_API_PATH,
+        "__UNLOCK_SWITCH_API__": UNLOCK_SWITCH_API_PATH,
         "__LOCK_CONTROLS_API__": LOCK_CONTROLS_API_PATH,
         "__UNLOCK_CONTROLS_API__": UNLOCK_CONTROLS_API_PATH,
     }

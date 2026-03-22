@@ -5,11 +5,9 @@ import pytest
 from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
-    get_controls_lock_state,
     get_runtime_control_state,
     get_skip_category_state,
     get_switch_category_state,
-    set_controls_lock,
     request_skip_category,
     request_switch_category,
     set_control_lock,
@@ -102,14 +100,14 @@ def test_control_lock_blocks_public_requests_but_allows_admin_override(
     assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
 
 
-def test_global_controls_lock_blocks_public_requests_but_allows_admin_override(
+def test_independent_control_locks_do_not_overlap(
     isolated_db_path,
 ) -> None:
-    assert get_controls_lock_state(str(isolated_db_path)) is False
+    set_control_lock("switch_category", True, str(isolated_db_path))
 
-    locked = set_controls_lock(True, str(isolated_db_path))
-    public_skip = request_skip_category(
-        str(isolated_db_path), requested_at="2026-03-15T13:24:00"
+    skip_result = request_skip_category(
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:24:00",
     )
     public_switch = request_switch_category(
         "weather",
@@ -123,16 +121,12 @@ def test_global_controls_lock_blocks_public_requests_but_allows_admin_override(
         is_admin=True,
     )
 
-    assert locked is True
-    assert get_controls_lock_state(str(isolated_db_path)) is True
-    assert public_skip["accepted"] is False
-    assert public_skip["locked"] is True
-    assert public_skip["controls_locked"] is True
+    assert skip_result["accepted"] is True
     assert public_switch["accepted"] is False
     assert public_switch["locked"] is True
-    assert public_switch["controls_locked"] is True
     assert admin_switch["accepted"] is True
     assert admin_switch["admin_override"] is True
+    assert get_skip_category_state(str(isolated_db_path)) == (1, 0)
 
 
 def test_runtime_control_state_reports_lock_and_cooldown(isolated_db_path) -> None:
@@ -159,17 +153,17 @@ def test_runtime_control_state_reports_lock_and_cooldown(isolated_db_path) -> No
     assert admin_state["switch_category"]["available"] is True
 
 
-def test_runtime_control_state_reports_global_lock_for_all_controls(
+def test_runtime_control_state_reports_independent_locks(
     isolated_db_path,
 ) -> None:
-    set_controls_lock(True, str(isolated_db_path))
+    set_control_lock("skip_category", True, str(isolated_db_path))
 
     public_state = get_runtime_control_state(str(isolated_db_path))
     admin_state = get_runtime_control_state(str(isolated_db_path), is_admin=True)
 
-    assert public_state["skip_category"]["controls_locked"] is True
-    assert public_state["switch_category"]["controls_locked"] is True
+    assert public_state["skip_category"]["locked"] is True
     assert public_state["skip_category"]["available"] is False
-    assert public_state["switch_category"]["available"] is False
+    assert public_state["switch_category"]["locked"] is False
+    assert public_state["switch_category"]["available"] is True
     assert admin_state["skip_category"]["admin_override"] is True
-    assert admin_state["switch_category"]["admin_override"] is True
+    assert admin_state["switch_category"]["admin_override"] is False

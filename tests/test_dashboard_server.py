@@ -160,7 +160,8 @@ def test_dashboard_safe_default_keeps_public_routes_available_when_credentials_m
     assert "not configured on this host" in login_page
     assert control_body["auth"]["configured"] is False
     assert control_body["auth"]["authenticated"] is False
-    assert control_body["controls_locked"] is False
+    assert control_body["controls"]["skip_category"]["locked"] is False
+    assert control_body["controls"]["switch_category"]["locked"] is False
     assert skip_status == 200
     assert skip_body["accepted"] is True
     assert switch_status == 200
@@ -188,9 +189,11 @@ def test_dashboard_public_controls_work_without_authentication_and_admin_endpoin
             f"{base_url}/api/switch-category",
             {"category": "weather"},
         )
-        lock_status, lock_body = _post_json_expect_error(f"{base_url}/api/lock-controls")
-        unlock_status, unlock_body = _post_json_expect_error(
-            f"{base_url}/api/unlock-controls"
+        skip_lock_status, skip_lock_body = _post_json_expect_error(
+            f"{base_url}/api/lock-skip"
+        )
+        switch_unlock_status, switch_unlock_body = _post_json_expect_error(
+            f"{base_url}/api/unlock-switch"
         )
     finally:
         server.shutdown()
@@ -200,15 +203,16 @@ def test_dashboard_public_controls_work_without_authentication_and_admin_endpoin
     assert state_body["has_data"] is False
     assert control_body["auth"]["configured"] is True
     assert control_body["auth"]["authenticated"] is False
-    assert control_body["controls_locked"] is False
+    assert control_body["controls"]["skip_category"]["locked"] is False
+    assert control_body["controls"]["switch_category"]["locked"] is False
     assert skip_status == 200
     assert skip_body["accepted"] is True
     assert switch_status == 200
     assert switch_body["accepted"] is True
-    assert lock_status == 401
-    assert lock_body["configured"] is True
-    assert unlock_status == 401
-    assert unlock_body["configured"] is True
+    assert skip_lock_status == 401
+    assert skip_lock_body["configured"] is True
+    assert switch_unlock_status == 401
+    assert switch_unlock_body["configured"] is True
 
 
 def test_dashboard_login_enables_protected_control_api(
@@ -353,9 +357,76 @@ def test_dashboard_admin_can_lock_and_unlock_public_controls(
 
     try:
         _login(base_url, opener)
-        lock_status, lock_result = _post_json(
-            f"{base_url}/api/lock-controls",
+        switch_lock_status, switch_lock_result = _post_json(
+            f"{base_url}/api/lock-switch",
             opener=opener,
+        )
+        public_skip_status, public_skip_result = _post_json(
+            f"{base_url}/api/skip-category"
+        )
+        public_switch_status, public_switch_result = _post_json_expect_error(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+        )
+        admin_switch_status, admin_switch_result = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+            opener=opener,
+        )
+        switch_unlock_status, switch_unlock_result = _post_json(
+            f"{base_url}/api/unlock-switch",
+            opener=opener,
+        )
+        skip_lock_status, skip_lock_result = _post_json(
+            f"{base_url}/api/lock-skip",
+            opener=opener,
+        )
+        skip_locked_state = _fetch_json(f"{base_url}/api/control-state")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert switch_lock_status == 200
+    assert switch_lock_result["control"]["action"] == "switch_category"
+    assert switch_lock_result["control"]["locked"] is True
+    assert public_skip_status == 200
+    assert public_skip_result["accepted"] is True
+    assert public_switch_status == 423
+    assert public_switch_result["locked"] is True
+    assert admin_switch_status == 200
+    assert admin_switch_result["accepted"] is True
+    assert admin_switch_result["admin_override"] is True
+    assert switch_unlock_status == 200
+    assert switch_unlock_result["control"]["locked"] is False
+    assert skip_lock_status == 200
+    assert skip_lock_result["control"]["action"] == "skip_category"
+    assert skip_lock_result["control"]["locked"] is True
+    assert skip_locked_state["controls"]["skip_category"]["locked"] is True
+    assert skip_locked_state["controls"]["switch_category"]["locked"] is False
+
+
+def test_dashboard_admin_can_lock_skip_without_affecting_switch(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        skip_lock_status, skip_lock_result = _post_json(
+            f"{base_url}/api/lock-skip",
+            opener=opener,
+        )
+        public_switch_status, public_switch_result = _post_json(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
         )
         public_skip_status, public_skip_result = _post_json_expect_error(
             f"{base_url}/api/skip-category"
@@ -364,13 +435,9 @@ def test_dashboard_admin_can_lock_and_unlock_public_controls(
             f"{base_url}/api/skip-category",
             opener=opener,
         )
-        unlock_status, unlock_result = _post_json(
-            f"{base_url}/api/unlock-controls",
+        skip_unlock_status, skip_unlock_result = _post_json(
+            f"{base_url}/api/unlock-skip",
             opener=opener,
-        )
-        public_switch_status, public_switch_result = _post_json(
-            f"{base_url}/api/switch-category",
-            {"category": "science"},
         )
         public_state = _fetch_json(f"{base_url}/api/control-state")
     finally:
@@ -378,19 +445,20 @@ def test_dashboard_admin_can_lock_and_unlock_public_controls(
         server.server_close()
         thread.join(timeout=5)
 
-    assert lock_status == 200
-    assert lock_result["controls_locked"] is True
+    assert skip_lock_status == 200
+    assert skip_lock_result["control"]["action"] == "skip_category"
+    assert skip_lock_result["control"]["locked"] is True
+    assert public_switch_status == 200
+    assert public_switch_result["accepted"] is True
     assert public_skip_status == 423
     assert public_skip_result["locked"] is True
-    assert public_skip_result["controls_locked"] is True
     assert admin_skip_status == 200
     assert admin_skip_result["accepted"] is True
     assert admin_skip_result["admin_override"] is True
-    assert unlock_status == 200
-    assert unlock_result["controls_locked"] is False
-    assert public_switch_status == 200
-    assert public_switch_result["accepted"] is True
-    assert public_state["controls_locked"] is False
+    assert skip_unlock_status == 200
+    assert skip_unlock_result["control"]["locked"] is False
+    assert public_state["controls"]["skip_category"]["locked"] is False
+    assert public_state["controls"]["switch_category"]["locked"] is False
 
 
 def test_dashboard_api_reads_updated_snapshot_without_restart_after_login(
@@ -501,5 +569,6 @@ def test_dashboard_control_state_reflects_public_lock_after_login(
         thread.join(timeout=5)
 
     assert state["auth"]["authenticated"] is True
+    assert state["controls"]["skip_category"]["locked"] is False
     assert state["controls"]["switch_category"]["locked"] is True
     assert state["controls"]["switch_category"]["admin_override"] is True
