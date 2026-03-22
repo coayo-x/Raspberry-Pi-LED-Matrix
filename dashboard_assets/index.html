@@ -8,6 +8,8 @@
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
+    data-lock-controls-api="__LOCK_CONTROLS_API__"
+    data-unlock-controls-api="__UNLOCK_CONTROLS_API__"
     data-poll-interval-ms="__POLL_INTERVAL_MS__"
 >
 <head>
@@ -76,16 +78,16 @@
                             <p class="section-kicker">Admin Controls</p>
                             <h2>Runtime actions</h2>
                         </div>
-                        <span class="state-chip" id="public-control-mode">Read Only</span>
+                        <span class="state-chip" id="public-control-mode">Active</span>
                     </div>
 
                     <div class="control-block">
                         <div class="control-block-header">
                             <div>
                                 <p class="control-title">Skip Category</p>
-                                <p class="control-note" id="skip-category-note">Sign in through Admin Control to enable.</p>
+                                <p class="control-note" id="skip-category-note">Controls are live.</p>
                             </div>
-                            <button class="public-button" id="skip-category-button" type="button" disabled>Skip</button>
+                            <button class="public-button" id="skip-category-button" type="button">Skip</button>
                         </div>
                     </div>
 
@@ -93,21 +95,21 @@
                         <div class="control-block-header control-block-switch">
                             <div>
                                 <label class="control-title" for="switch-category-select">Switch Category</label>
-                                <p class="control-note" id="switch-category-note">Sign in through Admin Control to enable.</p>
+                                <p class="control-note" id="switch-category-note">Controls are live.</p>
                             </div>
                         </div>
                         <div class="switch-row">
-                            <select class="category-select" id="switch-category-select" name="switch-category" disabled>
+                            <select class="category-select" id="switch-category-select" name="switch-category">
                                 <option value="pokemon">Pokemon</option>
                                 <option value="weather">Weather</option>
                                 <option value="joke">Joke</option>
                                 <option value="science">Science</option>
                             </select>
-                            <button class="public-button public-button-secondary" id="switch-category-button" type="button" disabled>Apply</button>
+                            <button class="public-button public-button-secondary" id="switch-category-button" type="button">Apply</button>
                         </div>
                     </div>
 
-                    <p class="action-message" id="action-status" aria-live="polite">Waiting for control state.</p>
+                    <p class="action-message" id="action-status" aria-live="polite">Controls are active.</p>
                 </article>
 
                 <article class="pokemon-card" id="pokemon-card" hidden>
@@ -133,7 +135,7 @@
                 <p class="modal-kicker">Admin Control</p>
                 <h2 id="admin-login-title">Sign In</h2>
                 <p class="modal-subtitle" id="admin-login-copy">
-                    Sign in with the configured admin account to access protected controls.
+                    Sign in with the configured admin account to manage dashboard control locks.
                 </p>
             </div>
 
@@ -166,7 +168,7 @@
                     <p class="modal-kicker admin-kicker">Admin Control</p>
                     <h2 id="admin-controls-title">Protected Operations</h2>
                     <p class="modal-subtitle admin-subtitle" id="admin-controls-summary">
-                        Authenticated admin session required.
+                        Sign in to lock or unlock dashboard controls.
                     </p>
                 </div>
                 <span class="admin-session-badge" id="admin-session-badge">Signed out</span>
@@ -176,28 +178,20 @@
                 <article class="admin-subcard admin-subcard-primary">
                     <div class="admin-subcard-header">
                         <div>
-                            <p class="section-kicker admin-kicker">Access Locks</p>
-                            <h3>Public control gates</h3>
+                            <p class="section-kicker admin-kicker">Access Lock</p>
+                            <h3>Dashboard controls</h3>
                         </div>
                         <p class="admin-subcard-copy">
-                            Control whether public visitors can trigger skip or switch actions from the dashboard.
+                            Lock or unlock public access to the skip and switch actions from this dashboard.
                         </p>
                     </div>
 
                     <div class="lock-row">
                         <div class="lock-copy">
-                            <p class="lock-title">Skip Category</p>
-                            <p class="lock-state" id="admin-skip-lock-state">Loading...</p>
+                            <p class="lock-title">Public Controls</p>
+                            <p class="lock-state" id="admin-controls-lock-state">Loading...</p>
                         </div>
-                        <button class="admin-button admin-lock-button" id="toggle-skip-lock-button" type="button">Lock Skip</button>
-                    </div>
-
-                    <div class="lock-row">
-                        <div class="lock-copy">
-                            <p class="lock-title">Switch Category</p>
-                            <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
-                        </div>
-                        <button class="admin-button admin-lock-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                        <button class="admin-button admin-lock-button" id="toggle-controls-lock-button" type="button">Lock Controls</button>
                     </div>
                 </article>
 

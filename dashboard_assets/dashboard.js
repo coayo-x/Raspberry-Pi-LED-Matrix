@@ -12,6 +12,10 @@ const adminLogoutApi =
     document.documentElement.dataset.adminLogoutApi || "/api/admin/logout";
 const adminControlLockApi =
     document.documentElement.dataset.adminControlLockApi || "/api/admin/control-lock";
+const lockControlsApi =
+    document.documentElement.dataset.lockControlsApi || "/api/lock-controls";
+const unlockControlsApi =
+    document.documentElement.dataset.unlockControlsApi || "/api/unlock-controls";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
 const controlDefinitions = {
     skip_category: { action: "skip_category", label: "Skip Category" },
@@ -64,10 +68,8 @@ const elements = {
     adminPanel: document.getElementById("admin-panel"),
     adminControlsSummary: document.getElementById("admin-controls-summary"),
     adminSessionBadge: document.getElementById("admin-session-badge"),
-    adminSkipLockState: document.getElementById("admin-skip-lock-state"),
-    adminSwitchLockState: document.getElementById("admin-switch-lock-state"),
-    toggleSkipLockButton: document.getElementById("toggle-skip-lock-button"),
-    toggleSwitchLockButton: document.getElementById("toggle-switch-lock-button"),
+    adminControlsLockState: document.getElementById("admin-controls-lock-state"),
+    toggleControlsLockButton: document.getElementById("toggle-controls-lock-button"),
     adminLogoutButton: document.getElementById("admin-logout-button"),
     adminActionStatus: document.getElementById("admin-action-status"),
 };
@@ -98,6 +100,7 @@ function createGuestControlPayload(configured = true) {
             username: "",
             expires_at: "",
         },
+        controls_locked: false,
         controls: Object.fromEntries(
             Object.values(controlDefinitions).map((control) => [
                 control.action,
@@ -105,6 +108,8 @@ function createGuestControlPayload(configured = true) {
                     action: control.action,
                     label: control.label,
                     locked: false,
+                    controls_locked: false,
+                    action_locked: false,
                     admin_override: false,
                     cooldown_seconds: 0,
                     cooldown_remaining_seconds: 0,
@@ -113,8 +118,8 @@ function createGuestControlPayload(configured = true) {
                     pending_request_count: 0,
                     last_requested_at: "",
                     last_accepted_at: "",
-                    available: false,
-                    status: "auth_required",
+                    available: true,
+                    status: "ready",
                     requested_category: null,
                 },
             ]),
@@ -362,20 +367,12 @@ function buildControlNote(control, auth) {
         return "Control state unavailable.";
     }
 
-    if (!auth?.configured) {
-        return "Admin authentication is not configured on this host.";
-    }
-
-    if (!auth?.authenticated) {
-        return "Sign in through Admin Control to enable.";
-    }
-
     if (control.locked && !control.admin_override) {
-        return "Locked by admin.";
+        return "Controls locked by admin.";
     }
 
     if (control.admin_override) {
-        return "Publicly locked. Admin override active.";
+        return "Controls locked for public users. Admin override active.";
     }
 
     if (control.cooldown_remaining_seconds > 0) {
@@ -386,40 +383,48 @@ function buildControlNote(control, auth) {
         return "Accepted. Waiting for runtime handoff.";
     }
 
-    return "Ready.";
+    return "Controls are live.";
 }
 
-function syncPublicActionStatus(auth, controls, previousAuth) {
+function isPubliclyLocked(controls) {
+    return Object.values(controls || {}).some(
+        (control) => Boolean(control?.locked && !control?.admin_override),
+    );
+}
+
+function hasAdminOverride(controls) {
+    return Object.values(controls || {}).some((control) => Boolean(control?.admin_override));
+}
+
+function syncPublicActionStatus(auth, controls, previousPayload) {
     if (!elements.actionStatus) {
         return;
     }
 
-    if (!auth?.configured) {
-        setMessage(
-            elements.actionStatus,
-            "Admin authentication is not configured on this host.",
-            "error",
-        );
-        return;
-    }
-
-    if (!auth?.authenticated) {
-        setMessage(
-            elements.actionStatus,
-            "Sign in through Admin Control to enable.",
-            "idle",
-        );
-        return;
-    }
-
+    const previousAuth = previousPayload?.auth;
+    const lockStateChanged =
+        isPubliclyLocked(previousPayload?.controls) !== isPubliclyLocked(controls) ||
+        hasAdminOverride(previousPayload?.controls) !== hasAdminOverride(controls);
     const authStateChanged =
         previousAuth?.configured !== auth?.configured ||
         previousAuth?.authenticated !== auth?.authenticated;
     if (
+        !lockStateChanged &&
         !authStateChanged &&
         elements.actionStatus.dataset.state &&
         elements.actionStatus.dataset.state !== "idle"
     ) {
+        return;
+    }
+
+    if (isPubliclyLocked(controls)) {
+        setMessage(
+            elements.actionStatus,
+            hasAdminOverride(controls)
+                ? "Controls locked for public users. Admin override active."
+                : "Controls locked by admin.",
+            hasAdminOverride(controls) ? "idle" : "error",
+        );
         return;
     }
 
@@ -429,8 +434,8 @@ function syncPublicActionStatus(auth, controls, previousAuth) {
     setMessage(
         elements.actionStatus,
         hasAvailableAction
-            ? "Admin controls enabled."
-            : "Admin session active. Waiting for controls to become available.",
+            ? "Controls are active."
+            : "Waiting for controls to become available.",
         "idle",
     );
 }
@@ -441,7 +446,7 @@ function applyPublicControlState(control, button, noteElement, auth) {
     }
 
     noteElement.textContent = buildControlNote(control, auth);
-    button.disabled = !auth?.authenticated || !control.available;
+    button.disabled = !control.available;
 }
 
 function applyAdminLockState(control, button, labelElement) {
@@ -461,12 +466,14 @@ function applyAdminLockState(control, button, labelElement) {
 function applyControlPayload(payload) {
     const nextPayload =
         payload || createGuestControlPayload(latestControlPayload?.auth?.configured);
-    const previousAuth = latestControlPayload?.auth;
+    const previousPayload = latestControlPayload;
     latestControlPayload = nextPayload;
     const auth = nextPayload.auth || createGuestControlPayload(true).auth;
     const controls =
         nextPayload.controls || createGuestControlPayload(auth.configured).controls;
     const isAdmin = Boolean(auth.authenticated);
+    const publicLocked = isPubliclyLocked(controls);
+    const adminOverride = hasAdminOverride(controls);
 
     applyPublicControlState(
         controls.skip_category,
@@ -483,19 +490,18 @@ function applyControlPayload(payload) {
 
     if (elements.switchCategorySelect) {
         const switchControl = controls.switch_category;
-        elements.switchCategorySelect.disabled =
-            !isAdmin || !switchControl?.available;
+        elements.switchCategorySelect.disabled = !switchControl?.available;
     }
 
     if (elements.publicControlMode) {
-        elements.publicControlMode.textContent = !auth.configured
-            ? "Unavailable"
-            : isAdmin
-              ? "Admin Session"
-              : "Read Only";
+        elements.publicControlMode.textContent = publicLocked
+            ? "Locked"
+            : adminOverride
+                ? "Admin Override"
+                : "Active";
     }
 
-    syncPublicActionStatus(auth, controls, previousAuth);
+    syncPublicActionStatus(auth, controls, previousPayload);
 
     if (!auth.configured) {
         elements.adminDisabledMessage.hidden = false;
@@ -504,10 +510,9 @@ function applyControlPayload(payload) {
         elements.adminLoginCopy.textContent =
             "Local admin credentials are not configured on this dashboard host.";
         elements.adminControlsSummary.textContent =
-            "Configure local admin credentials to use protected controls.";
+            "Configure local admin credentials to manage dashboard control locks.";
         elements.adminSessionBadge.textContent = "Unavailable";
-        elements.toggleSkipLockButton.disabled = true;
-        elements.toggleSwitchLockButton.disabled = true;
+        elements.toggleControlsLockButton.disabled = true;
         elements.adminLogoutButton.disabled = true;
         setMessage(
             elements.adminLoginStatus,
@@ -521,14 +526,18 @@ function applyControlPayload(payload) {
     elements.adminDisabledMessage.hidden = true;
     elements.adminLoginForm.hidden = false;
     elements.adminLoginCopy.textContent =
-        "Sign in with the configured admin account to access protected controls.";
+        "Sign in with the configured admin account to manage dashboard control locks.";
 
     if (isAdmin) {
         elements.adminPanel.hidden = false;
         elements.adminSessionBadge.textContent = `${displayText(auth.username)} active`;
-        elements.adminControlsSummary.textContent = auth.expires_at
-            ? `Admin session active until ${auth.expires_at}.`
-            : "Admin session active.";
+        elements.adminControlsSummary.textContent = nextPayload.controls_locked
+            ? auth.expires_at
+                ? `Admin session active until ${auth.expires_at}. Public controls are locked.`
+                : "Admin session active. Public controls are locked."
+            : auth.expires_at
+                ? `Admin session active until ${auth.expires_at}. Public controls are unlocked.`
+                : "Admin session active. Public controls are unlocked.";
         setMessage(
             elements.adminLoginStatus,
             `Signed in as ${displayText(auth.username)}.`,
@@ -538,7 +547,7 @@ function applyControlPayload(payload) {
         elements.adminPanel.hidden = true;
         elements.adminSessionBadge.textContent = "Signed out";
         elements.adminControlsSummary.textContent =
-            "Sign in to manage public control locks.";
+            "Sign in to lock or unlock dashboard controls.";
         if (
             !elements.adminLoginStatus.dataset.state ||
             elements.adminLoginStatus.dataset.state === "success"
@@ -548,18 +557,15 @@ function applyControlPayload(payload) {
         hideModal(elements.adminControlsModal);
     }
 
-    applyAdminLockState(
-        controls.skip_category,
-        elements.toggleSkipLockButton,
-        elements.adminSkipLockState,
-    );
-    applyAdminLockState(
-        controls.switch_category,
-        elements.toggleSwitchLockButton,
-        elements.adminSwitchLockState,
-    );
-    elements.toggleSkipLockButton.disabled = !isAdmin;
-    elements.toggleSwitchLockButton.disabled = !isAdmin;
+    if (elements.adminControlsLockState && elements.toggleControlsLockButton) {
+        elements.adminControlsLockState.textContent = nextPayload.controls_locked
+            ? "Locked for public use."
+            : "Public access is open.";
+        elements.toggleControlsLockButton.textContent = nextPayload.controls_locked
+            ? "Unlock Controls"
+            : "Lock Controls";
+        elements.toggleControlsLockButton.disabled = !isAdmin;
+    }
     elements.adminLogoutButton.disabled = !isAdmin;
 }
 
@@ -757,33 +763,22 @@ async function signOutAdmin() {
     }
 }
 
-async function toggleControlLock(action) {
-    const control = latestControlPayload?.controls?.[action];
-    if (!control) {
-        setMessage(
-            elements.adminActionStatus,
-            "Control state is not loaded yet.",
-            "error",
-        );
-        return;
-    }
-
-    const nextLocked = !control.locked;
+async function toggleControlsLock() {
+    const nextLocked = !latestControlPayload?.controls_locked;
     setMessage(
         elements.adminActionStatus,
-        `${nextLocked ? "Locking" : "Unlocking"} ${control.label}...`,
+        `${nextLocked ? "Locking" : "Unlocking"} dashboard controls...`,
         "pending",
     );
 
     try {
-        const result = await fetchJson(adminControlLockApi, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action, locked: nextLocked }),
-        });
+        const result = await fetchJson(
+            nextLocked ? lockControlsApi : unlockControlsApi,
+            { method: "POST" },
+        );
         setMessage(
             elements.adminActionStatus,
-            `${result.control.label} ${result.control.locked ? "locked" : "unlocked"}.`,
+            result.controls_locked ? "Dashboard controls locked." : "Dashboard controls unlocked.",
             "success",
         );
     } catch (error) {
@@ -868,16 +863,8 @@ if (elements.adminLogoutButton) {
     elements.adminLogoutButton.addEventListener("click", signOutAdmin);
 }
 
-if (elements.toggleSkipLockButton) {
-    elements.toggleSkipLockButton.addEventListener("click", () =>
-        toggleControlLock("skip_category"),
-    );
-}
-
-if (elements.toggleSwitchLockButton) {
-    elements.toggleSwitchLockButton.addEventListener("click", () =>
-        toggleControlLock("switch_category"),
-    );
+if (elements.toggleControlsLockButton) {
+    elements.toggleControlsLockButton.addEventListener("click", toggleControlsLock);
 }
 
 bindModalInteractions();

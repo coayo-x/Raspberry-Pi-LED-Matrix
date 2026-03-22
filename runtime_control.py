@@ -21,6 +21,7 @@ SWITCH_CATEGORY_LAST_REQUESTED_AT_KEY = "switch_category_last_requested_at"
 SWITCH_CATEGORY_LAST_ACCEPTED_AT_KEY = "switch_category_last_accepted_at"
 SWITCH_CATEGORY_VALUE_KEY = "switch_category_value"
 SWITCH_CATEGORY_LOCKED_KEY = "switch_category_locked"
+CONTROLS_LOCKED_KEY = "controls_locked"
 
 CONTROL_ACTIONS = {
     "skip_category": {
@@ -141,7 +142,9 @@ def _build_action_state(
     definition = CONTROL_ACTIONS[normalized_action]
     request_count = _get_meta_int(conn, definition["request_key"])
     handled_count = _get_meta_int(conn, definition["handled_key"])
-    locked = _get_meta_bool(conn, definition["lock_key"])
+    action_locked = _get_meta_bool(conn, definition["lock_key"])
+    controls_locked = _get_meta_bool(conn, CONTROLS_LOCKED_KEY)
+    locked = bool(action_locked or controls_locked)
     cooldown_remaining = _cooldown_remaining_seconds(
         _get_meta_text(conn, definition["last_accepted_key"]),
         definition["cooldown_seconds"],
@@ -163,6 +166,8 @@ def _build_action_state(
         "action": normalized_action,
         "label": definition["label"],
         "locked": locked,
+        "controls_locked": controls_locked,
+        "action_locked": action_locked,
         "admin_override": bool(locked and is_admin),
         "cooldown_seconds": definition["cooldown_seconds"],
         "cooldown_remaining_seconds": cooldown_remaining,
@@ -287,6 +292,25 @@ def get_runtime_control_state(
             )
             for action in CONTROL_ACTIONS
         }
+    finally:
+        conn.close()
+
+
+def get_controls_lock_state(db_path: str = DB_PATH) -> bool:
+    conn = connect(db_path)
+    try:
+        return _get_meta_bool(conn, CONTROLS_LOCKED_KEY)
+    finally:
+        conn.close()
+
+
+def set_controls_lock(locked: bool, db_path: str = DB_PATH) -> bool:
+    conn = connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _set_meta(conn, CONTROLS_LOCKED_KEY, "1" if locked else "0")
+        conn.commit()
+        return _get_meta_bool(conn, CONTROLS_LOCKED_KEY)
     finally:
         conn.close()
 

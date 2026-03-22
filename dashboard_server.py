@@ -17,9 +17,11 @@ from config import (
 )
 from current_display_state import load_current_display_state
 from runtime_control import (
+    get_controls_lock_state,
     get_runtime_control_state,
     request_skip_category,
     request_switch_category,
+    set_controls_lock,
     set_control_lock,
 )
 
@@ -39,6 +41,8 @@ SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
+LOCK_CONTROLS_API_PATH = "/api/lock-controls"
+UNLOCK_CONTROLS_API_PATH = "/api/unlock-controls"
 
 CSP_HEADER = (
     "default-src 'self'; "
@@ -219,7 +223,7 @@ def _render_login_html(configured: bool) -> bytes:
         <p class="eyebrow">Restricted Access</p>
         <h1>LED Matrix Dashboard</h1>
         <p id="login-copy">
-            Sign in with the configured dashboard credentials to view runtime data and trigger controls.
+            Sign in with the configured dashboard credentials to manage admin control locks.
         </p>
 
         <form id="login-form" __FORM_ATTRS__>
@@ -339,9 +343,7 @@ def create_dashboard_server(
                 return
 
             if route == CONTROL_STATE_API_PATH:
-                admin_status = self._require_authenticated_api()
-                if admin_status is None:
-                    return
+                admin_status = self._get_admin_status()
                 self._send_json(
                     HTTPStatus.OK,
                     self._build_control_state_payload(admin_status),
@@ -401,10 +403,7 @@ def create_dashboard_server(
                 return
 
             if route == SKIP_CATEGORY_API_PATH:
-                admin_status = self._require_authenticated_api()
-                if admin_status is None:
-                    return
-
+                admin_status = self._get_admin_status()
                 result = request_skip_category(
                     db_path=db_path,
                     is_admin=admin_status["authenticated"],
@@ -413,10 +412,7 @@ def create_dashboard_server(
                 return
 
             if route == SWITCH_CATEGORY_API_PATH:
-                admin_status = self._require_authenticated_api()
-                if admin_status is None:
-                    return
-
+                admin_status = self._get_admin_status()
                 try:
                     payload = self._read_json_body()
                     category = self._require_text_field(payload, "category")
@@ -444,6 +440,42 @@ def create_dashboard_server(
                         "status": "logged_out",
                     },
                     extra_headers={"Set-Cookie": _expired_cookie_header()},
+                )
+                return
+
+            if route == LOCK_CONTROLS_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                controls_locked = set_controls_lock(True, db_path=db_path)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "controls_locked": controls_locked,
+                        "controls": get_runtime_control_state(
+                            db_path=db_path,
+                            is_admin=True,
+                        ),
+                    },
+                )
+                return
+
+            if route == UNLOCK_CONTROLS_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                controls_locked = set_controls_lock(False, db_path=db_path)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "controls_locked": controls_locked,
+                        "controls": get_runtime_control_state(
+                            db_path=db_path,
+                            is_admin=True,
+                        ),
+                    },
                 )
                 return
 
@@ -617,6 +649,7 @@ def create_dashboard_server(
             auth_state = admin_status or self._get_admin_status()
             return {
                 "auth": auth_state,
+                "controls_locked": get_controls_lock_state(db_path),
                 "controls": get_runtime_control_state(
                     db_path=db_path,
                     is_admin=auth_state["authenticated"],
@@ -646,6 +679,8 @@ def _render_html() -> bytes:
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,
+        "__LOCK_CONTROLS_API__": LOCK_CONTROLS_API_PATH,
+        "__UNLOCK_CONTROLS_API__": UNLOCK_CONTROLS_API_PATH,
     }
     for placeholder, value in replacements.items():
         html = html.replace(placeholder, value)
