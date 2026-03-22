@@ -59,11 +59,11 @@
 
                 <div class="content-stack">
                     <article class="content-panel">
-                        <p class="section-kicker">Setup</p>
+                        <p class="section-kicker" id="content-primary-label">Setup</p>
                         <p class="content-value" id="setup-value">--</p>
                     </article>
                     <article class="content-panel">
-                        <p class="section-kicker">Punchline</p>
+                        <p class="section-kicker" id="content-secondary-label">Punchline</p>
                         <p class="content-value" id="punchline-value">--</p>
                     </article>
                 </div>
@@ -73,19 +73,19 @@
                 <article class="public-controls-card">
                     <div class="card-heading">
                         <div>
-                            <p class="section-kicker">Public Controls</p>
+                            <p class="section-kicker">Admin Controls</p>
                             <h2>Runtime actions</h2>
                         </div>
-                        <span class="state-chip" id="public-control-mode">Open</span>
+                        <span class="state-chip" id="public-control-mode">Read Only</span>
                     </div>
 
                     <div class="control-block">
                         <div class="control-block-header">
                             <div>
                                 <p class="control-title">Skip Category</p>
-                                <p class="control-note" id="skip-category-note">Checking availability...</p>
+                                <p class="control-note" id="skip-category-note">Sign in through Admin Control to enable.</p>
                             </div>
-                            <button class="public-button" id="skip-category-button" type="button">Skip</button>
+                            <button class="public-button" id="skip-category-button" type="button" disabled>Skip</button>
                         </div>
                     </div>
 
@@ -93,17 +93,17 @@
                         <div class="control-block-header control-block-switch">
                             <div>
                                 <label class="control-title" for="switch-category-select">Switch Category</label>
-                                <p class="control-note" id="switch-category-note">Checking availability...</p>
+                                <p class="control-note" id="switch-category-note">Sign in through Admin Control to enable.</p>
                             </div>
                         </div>
                         <div class="switch-row">
-                            <select class="category-select" id="switch-category-select" name="switch-category">
+                            <select class="category-select" id="switch-category-select" name="switch-category" disabled>
                                 <option value="pokemon">Pokemon</option>
                                 <option value="weather">Weather</option>
                                 <option value="joke">Joke</option>
                                 <option value="science">Science</option>
                             </select>
-                            <button class="public-button public-button-secondary" id="switch-category-button" type="button">Apply</button>
+                            <button class="public-button public-button-secondary" id="switch-category-button" type="button" disabled>Apply</button>
                         </div>
                     </div>
 

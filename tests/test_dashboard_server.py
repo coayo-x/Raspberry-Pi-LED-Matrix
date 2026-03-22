@@ -102,7 +102,7 @@ def _login(
     )
 
 
-def test_dashboard_root_redirects_to_login_until_authenticated(
+def test_dashboard_root_is_public_without_authentication(
     monkeypatch, isolated_db_path
 ) -> None:
     _install_admin(monkeypatch)
@@ -120,13 +120,13 @@ def test_dashboard_root_redirects_to_login_until_authenticated(
         server.server_close()
         thread.join(timeout=5)
 
-    assert "Restricted Access" in page
-    assert "Sign In" in page
-    assert "/api/admin/login" in page
-    assert "Current matrix payload" not in page
+    assert "Current matrix payload" in page
+    assert 'id="admin-control-button"' in page
+    assert "/api/current-display-state" in page
+    assert "Restricted Access" not in page
 
 
-def test_dashboard_safe_default_denies_access_when_credentials_missing(
+def test_dashboard_safe_default_keeps_public_routes_available_when_credentials_missing(
     isolated_db_path,
 ) -> None:
     server = create_dashboard_server(
@@ -137,10 +137,12 @@ def test_dashboard_safe_default_denies_access_when_credentials_missing(
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
-        login_page = _fetch_text(f"{base_url}/")
-        state_status, state_body = _fetch_json_expect_error(
-            f"{base_url}/api/current-display-state"
+        page = _fetch_text(f"{base_url}/")
+        state_body = _fetch_json(f"{base_url}/api/current-display-state")
+        control_status, control_body = _fetch_json_expect_error(
+            f"{base_url}/api/control-state"
         )
+        login_page = _fetch_text(f"{base_url}/login")
         login_status, login_body = _post_json_expect_error(
             f"{base_url}/api/admin/login",
             {"username": "admin", "password": "s3cret!"},
@@ -150,14 +152,18 @@ def test_dashboard_safe_default_denies_access_when_credentials_missing(
         server.server_close()
         thread.join(timeout=5)
 
+    assert "Current matrix payload" in page
+    assert state_body["has_data"] is False
     assert "not configured on this host" in login_page
-    assert state_status == 401
-    assert state_body["configured"] is False
+    assert control_status == 401
+    assert control_body["configured"] is False
     assert login_status == 503
     assert login_body["status"] == "disabled"
 
 
-def test_dashboard_api_requires_authentication(monkeypatch, isolated_db_path) -> None:
+def test_dashboard_admin_and_control_endpoints_require_authentication(
+    monkeypatch, isolated_db_path
+) -> None:
     _install_admin(monkeypatch)
     server = create_dashboard_server(
         host="127.0.0.1", port=0, db_path=str(isolated_db_path)
@@ -167,9 +173,7 @@ def test_dashboard_api_requires_authentication(monkeypatch, isolated_db_path) ->
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
-        state_status, state_body = _fetch_json_expect_error(
-            f"{base_url}/api/current-display-state"
-        )
+        state_body = _fetch_json(f"{base_url}/api/current-display-state")
         control_status, control_body = _fetch_json_expect_error(
             f"{base_url}/api/control-state"
         )
@@ -185,8 +189,7 @@ def test_dashboard_api_requires_authentication(monkeypatch, isolated_db_path) ->
         server.server_close()
         thread.join(timeout=5)
 
-    assert state_status == 401
-    assert state_body["configured"] is True
+    assert state_body["has_data"] is False
     assert control_status == 401
     assert control_body["configured"] is True
     assert skip_status == 401
@@ -195,7 +198,7 @@ def test_dashboard_api_requires_authentication(monkeypatch, isolated_db_path) ->
     assert switch_body["configured"] is True
 
 
-def test_dashboard_login_allows_access_to_ui_and_api(
+def test_dashboard_login_enables_protected_control_api(
     monkeypatch, isolated_db_path
 ) -> None:
     _install_admin(monkeypatch)
@@ -226,6 +229,8 @@ def test_dashboard_login_allows_access_to_ui_and_api(
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
+        public_state = _fetch_json(f"{base_url}/api/current-display-state")
+        public_page = _fetch_text(f"{base_url}/")
         status, login = _login(base_url, opener)
         state = _fetch_json(f"{base_url}/api/current-display-state", opener=opener)
         control_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
@@ -237,6 +242,8 @@ def test_dashboard_login_allows_access_to_ui_and_api(
 
     assert status == 200
     assert login["authenticated"] is True
+    assert public_state["category"] == "pokemon"
+    assert "Current matrix payload" in public_page
     assert state["category"] == "pokemon"
     assert state["data"]["image_url"] == "https://example.test/bulbasaur.png"
     assert control_state["auth"]["authenticated"] is True

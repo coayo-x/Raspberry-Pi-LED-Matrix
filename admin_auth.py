@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import math
 import secrets
+import threading
 from datetime import datetime, timedelta
 from getpass import getpass
 
@@ -14,8 +15,6 @@ except ImportError:
     bcrypt = None
 
 from config import (
-    ADMIN_LOGIN_LOCKOUT_SECONDS,
-    ADMIN_LOGIN_MAX_ATTEMPTS,
     ADMIN_PASSWORD_HASH,
     ADMIN_SESSION_TTL_SECONDS,
     ADMIN_USERNAME,
@@ -28,6 +27,13 @@ LEGACY_PASSWORD_HASH_SCHEME = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 600_000
 BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
 BCRYPT_DEFAULT_ROUNDS = 12
+LOGIN_LOCKOUT_STAGES = (
+    {"max_failures": 5, "lockout_seconds": 60},
+    {"max_failures": 3, "lockout_seconds": 300},
+    {"max_failures": 1, "lockout_seconds": 1800},
+)
+_LOGIN_ATTEMPT_STATE: dict[str, dict[str, int | datetime | None]] = {}
+_LOGIN_ATTEMPT_STATE_LOCK = threading.Lock()
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -50,44 +56,6 @@ def _parse_timestamp(value: str | None) -> datetime | None:
 
 def _hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _get_login_attempt_row(conn, subject: str):
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT failed_attempts, locked_until, last_failed_at
-        FROM admin_login_attempts
-        WHERE subject = ?
-        """,
-        (subject,),
-    )
-    return cur.fetchone()
-
-
-def _set_login_attempt(
-    conn,
-    subject: str,
-    failed_attempts: int,
-    locked_until: str | None,
-    last_failed_at: str,
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO admin_login_attempts (
-            subject, failed_attempts, locked_until, last_failed_at
-        ) VALUES (?, ?, ?, ?)
-        ON CONFLICT(subject) DO UPDATE
-        SET failed_attempts = excluded.failed_attempts,
-            locked_until = excluded.locked_until,
-            last_failed_at = excluded.last_failed_at
-        """,
-        (subject, failed_attempts, locked_until, last_failed_at),
-    )
-
-
-def _clear_login_attempt(conn, subject: str) -> None:
-    conn.execute("DELETE FROM admin_login_attempts WHERE subject = ?", (subject,))
 
 
 def _cleanup_expired_sessions(conn, now: datetime) -> None:
@@ -113,6 +81,104 @@ def _get_session_row(conn, session_token: str):
 
 def is_admin_configured() -> bool:
     return bool(ADMIN_USERNAME and ADMIN_PASSWORD_HASH)
+
+
+def reset_login_attempts(subject: str | None = None) -> None:
+    with _LOGIN_ATTEMPT_STATE_LOCK:
+        if subject is None:
+            _LOGIN_ATTEMPT_STATE.clear()
+            return
+        _LOGIN_ATTEMPT_STATE.pop(subject, None)
+
+
+def _default_login_attempt_state() -> dict[str, int | datetime | None]:
+    return {
+        "failed_attempts": 0,
+        "violation_count": 0,
+        "locked_until": None,
+    }
+
+
+def _get_login_attempt_state(
+    subject: str, current: datetime
+) -> dict[str, int | datetime | None]:
+    state = _LOGIN_ATTEMPT_STATE.get(subject)
+    if state is None:
+        state = _default_login_attempt_state()
+        _LOGIN_ATTEMPT_STATE[subject] = state
+
+    locked_until = state.get("locked_until")
+    if isinstance(locked_until, datetime) and locked_until <= current:
+        state["failed_attempts"] = 0
+        state["locked_until"] = None
+
+    return state
+
+
+def _get_login_lockout_stage(violation_count: int) -> dict[str, int]:
+    if violation_count < len(LOGIN_LOCKOUT_STAGES):
+        return LOGIN_LOCKOUT_STAGES[violation_count]
+
+    last_stage = LOGIN_LOCKOUT_STAGES[-1]
+    additional_violations = violation_count - (len(LOGIN_LOCKOUT_STAGES) - 1)
+    return {
+        "max_failures": last_stage["max_failures"],
+        "lockout_seconds": last_stage["lockout_seconds"]
+        * (2 ** additional_violations),
+    }
+
+
+def _build_locked_response(locked_until: datetime, current: datetime) -> dict:
+    retry_after = max(1, math.ceil((locked_until - current).total_seconds()))
+    return {
+        "configured": True,
+        "authenticated": False,
+        "status": "locked",
+        "error": "Too many failed login attempts. Try again after the lockout expires.",
+        "locked_until": _isoformat(locked_until),
+        "retry_after_seconds": retry_after,
+    }
+
+
+def _record_failed_login_attempt(subject: str, current: datetime) -> dict:
+    with _LOGIN_ATTEMPT_STATE_LOCK:
+        state = _get_login_attempt_state(subject, current)
+        locked_until = state.get("locked_until")
+        if isinstance(locked_until, datetime) and locked_until > current:
+            return _build_locked_response(locked_until, current)
+
+        violation_count = int(state["violation_count"] or 0)
+        stage = _get_login_lockout_stage(violation_count)
+        failed_attempts = int(state["failed_attempts"] or 0) + 1
+        state["failed_attempts"] = failed_attempts
+
+        response = {
+            "configured": True,
+            "authenticated": False,
+            "status": "invalid_credentials",
+            "error": "Invalid username or password.",
+            "failed_attempts": failed_attempts,
+            "remaining_attempts": max(0, stage["max_failures"] - failed_attempts),
+        }
+
+        if failed_attempts >= stage["max_failures"]:
+            locked_until = current + timedelta(seconds=stage["lockout_seconds"])
+            state["failed_attempts"] = 0
+            state["violation_count"] = violation_count + 1
+            state["locked_until"] = locked_until
+            response.update(
+                {
+                    "status": "locked",
+                    "error": "Too many failed login attempts. Try again after the lockout expires.",
+                    "locked_until": _isoformat(locked_until),
+                    "retry_after_seconds": stage["lockout_seconds"],
+                    "remaining_attempts": 0,
+                }
+            )
+        else:
+            state["locked_until"] = None
+
+        return response
 
 
 def _build_pbkdf2_password_hash(
@@ -276,70 +342,22 @@ def authenticate_admin(
     subject = (client_ip or "unknown").strip() or "unknown"
     attempted_at = _isoformat(current)
 
+    with _LOGIN_ATTEMPT_STATE_LOCK:
+        state = _get_login_attempt_state(subject, current)
+        locked_until = state.get("locked_until")
+        if isinstance(locked_until, datetime) and locked_until > current:
+            return _build_locked_response(locked_until, current)
+
+    normalized_username = str(username).strip()
+    valid_username = hmac.compare_digest(normalized_username, ADMIN_USERNAME)
+    valid_password = verify_password(password, ADMIN_PASSWORD_HASH)
+    if not (valid_username and valid_password):
+        return _record_failed_login_attempt(subject, current)
+
     conn = connect(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
         _cleanup_expired_sessions(conn, current)
-        attempt_row = _get_login_attempt_row(conn, subject)
-        locked_until = _parse_timestamp(
-            attempt_row["locked_until"] if attempt_row else None
-        )
-
-        if locked_until is not None and locked_until > current:
-            conn.commit()
-            retry_after = max(1, math.ceil((locked_until - current).total_seconds()))
-            return {
-                "configured": True,
-                "authenticated": False,
-                "status": "locked",
-                "error": "Too many failed login attempts. Try again after the lockout expires.",
-                "locked_until": _isoformat(locked_until),
-                "retry_after_seconds": retry_after,
-            }
-
-        normalized_username = str(username).strip()
-        valid_username = hmac.compare_digest(normalized_username, ADMIN_USERNAME)
-        valid_password = valid_username and verify_password(
-            password, ADMIN_PASSWORD_HASH
-        )
-
-        if not valid_password:
-            failed_attempts = (attempt_row["failed_attempts"] if attempt_row else 0) + 1
-            response = {
-                "configured": True,
-                "authenticated": False,
-                "status": "invalid_credentials",
-                "error": "Invalid username or password.",
-                "failed_attempts": failed_attempts,
-                "remaining_attempts": max(
-                    0, ADMIN_LOGIN_MAX_ATTEMPTS - failed_attempts
-                ),
-            }
-
-            lockout_until = None
-            if failed_attempts >= ADMIN_LOGIN_MAX_ATTEMPTS:
-                lockout_until = current + timedelta(seconds=ADMIN_LOGIN_LOCKOUT_SECONDS)
-                response.update(
-                    {
-                        "status": "locked",
-                        "error": "Too many failed login attempts. Try again after the lockout expires.",
-                        "locked_until": _isoformat(lockout_until),
-                        "retry_after_seconds": ADMIN_LOGIN_LOCKOUT_SECONDS,
-                        "remaining_attempts": 0,
-                    }
-                )
-
-            _set_login_attempt(
-                conn,
-                subject,
-                failed_attempts=failed_attempts,
-                locked_until=_isoformat(lockout_until) if lockout_until else None,
-                last_failed_at=attempted_at,
-            )
-            conn.commit()
-            return response
-
-        _clear_login_attempt(conn, subject)
         session_token = secrets.token_urlsafe(32)
         expires_at = current + timedelta(seconds=ADMIN_SESSION_TTL_SECONDS)
         conn.execute(
@@ -358,6 +376,7 @@ def authenticate_admin(
             ),
         )
         conn.commit()
+        reset_login_attempts(subject)
         return {
             "configured": True,
             "authenticated": True,

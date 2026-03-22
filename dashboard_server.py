@@ -335,8 +335,6 @@ def create_dashboard_server(
                 return
 
             if route == API_PATH:
-                if self._require_authenticated_api() is None:
-                    return
                 self._send_json(HTTPStatus.OK, load_current_display_state(db_path))
                 return
 
@@ -351,9 +349,6 @@ def create_dashboard_server(
                 return
 
             if route in STATIC_ROUTES:
-                if self._require_authenticated_ui() is None:
-                    return
-
                 filename, content_type = STATIC_ROUTES[route]
                 body = (
                     _render_html()
@@ -615,17 +610,6 @@ def create_dashboard_server(
                     "configured": admin_status["configured"],
                 },
                 headers={"Set-Cookie": _expired_cookie_header()},
-            )
-            return None
-
-        def _require_authenticated_ui(self) -> dict | None:
-            admin_status = self._get_admin_status()
-            if admin_status["authenticated"]:
-                return admin_status
-
-            self._send_redirect(
-                LOGIN_PAGE_PATH,
-                extra_headers={"Set-Cookie": _expired_cookie_header()},
             )
             return None
 
