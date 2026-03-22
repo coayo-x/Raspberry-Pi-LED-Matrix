@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document is a code-and-state audit of the repository as inspected on `2026-03-15`.
+This document is a code-and-state audit of the repository as inspected on `2026-03-21`.
 
 Reviewed artifacts:
 
@@ -10,20 +10,28 @@ Reviewed artifacts:
 - `rotation_engine.py`
 - `db_manager.py`
 - `display_manager.py`
+- `runtime_control.py`
+- `current_display_state.py`
+- `dashboard_server.py`
+- `admin_auth.py`
 - `apis/pokemon.py`
 - `apis/weather.py`
 - `apis/jokes.py`
 - `apis/science.py`
 - `AGENT.md`
+- `requirements.txt`
+- `tests/`
+- `systemd/led-matrix.service`
+- `systemd/led-matrix-dashboard.service`
 - `.github/workflows/pylint.yml`
 - `Notes/systemd.md`
 - checked-in `content.db` schema and live contents
 
-Observed runtime constraints during audit:
+Observed runtime result during audit:
 
-- the local environment does not currently have `numpy`
-- the local environment does not currently have Pillow (`PIL`)
-- because `display_manager.py` imports those at module import time, the full app could not be executed locally even in `--simulate` mode
+- `python main.py --simulate --once` completed successfully on `2026-03-21`
+- the validation run selected slot `2026-03-21:286` and rendered the `joke` category
+- upstream content fetches fell back cleanly to the synthetic joke path during that run, so startup/import/render validation succeeded even without live API data
 
 ## Highest-Risk Findings
 
@@ -34,7 +42,7 @@ These are the most consequential problems in the current codebase:
 3. A transient PokeAPI catalog failure can rewrite `pokemon_rotation` to the fallback catalog and reset daily Pokemon state.
 4. The repository has no real migration system; `schema_version` is already stale in the checked-in DB.
 5. `display_manager.py` mixes rendering, network I/O, preview output, animation timing, and hardware writes in one class.
-6. The GitHub Actions workflow targets unsupported Python versions and does not install runtime dependencies.
+6. The GitHub Actions workflow now installs dependencies on Python `3.10` and `3.11`, but it still reports success even when lint or tests fail because every check ends with `|| true`.
 7. The checked-in `content.db` is live mutable state, so clones do not start from a clean baseline.
 
 ## Runtime Bugs
@@ -582,3 +590,66 @@ These are additional realistic issues visible in the current repository state th
 - Why it matters: installs on different days can pull materially different Pillow, NumPy, tooling, or hardware-library versions.
 - Impact: rendering behavior, CI output, and local debugging can drift between environments even when the source tree is unchanged.
 - Suggestion: pin or constrain versions for runtime and developer dependencies, especially the rendering stack and formatting/lint tools.
+
+## 2026-03-21 Audit Update
+
+These notes refine stale findings from the earlier audit and add newly discovered current-state issues.
+
+### Corrected or partially stale prior findings
+
+- Finding `36` is stale: `requirements.txt` now exists, but Finding `62` is the active follow-up because versions remain unconstrained.
+- Findings `37` and `38` are stale: CI now targets Python `3.10` and `3.11` and installs `requirements.txt`, but Finding `59` remains active because the workflow still swallows failures with `|| true`.
+- Finding `39` is stale: `DisplayManager(use_matrix=True)` no longer silently degrades when `piomatter` is missing; it now raises a `RuntimeError`.
+- Finding `41` is stale: `main.run_once()` now passes `duration_seconds=1`, so `--once` is a short validation path rather than a category-length render.
+- Finding `51` is stale: the repository now has automated coverage for runtime controls, dashboard routes, admin auth, current-display-state normalization, display initialization, and main-loop interrupt handling.
+- Finding `53` is stale: the repository now ships both `systemd/led-matrix.service` and `systemd/led-matrix-dashboard.service`.
+- Finding `54` is partially stale: `.gitignore` already covered `.env`, `*.db`, `*.db-wal`, `*.db-shm`, `preview_frames/`, `.pre-commit-cache/`, `.pytest_cache/`, and `tmp/`, but it was still incomplete and duplicated before the current cleanup.
+- Finding `55` is partially stale: weather coordinates and labels remain hardcoded, but dashboard host/port, poll interval, and runtime-control cooldowns now come from `config.py`.
+
+### 63. The dashboard snapshot is written before rendering succeeds
+
+- Location: `main.py:build_runtime_payload()`, `current_display_state.py:save_current_display_state()`
+- Problem: `build_runtime_payload()` saves `current_display_state` immediately after payload construction, before `print_payload()` and before `display.display_payload(...)` begins.
+- Why it matters: the dashboard can report a payload as "current" even if rendering fails, is interrupted before the first visible frame, or never reaches the matrix hardware.
+- Impact: operators can get false-positive visibility into what is actually on-screen.
+- Suggestion: persist the snapshot after the first successful frame push, or record separate "planned" and "displayed" states.
+
+### 64. `main.py` silently falls back to an inline runtime-control implementation on import errors
+
+- Location: `main.py` import-time `try/except Exception` around `runtime_control`
+- Problem: any exception raised while importing `runtime_control.py` is swallowed, and `main.py` substitutes a second embedded implementation instead of surfacing the error.
+- Why it matters: genuine regressions in `runtime_control.py` can be masked, leaving the matrix runtime and dashboard server with divergent behavior.
+- Impact: debugging import-time breakage becomes harder, and production behavior can drift from the shared module the rest of the repo expects.
+- Suggestion: catch only `ImportError` if this fallback is intentional, or remove the fallback and fail loudly when `runtime_control.py` is broken.
+
+### 65. Admin login throttling is process-local even though the schema provisions a table for it
+
+- Location: `admin_auth.py`, `db_manager.py:init_db()`
+- Problem: login-attempt state is stored in the in-memory `_LOGIN_ATTEMPT_STATE` dict, while the `admin_login_attempts` SQLite table is created but never used.
+- Why it matters: lockouts vanish on process restart and are not shared across multiple dashboard processes.
+- Impact: brute-force throttling is weaker than the schema suggests, and the DB table is misleading dead state.
+- Suggestion: persist attempt counters and lockouts in `admin_login_attempts`, or remove the unused table if process-local state is acceptable.
+
+### 66. `ADMIN_LOGIN_MAX_ATTEMPTS` and `ADMIN_LOGIN_LOCKOUT_SECONDS` are dead configuration knobs
+
+- Location: `.env.example`, `config.py`, `admin_auth.py`
+- Problem: both variables are parsed and documented, but `admin_auth.py` ignores them and uses the hardcoded `LOGIN_LOCKOUT_STAGES` sequence instead.
+- Why it matters: operators can change those env vars and assume the dashboard auth policy changed when it did not.
+- Impact: misleading configuration and surprising production behavior during security tuning.
+- Suggestion: either wire those settings into the lockout logic or remove them from the supported config surface.
+
+### 67. The checked-in systemd unit files contain duplicate service directives
+
+- Location: `systemd/led-matrix.service`, `systemd/led-matrix-dashboard.service`
+- Problem: each unit file declares `User`, `Group`, `WorkingDirectory`, and `ExecStart` twice for two different accounts/paths.
+- Why it matters: for non-oneshot services, repeated `ExecStart=` directives are invalid or at best misleading, and repeated user/path directives obscure what systemd will actually honor.
+- Impact: deployments can fail to start, or operators can think the units support two environments when they really need one concrete configuration per install.
+- Suggestion: ship one clean template per service, or parameterize the installation instructions instead of committing both variants into one unit.
+
+### 68. `Notes/systemd.md` is duplicated and internally inconsistent
+
+- Location: `Notes/systemd.md`
+- Problem: the document repeats entire sections, duplicates command blocks, and mixes multiple installation narratives together.
+- Why it matters: operators using the notes during deployment can follow stale or contradictory instructions even though the repo now contains real unit files.
+- Impact: avoidable deployment mistakes and lower confidence in the operational docs.
+- Suggestion: rewrite the notes into one clean install/enable/operate flow that matches the checked-in unit files exactly.

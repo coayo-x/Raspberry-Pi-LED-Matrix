@@ -2,14 +2,20 @@
 
 ## Purpose
 
-This repository is a single-process Python application that rotates content on a `64x32` RGB LED matrix attached to a Raspberry Pi. It is not a web service, not event-driven, and not multi-process. The runtime model is:
+This repository contains two cooperating Python entry points:
 
-1. determine the current 5-minute slot from local wall-clock time
+- `main.py`: the single-process matrix runtime that rotates content on a `192x32` RGB LED matrix assembled from three chained `64x32` panels
+- `dashboard_server.py`: a lightweight HTTP dashboard/admin server that reads runtime state and writes control requests through the same SQLite database
+
+The matrix runtime model is:
+
+1. determine the current slot from local wall-clock time using `ROTATION_INTERVAL` seconds (`300` by default)
 2. build one category payload for that slot
-3. render and animate that payload for most or all of the slot
-4. repeat
+3. persist a normalized snapshot of that payload for the dashboard
+4. render and animate that payload for most or all of the slot, unless interrupted by a runtime-control request
+5. repeat
 
-Persistent state lives in SQLite (`content.db`). That database is part of the runtime behavior, not just storage. Daily Pokemon rotation, joke dedupe, slot-stable joke selection, and slot-stable science selection all depend on DB state surviving restarts.
+Persistent state lives in SQLite (`DB_PATH`, `content.db` by default). That database is part of the runtime behavior, not just storage. Daily Pokemon rotation, joke dedupe, slot-stable joke selection, slot-stable science selection, the dashboard snapshot, admin sessions, and runtime-control handoff all depend on DB state surviving restarts.
 
 The checked-in `content.db` is mutable runtime state, not a fixture. It is already populated and may contain stale cached slot data from an earlier run.
 
@@ -23,16 +29,23 @@ Top-level files and directories that matter:
 | `rotation_engine.py` | Slot math plus stateful content selection for Pokemon, jokes, and science |
 | `db_manager.py` | SQLite connection setup and schema bootstrap |
 | `display_manager.py` | Rendering, animation, preview writing, and matrix framebuffer output |
+| `dashboard_server.py` | Polling dashboard HTTP server plus public/admin control endpoints |
+| `runtime_control.py` | DB-backed skip/switch request tracking, cooldowns, and control locks |
+| `current_display_state.py` | Normalized dashboard snapshot persistence |
+| `admin_auth.py` | Admin password verification, lockouts, and session lifecycle |
+| `config.py` | Environment-backed runtime and dashboard settings |
 | `apis/pokemon.py` | PokeAPI catalog + Pokemon detail adapter |
 | `apis/weather.py` | Open-Meteo adapter |
 | `apis/jokes.py` | JokeAPI adapter |
 | `apis/science.py` | Periodic table adapter with in-process cache |
 | `content.db` | Runtime database, committed into the repo |
-| `Notes/systemd.md` | Manual `systemctl` commands only; not a unit file |
-| `.github/workflows/pylint.yml` | Basic lint workflow on push |
-| `README.md` | Title only |
-| `ARCHITECTURE.md` | Empty |
-| `CONTRIBUTING.md` | Empty |
+| `systemd/led-matrix.service` | Checked-in systemd unit for the matrix runtime |
+| `systemd/led-matrix-dashboard.service` | Checked-in systemd unit for the dashboard server |
+| `Notes/systemd.md` | Deployment notes for installing and managing the systemd units |
+| `tests/` | Pytest coverage for runtime control, dashboard, auth, display init, and snapshot state |
+| `.github/workflows/pylint.yml` | CI job that installs `requirements.txt` and runs lint/tests non-blockingly |
+| `requirements.txt` | Runtime and developer dependency manifest |
+| `README.md` | Wiki-style landing page that points contributors to the GitHub Wiki |
 
 `__init__.py` is empty and `apis/__init__.py` is only a package marker.
 
@@ -75,12 +88,22 @@ Top-level files and directories that matter:
 | `rotation_engine.py` | Canonical slot/category math and persisted content selection | This is the core domain module |
 | `db_manager.py` | Connection defaults and best-effort schema bootstrap | Uses add-column-if-missing, not versioned migrations |
 | `display_manager.py` | Visual composition, animation timing, preview output, hardware writes | Also performs Pokemon artwork downloads |
+| `dashboard_server.py` | Dashboard API + static asset serving | Reads current snapshot and exposes public/admin runtime controls |
+| `runtime_control.py` | Runtime-control state machine over `meta` rows | Shared by `main.py` and `dashboard_server.py` |
+| `current_display_state.py` | Snapshot adapter for dashboard consumers | Stores the most recently built payload in `current_display_state` |
+| `admin_auth.py` | Password hashing, admin sessions, login lockouts | Consumed only by the dashboard server |
+| `config.py` | Environment-backed settings surface | Values are resolved once at import time |
 | `apis/pokemon.py` | Pokemon catalog fetch and per-Pokemon detail mapping | Provides fallback ID range `1..1025` |
 | `apis/weather.py` | Current weather fetch and condition mapping | Default location is Erie, PA |
 | `apis/jokes.py` | Safe-mode random joke fetch | Returns normalized single/twopart payloads |
 | `apis/science.py` | Random periodic-table element facts | Caches the full element list in memory for the life of the process |
 
 ## Runtime Control Flow
+
+### Entry points
+
+- `python main.py [flags]` starts the matrix runtime
+- `python dashboard_server.py [--host ... --port ... --db-path ...]` starts the dashboard/admin service
 
 ### Boot path
 
@@ -99,9 +122,9 @@ Important consequence: `DisplayManager` is constructed before any DB work. If `d
 ```text
 run_once(display, now=None)
   -> init_db()
-  -> payload = build_content_for_now(now or datetime.now())
+  -> payload = build_runtime_payload(now or datetime.now())
   -> print_payload(payload)
-  -> display.display_payload(payload)
+  -> display.display_payload(payload, duration_seconds=1)
   -> return payload
 ```
 
@@ -111,38 +134,45 @@ run_once(display, now=None)
 run_forever(display, boot_delay=10)
   -> init_db()
   -> sleep(boot_delay)
-  -> last_slot_key = None
+  -> active_slot_key = None
+  -> active_category = None
   -> while True:
        now = datetime.now()
        slot_key = get_current_slot_key(now)
-       if slot_key != last_slot_key:
-         payload = build_content_for_now(now)
-         print_payload(payload)
-         duration = seconds_until_next_slot(now)
-         display.display_payload(payload, duration_seconds=duration)
-         last_slot_key = slot_key
+       if slot_key changed:
+         clear any expired skip/switch requests for the new slot
        else:
-         sleep(1)
+         either consume a queued switch request,
+         consume a queued skip request and map it to the next category,
+         or sleep(1) and continue
+       payload = build_runtime_payload(now, category_override=...)
+       print_payload(payload)
+       duration = seconds_until_next_slot(now)
+       display.display_payload(payload, duration_seconds=duration, should_interrupt=...)
+       active_slot_key = slot_key
+       active_category = payload["category"]
 ```
 
 Key runtime properties:
 
-- Startup in the middle of a slot renders the current slot immediately because `last_slot_key` starts as `None`.
+- `build_runtime_payload()` persists dashboard-visible state through `current_display_state.save_current_display_state()`.
+- Startup in the middle of a slot renders the current slot immediately because `active_slot_key` starts as `None`.
 - Rendering is blocking. There are no worker threads, no async tasks, and no background prefetching.
 - Slot timing is best-effort rather than hard real-time. Display routines sleep internally and may overrun the exact slot boundary by transition or animation overhead.
-- `print_payload()` is the only built-in observability path besides previews.
+- Skip/switch interrupts are DB-mediated and are checked cooperatively during animation sleeps.
+- `print_payload()` and the dashboard snapshot are the built-in observability surfaces besides previews.
 
 ## Slot Scheduling Logic
 
 `rotation_engine.py` is the scheduler of record.
 
-- `SLOT_MINUTES = 5`
+- `SLOT_SECONDS = max(1, ROTATION_INTERVAL)`
 - `DISPLAY_SEQUENCE = ["pokemon", "weather", "joke", "science"]`
-- slot number = `((hour * 60) + minute) // 5`
+- slot number = `seconds_since_midnight // SLOT_SECONDS`
 - slot key format = `YYYY-MM-DD:<slot_number>`
-- there are `288` slots per day
-- each category appears every `20` minutes
-- each category receives `72` slots per day
+- the number of slots per day depends on `ROTATION_INTERVAL`; with the default `300` seconds there are `288`
+- each category appears every `SLOT_SECONDS * len(DISPLAY_SEQUENCE)` seconds; with the default `300` seconds that is every `20` minutes
+- `run_once()` is no longer a full-slot render path; it explicitly clamps display time to `1` second for validation/debug use
 - `seconds_until_next_slot()` returns at least `1`, never `0`
 
 Category selection is purely time-based. The database does not decide which category is active. The `category_rotation` table is legacy and unused.
@@ -282,8 +312,8 @@ The schema is created and patched by `db_manager.init_db()`. There is no migrati
 
 ### Default DB path
 
-- default DB file is relative path `content.db`
-- all callers rely on that default unless they explicitly pass `db_path`
+- default DB file comes from `config.DB_PATH`, which defaults to the relative path `content.db`
+- most callers rely on that default unless they explicitly pass `db_path`
 - starting the app from a different working directory changes which DB file is used
 
 ### Active tables
@@ -304,6 +334,8 @@ Observed and used keys:
 | `pokemon_catalog_size` | `_ensure_pokemon_rotation()` | nobody | informational only |
 
 The checked-in DB still has `schema_version = 3`, which confirms that the value is not kept in sync once the key exists.
+
+`runtime_control.py` also stores skip/switch request counters, timestamps, lock flags, and the requested override category in `meta`.
 
 #### `system_state`
 
@@ -359,6 +391,32 @@ Historical joke ledger:
 
 This table is append-only in normal operation.
 
+#### `current_display_state`
+
+Dashboard snapshot table:
+
+- `id INTEGER PRIMARY KEY CHECK (id = 1)`
+- `state_json TEXT NOT NULL`
+- `updated_at TEXT NOT NULL`
+
+This is updated by `build_runtime_payload()` before each display call.
+
+#### `admin_sessions`
+
+Dashboard admin session table:
+
+- `id INTEGER PRIMARY KEY AUTOINCREMENT`
+- `token_hash TEXT NOT NULL UNIQUE`
+- `username TEXT NOT NULL`
+- `created_at TEXT NOT NULL`
+- `expires_at TEXT NOT NULL`
+- `last_seen_at TEXT NOT NULL`
+- `client_ip TEXT`
+
+#### `admin_login_attempts`
+
+This table is created by `init_db()`, but the current `admin_auth.py` lockout implementation uses in-process memory instead of this table.
+
 ### Legacy tables
 
 These tables are created by `init_db()` but are unused by the current codebase:
@@ -372,6 +430,8 @@ Do not build new behavior on them unless you intentionally revive that abandoned
 
 `display_manager.py` owns everything from payload-to-pixels.
 
+Default geometry is a `192x32` surface (`64x32` panel width times `PANEL_CHAIN_LENGTH = 3`).
+
 ### Import-time dependencies
 
 `display_manager.py` imports these at module import time:
@@ -383,8 +443,8 @@ Do not build new behavior on them unless you intentionally revive that abandoned
 Implications:
 
 - `numpy` and Pillow are required even when running with `--simulate`
-- `piomatter` is optional; if it is missing, `DisplayManager(..., use_matrix=True)` silently degrades to `use_matrix=False`
-- there is no dependency manifest in the repo, so dependency installation is external to the codebase
+- `piomatter` is optional at import time, but `DisplayManager(..., use_matrix=True)` now raises immediately if the backend is unavailable
+- dependency installation is documented through `requirements.txt`
 
 ### Rendering pipeline
 
@@ -394,7 +454,7 @@ payload
   -> PIL RGBA frame(s)
   -> _prepare_image()
        -> convert RGBA
-       -> resize to 64x32 with NEAREST
+       -> resize to `self.width x self.height` (`192x32` by default) with NEAREST
        -> optional 180-degree rotate
   -> _push_prepared()
        -> numpy array conversion
@@ -519,18 +579,15 @@ Behavior details:
 - `--simulate` still requires `display_manager.py` import dependencies
 - `--save-previews` creates `preview_frames/` relative to the working directory
 
-### `--once` is category-sensitive
+### `--once` is now a short validation render
 
-`run_once()` calls `display.display_payload(payload)` without an explicit duration. `display_payload()` then behaves differently by category:
+`run_once()` now calls `display.display_payload(payload, duration_seconds=1)`.
 
-| Category | `duration_seconds` used | Practical result |
-| --- | --- | --- |
-| `pokemon` | defaults to `300` | runs the full Pokemon program for about 5 minutes |
-| `weather` | defaults to `300` | runs the ticker for about 5 minutes |
-| `joke` | defaults to `300` | runs joke paging for about 5 minutes |
-| `science` | no custom animation loop | transitions to one frame and returns almost immediately |
+Practical result:
 
-So `--once` means "run one category program", not "render one cheap snapshot."
+- it is suitable for import/startup/short-pipeline validation
+- animated categories still execute their category-specific code paths, but only with a one-second budget
+- `run_forever()` remains the full-slot runtime path
 
 ## Known Limitations and Design Couplings
 
@@ -544,16 +601,16 @@ So `--once` means "run one category program", not "render one cheap snapshot."
 
 ### Current limitations
 
-- one process should own `content.db`; there is no explicit multi-writer coordination strategy
+- the matrix runtime and dashboard intentionally share `content.db`, but there is still no coordination strategy beyond SQLite/WAL and best-effort locking
 - DB migrations are ad hoc add-column patches; `schema_version` is not used as a real migration driver
 - relative default DB path means launching from a different directory can create or use the wrong database
 - `used_jokes` has no pruning strategy
 - science facts can repeat across slots because there is no long-term dedupe
 - weather payloads are not cached, so repeated builds in the same slot can differ
 - `render_payload()` is not a drop-in substitute for real display behavior on animated categories
-- dependency installation is undocumented in-repo; there is no `requirements.txt`, `pyproject.toml`, or equivalent
-- `.github/workflows/pylint.yml` is lint-only and does not document or install runtime dependencies
-- `Notes/systemd.md` documents manual service commands but the repository does not include the actual `led-matrix.service` unit file
+- `requirements.txt` exists, but dependency versions are unconstrained
+- `.github/workflows/pylint.yml` installs dependencies, but its lint/test steps are still non-blocking because they end with `|| true`
+- checked-in systemd units exist, but they should be reviewed before deployment because the current files contain duplicated path/user directives
 
 ### Legacy or unused code paths
 
@@ -616,6 +673,18 @@ The sections above remain useful for system behavior, but the repository now als
   - `ROTATION_INTERVAL`
   - `DISPLAY_BRIGHTNESS`
   - `WEATHER_API_KEY`
+  - `DASHBOARD_HOST`
+  - `DASHBOARD_PORT`
+  - `DASHBOARD_POLL_INTERVAL_MS`
+  - `ADMIN_USERNAME`
+  - `ADMIN_PASSWORD_HASH`
+  - `ADMIN_SESSION_TTL_SECONDS`
+  - `ADMIN_LOGIN_MAX_ATTEMPTS`
+  - `ADMIN_LOGIN_LOCKOUT_SECONDS`
+  - `ADMIN_SESSION_COOKIE_NAME`
+  - `ADMIN_SESSION_COOKIE_SECURE`
+  - `SKIP_CATEGORY_COOLDOWN_SECONDS`
+  - `SWITCH_CATEGORY_COOLDOWN_SECONDS`
 - `DB_PATH` defaults to `content.db`.
 - `ROTATION_INTERVAL` is parsed as an integer and clamped to a minimum of `1`; `rotation_engine.py` converts it into `SLOT_SECONDS` for slot math.
 - `DISPLAY_BRIGHTNESS` is parsed as a float and clamped into the `0.0..1.0` range.
@@ -625,6 +694,8 @@ Important behavior:
 
 - Configuration values are module-level constants. Changing `.env` or process environment variables after import does not update the running process.
 - `display_manager.py` currently imports only `ROTATION_INTERVAL`; `DISPLAY_BRIGHTNESS` is not yet wired into matrix output.
+- `dashboard_server.py`, `runtime_control.py`, and `admin_auth.py` also read `config.py` constants at import time.
+- `ADMIN_LOGIN_MAX_ATTEMPTS` and `ADMIN_LOGIN_LOCKOUT_SECONDS` are documented config keys, but the current auth implementation uses hardcoded staged lockouts instead of those values.
 - If `python-dotenv` is unavailable, `config.py` falls back to a no-op `load_dotenv()` and the app relies on shell environment variables plus defaults.
 
 ### Database Behavior Addendum
@@ -651,6 +722,10 @@ Runtime file expectations:
 - `display_manager.py` turns payload dicts into frames, animations, preview images, and optional matrix output.
 - `db_manager.py` owns SQLite connection defaults plus schema auto-initialization.
 - `config.py` is the environment-backed settings module imported by the runtime.
+- `dashboard_server.py` serves the polling dashboard UI plus public/admin runtime-control APIs.
+- `runtime_control.py` persists skip/switch requests, cooldown timestamps, and control-lock state in `meta`.
+- `current_display_state.py` stores the latest built payload snapshot for dashboard polling.
+- `admin_auth.py` manages password verification, admin sessions, and login throttling.
 - `apis/` contains network adapters that normalize upstream API responses into the payload shapes consumed by `main.py` and `display_manager.py`.
 
 ### Developer Workflow Addendum
@@ -662,7 +737,9 @@ Runtime file expectations:
 - `.pre-commit-config.yaml` enables `ruff`, `black`, and basic file hygiene hooks.
 - `.github/workflows/pylint.yml` runs on both `push` and `pull_request`, installs `requirements.txt`, and invokes `ruff`, `black --check`, and `pytest` on Python `3.10` and `3.11`.
 - The current CI workflow is informative rather than strictly blocking because each lint/test command ends with `|| true`. Treat the logs as required review material before merge instead of assuming the workflow enforces failures.
-- `.github/CODEOWNERS` routes core engine, rendering, and most API files to `@coayo-x`.
+- `tests/` currently covers runtime control, main-loop interrupt handling, display initialization, dashboard routes, current-display snapshot normalization, and admin auth flows.
+- Checked-in systemd units exist under `systemd/`, but the current files should be reviewed before install because they contain duplicated user/path directives.
+- `.github/CODEOWNERS` is not present in the checked-in tree.
 
 Recommended repo workflow for contributors:
 
