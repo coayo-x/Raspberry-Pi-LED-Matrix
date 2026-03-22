@@ -389,6 +389,52 @@ function buildControlNote(control, auth) {
     return "Ready.";
 }
 
+function syncPublicActionStatus(auth, controls, previousAuth) {
+    if (!elements.actionStatus) {
+        return;
+    }
+
+    if (!auth?.configured) {
+        setMessage(
+            elements.actionStatus,
+            "Admin authentication is not configured on this host.",
+            "error",
+        );
+        return;
+    }
+
+    if (!auth?.authenticated) {
+        setMessage(
+            elements.actionStatus,
+            "Sign in through Admin Control to enable.",
+            "idle",
+        );
+        return;
+    }
+
+    const authStateChanged =
+        previousAuth?.configured !== auth?.configured ||
+        previousAuth?.authenticated !== auth?.authenticated;
+    if (
+        !authStateChanged &&
+        elements.actionStatus.dataset.state &&
+        elements.actionStatus.dataset.state !== "idle"
+    ) {
+        return;
+    }
+
+    const hasAvailableAction =
+        Boolean(controls?.skip_category?.available) ||
+        Boolean(controls?.switch_category?.available);
+    setMessage(
+        elements.actionStatus,
+        hasAvailableAction
+            ? "Admin controls enabled."
+            : "Admin session active. Waiting for controls to become available.",
+        "idle",
+    );
+}
+
 function applyPublicControlState(control, button, noteElement, auth) {
     if (!control || !button || !noteElement) {
         return;
@@ -415,6 +461,7 @@ function applyAdminLockState(control, button, labelElement) {
 function applyControlPayload(payload) {
     const nextPayload =
         payload || createGuestControlPayload(latestControlPayload?.auth?.configured);
+    const previousAuth = latestControlPayload?.auth;
     latestControlPayload = nextPayload;
     const auth = nextPayload.auth || createGuestControlPayload(true).auth;
     const controls =
@@ -447,6 +494,8 @@ function applyControlPayload(payload) {
               ? "Admin Session"
               : "Read Only";
     }
+
+    syncPublicActionStatus(auth, controls, previousAuth);
 
     if (!auth.configured) {
         elements.adminDisabledMessage.hidden = false;
@@ -515,11 +564,10 @@ function applyControlPayload(payload) {
 }
 
 async function refreshDashboard() {
-    const refreshAdmin = Boolean(latestControlPayload?.auth?.authenticated);
-    await refreshSnapshotState();
-    if (refreshAdmin) {
-        await refreshControlState().catch(() => null);
-    }
+    await Promise.all([
+        refreshSnapshotState(),
+        refreshControlState().catch(() => null),
+    ]);
 }
 
 async function refreshSnapshotState() {
@@ -589,7 +637,6 @@ async function skipCategory() {
         );
     } finally {
         await refreshDashboard();
-        await refreshControlState().catch(() => null);
     }
 }
 
@@ -635,7 +682,6 @@ async function switchCategory() {
         );
     } finally {
         await refreshDashboard();
-        await refreshControlState().catch(() => null);
     }
 }
 
@@ -835,7 +881,8 @@ if (elements.toggleSwitchLockButton) {
 }
 
 bindModalInteractions();
-refreshDashboard().then(() => refreshControlState().catch(() => null));
+applyControlPayload(latestControlPayload);
+refreshDashboard().catch(() => {});
 window.setInterval(() => {
     refreshDashboard().catch(() => {});
 }, pollIntervalMs);
