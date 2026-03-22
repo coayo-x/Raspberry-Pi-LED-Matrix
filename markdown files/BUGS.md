@@ -653,3 +653,4 @@ These notes refine stale findings from the earlier audit and add newly discovere
 - Why it matters: operators using the notes during deployment can follow stale or contradictory instructions even though the repo now contains real unit files.
 - Impact: avoidable deployment mistakes and lower confidence in the operational docs.
 - Suggestion: rewrite the notes into one clean install/enable/operate flow that matches the checked-in unit files exactly.
+
