@@ -7,9 +7,9 @@ from pathlib import Path
 
 from admin_auth import authenticate_admin, get_admin_status, logout_admin
 from config import (
-    ADMIN_SESSION_TTL_SECONDS,
     ADMIN_SESSION_COOKIE_NAME,
     ADMIN_SESSION_COOKIE_SECURE,
+    ADMIN_SESSION_TTL_SECONDS,
     DASHBOARD_HOST,
     DASHBOARD_POLL_INTERVAL_MS,
     DASHBOARD_PORT,
@@ -22,13 +22,6 @@ from runtime_control import (
     request_switch_category,
     set_control_lock,
 )
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-
-from config import DASHBOARD_HOST, DASHBOARD_POLL_INTERVAL_MS, DASHBOARD_PORT, DB_PATH
-from current_display_state import load_current_display_state
-from runtime_control import request_skip_category, request_switch_category
-from runtime_control import request_skip_category
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
 STATIC_ROUTES = {
@@ -55,8 +48,6 @@ CSP_HEADER = (
     "connect-src 'self'; "
     "img-src 'self' https: data:;"
 )
-SKIP_CATEGORY_API_PATH = "/api/skip-category"
-SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 
 
 def _read_asset(filename: str) -> bytes:
@@ -103,10 +94,6 @@ def create_dashboard_server(
 
             if route == CONTROL_STATE_API_PATH:
                 self._send_json(HTTPStatus.OK, self._build_control_state_payload())
-                body = json.dumps(load_current_display_state(db_path)).encode("utf-8")
-                self._send_response(
-                    HTTPStatus.OK, "application/json; charset=utf-8", body
-                )
                 return
 
             if route in STATIC_ROUTES:
@@ -170,7 +157,9 @@ def create_dashboard_server(
                     headers["Set-Cookie"] = _cookie_header(result["session_token"])
 
                 response_body = {
-                    k: v for k, v in result.items() if k != "session_token"
+                    key: value
+                    for key, value in result.items()
+                    if key != "session_token"
                 }
                 status = HTTPStatus.OK
                 if result["status"] == "invalid_credentials":
@@ -216,30 +205,6 @@ def create_dashboard_server(
                         "updated": True,
                         "control": control_state,
                     },
-                result = request_skip_category(db_path=db_path)
-                body = json.dumps(result).encode("utf-8")
-                self._send_response(
-                    HTTPStatus.OK, "application/json; charset=utf-8", body
-                )
-                return
-
-            if route == SWITCH_CATEGORY_API_PATH:
-                try:
-                    payload = self._read_json_body()
-                    category = payload.get("category")
-                    result = request_switch_category(category=category, db_path=db_path)
-                except ValueError as error:
-                    body = json.dumps({"error": str(error)}).encode("utf-8")
-                    self._send_response(
-                        HTTPStatus.BAD_REQUEST,
-                        "application/json; charset=utf-8",
-                        body,
-                    )
-                    return
-
-                body = json.dumps(result).encode("utf-8")
-                self._send_response(
-                    HTTPStatus.OK, "application/json; charset=utf-8", body
                 )
                 return
 
@@ -283,8 +248,6 @@ def create_dashboard_server(
             body: bytes,
             *,
             extra_headers: dict | None = None,
-        def _send_response(
-            self, status: HTTPStatus, content_type: str, body: bytes
         ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
@@ -394,9 +357,6 @@ def _render_html() -> bytes:
     for placeholder, value in replacements.items():
         html = html.replace(placeholder, value)
     return html.encode("utf-8")
-    return html.replace("__POLL_INTERVAL_MS__", str(DASHBOARD_POLL_INTERVAL_MS)).encode(
-        "utf-8"
-    )
 
 
 def _parse_args() -> argparse.Namespace:

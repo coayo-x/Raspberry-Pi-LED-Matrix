@@ -210,7 +210,7 @@ def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     init_db()
     payload = build_runtime_payload(now)
     print_payload(payload)
-    display.display_payload(payload)
+    display.display_payload(payload, duration_seconds=1)
     return payload
 
 

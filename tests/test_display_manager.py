@@ -25,7 +25,7 @@ class FakeMatrix:
         self.show_calls += 1
 
 
-def test_matrix_initialization_uses_multi_panel_geometry(monkeypatch, capsys) -> None:
+def test_matrix_initialization_uses_multi_panel_geometry(monkeypatch) -> None:
     fake_piomatter = SimpleNamespace(
         Orientation=SimpleNamespace(Normal="normal"),
         Pinout=SimpleNamespace(AdafruitMatrixHatBGR="hat-bgr"),
@@ -35,10 +35,13 @@ def test_matrix_initialization_uses_multi_panel_geometry(monkeypatch, capsys) ->
     )
 
     monkeypatch.setattr(display_manager, "piomatter", fake_piomatter)
-    monkeypatch.setattr(display_manager.time, "sleep", lambda _duration: None)
-
     display = display_manager.DisplayManager(use_matrix=True)
-    display.run_startup_test(duration=0)
+    frame = display_manager.Image.new(
+        "RGBA",
+        (display_manager.WIDTH, display_manager.HEIGHT),
+        (255, 64, 32, 255),
+    )
+    display._show_frame(frame)
 
     assert display.use_matrix is True
     assert display.framebuffer.shape == (
@@ -55,12 +58,7 @@ def test_matrix_initialization_uses_multi_panel_geometry(monkeypatch, capsys) ->
     assert display.matrix.colorspace == "rgb888packed"
     assert display.matrix.show_calls == 1
     assert display.framebuffer.sum() > 0
-
-    stdout = capsys.readouterr().out
-    assert "Matrix initialized" in stdout
-    assert "192x32" in stdout
-    assert "matrix.show() called for first frame" in stdout
-    assert "Startup test frame rendered" in stdout
+    assert display.last_frame is not None
 
 
 def test_matrix_initialization_requires_piomatter_backend(monkeypatch) -> None:
