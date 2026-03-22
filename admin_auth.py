@@ -8,6 +8,11 @@ import secrets
 from datetime import datetime, timedelta
 from getpass import getpass
 
+try:
+    import bcrypt
+except ImportError:
+    bcrypt = None
+
 from config import (
     ADMIN_LOGIN_LOCKOUT_SECONDS,
     ADMIN_LOGIN_MAX_ATTEMPTS,
@@ -18,8 +23,11 @@ from config import (
 )
 from db_manager import connect
 
-PASSWORD_HASH_SCHEME = "pbkdf2_sha256"
+PASSWORD_HASH_SCHEME = "bcrypt"
+LEGACY_PASSWORD_HASH_SCHEME = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 600_000
+BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
+BCRYPT_DEFAULT_ROUNDS = 12
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -107,15 +115,12 @@ def is_admin_configured() -> bool:
     return bool(ADMIN_USERNAME and ADMIN_PASSWORD_HASH)
 
 
-def build_password_hash(
+def _build_pbkdf2_password_hash(
     password: str,
     *,
     iterations: int = PASSWORD_HASH_ITERATIONS,
     salt: bytes | None = None,
 ) -> str:
-    if not password:
-        raise ValueError("Password must not be empty.")
-
     active_salt = salt or secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac(
         "sha256",
@@ -125,16 +130,38 @@ def build_password_hash(
     )
     salt_b64 = base64.b64encode(active_salt).decode("ascii")
     digest_b64 = base64.b64encode(digest).decode("ascii")
-    return f"{PASSWORD_HASH_SCHEME}${iterations}${salt_b64}${digest_b64}"
+    return f"{LEGACY_PASSWORD_HASH_SCHEME}${iterations}${salt_b64}${digest_b64}"
 
 
-def verify_password(password: str, encoded_hash: str) -> bool:
+def build_password_hash(
+    password: str,
+    *,
+    iterations: int = PASSWORD_HASH_ITERATIONS,
+    salt: bytes | None = None,
+) -> str:
+    if not password:
+        raise ValueError("Password must not be empty.")
+
+    if bcrypt is not None and salt is None:
+        return bcrypt.hashpw(
+            password.encode("utf-8"),
+            bcrypt.gensalt(rounds=BCRYPT_DEFAULT_ROUNDS),
+        ).decode("utf-8")
+
+    return _build_pbkdf2_password_hash(
+        password,
+        iterations=iterations,
+        salt=salt,
+    )
+
+
+def _verify_pbkdf2_password(password: str, encoded_hash: str) -> bool:
     try:
         scheme, iterations_text, salt_b64, digest_b64 = encoded_hash.split("$", 3)
     except ValueError:
         return False
 
-    if scheme != PASSWORD_HASH_SCHEME:
+    if scheme != LEGACY_PASSWORD_HASH_SCHEME:
         return False
 
     try:
@@ -151,6 +178,22 @@ def verify_password(password: str, encoded_hash: str) -> bool:
         iterations,
     )
     return hmac.compare_digest(actual_digest, expected_digest)
+
+
+def verify_password(password: str, encoded_hash: str) -> bool:
+    if encoded_hash.startswith(BCRYPT_PREFIXES):
+        if bcrypt is None:
+            return False
+
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"),
+                encoded_hash.encode("utf-8"),
+            )
+        except ValueError:
+            return False
+
+    return _verify_pbkdf2_password(password, encoded_hash)
 
 
 def get_admin_session(
@@ -347,7 +390,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hash-password",
         action="store_true",
-        help="Prompt for a password and print a PBKDF2 hash for ADMIN_PASSWORD_HASH.",
+        help="Prompt for a password and print a secure ADMIN_PASSWORD_HASH value.",
     )
     return parser.parse_args()
 

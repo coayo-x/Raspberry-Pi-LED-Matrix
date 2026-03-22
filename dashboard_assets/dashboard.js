@@ -12,6 +12,7 @@ const adminLogoutApi =
     document.documentElement.dataset.adminLogoutApi || "/api/admin/logout";
 const adminControlLockApi =
     document.documentElement.dataset.adminControlLockApi || "/api/admin/control-lock";
+const loginPagePath = "/login";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
 
 const elements = {
@@ -118,6 +119,9 @@ async function fetchJson(url, options = {}) {
         const error = new Error(payload?.error || `HTTP ${response.status}`);
         error.status = response.status;
         error.result = payload;
+        if (response.status === 401 && window.location.pathname !== loginPagePath) {
+            window.location.assign(loginPagePath);
+        }
         throw error;
     }
     return payload;

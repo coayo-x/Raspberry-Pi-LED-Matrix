@@ -31,6 +31,7 @@ STATIC_ROUTES = {
     "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8"),
     "/dashboard.js": ("dashboard.js", "application/javascript; charset=utf-8"),
 }
+LOGIN_PAGE_PATH = "/login"
 API_PATH = "/api/current-display-state"
 CONTROL_STATE_API_PATH = "/api/control-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
@@ -47,6 +48,16 @@ CSP_HEADER = (
     "style-src 'self'; "
     "connect-src 'self'; "
     "img-src 'self' https: data:;"
+)
+LOGIN_CSP_HEADER = (
+    "default-src 'self'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src 'self'; "
+    "img-src 'self' data:;"
 )
 
 
@@ -79,6 +90,233 @@ def _expired_cookie_header() -> str:
     return cookie.output(header="").strip()
 
 
+def _render_login_html(configured: bool) -> bytes:
+    html = """
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LED Matrix Dashboard Login</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg-1: #08111b;
+            --bg-2: #102134;
+            --panel: rgba(10, 18, 28, 0.92);
+            --border: rgba(164, 192, 214, 0.18);
+            --text-main: #eef5fb;
+            --text-muted: #9db1c5;
+            --accent: #6ed4bf;
+            --danger: #ffb09a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            font-family: "Gill Sans", "Trebuchet MS", sans-serif;
+            color: var(--text-main);
+            background:
+                radial-gradient(circle at top left, rgba(110, 212, 191, 0.14), transparent 28%),
+                linear-gradient(155deg, var(--bg-1) 0%, var(--bg-2) 100%);
+        }
+
+        .login-card {
+            width: min(100%, 420px);
+            padding: 24px;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            box-shadow: 0 18px 36px rgba(1, 8, 18, 0.45);
+        }
+
+        .eyebrow {
+            margin: 0;
+            color: var(--accent);
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            font-size: 0.68rem;
+        }
+
+        h1 {
+            margin: 8px 0 10px;
+            font-family: Georgia, "Palatino Linotype", serif;
+            font-size: 1.9rem;
+            line-height: 1.05;
+        }
+
+        p {
+            margin: 0;
+            color: var(--text-muted);
+            line-height: 1.45;
+        }
+
+        form {
+            display: grid;
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        label {
+            display: grid;
+            gap: 6px;
+            font-size: 0.92rem;
+            color: var(--text-main);
+        }
+
+        input,
+        button {
+            font: inherit;
+            border-radius: 12px;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid rgba(140, 230, 255, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+        }
+
+        button {
+            border: 1px solid rgba(140, 230, 255, 0.24);
+            background: linear-gradient(180deg, rgba(140, 230, 255, 0.18), rgba(110, 212, 191, 0.12));
+            color: var(--text-main);
+            cursor: pointer;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            padding: 10px 14px;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .status {
+            margin-top: 14px;
+            min-height: 1.4em;
+        }
+
+        .status[data-state="error"] {
+            color: var(--danger);
+        }
+
+        .status[data-state="success"] {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <main class="login-card">
+        <p class="eyebrow">Restricted Access</p>
+        <h1>LED Matrix Dashboard</h1>
+        <p id="login-copy">
+            Sign in with the configured dashboard credentials to view runtime data and trigger controls.
+        </p>
+
+        <form id="login-form" __FORM_ATTRS__>
+            <label>
+                <span>Username</span>
+                <input id="username" name="username" type="text" autocomplete="username" __INPUT_ATTRS__>
+            </label>
+            <label>
+                <span>Password</span>
+                <input id="password" name="password" type="password" autocomplete="current-password" __INPUT_ATTRS__>
+            </label>
+            <button id="login-button" type="submit" __BUTTON_ATTRS__>Sign In</button>
+        </form>
+
+        <p class="status" id="status" data-state="idle">__INITIAL_STATUS__</p>
+    </main>
+
+    <script>
+        const loginApi = "__LOGIN_API__";
+        const configured = __CONFIGURED__;
+        const redirectPath = "/";
+        const form = document.getElementById("login-form");
+        const button = document.getElementById("login-button");
+        const status = document.getElementById("status");
+        const copy = document.getElementById("login-copy");
+
+        if (!configured) {
+            copy.textContent =
+                "Dashboard access is disabled until ADMIN_USERNAME and ADMIN_PASSWORD_HASH are configured on this host.";
+        }
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (!configured) {
+                return;
+            }
+
+            const username = document.getElementById("username").value.trim();
+            const password = document.getElementById("password").value;
+            if (!username || !password) {
+                status.dataset.state = "error";
+                status.textContent = "Username and password are required.";
+                return;
+            }
+
+            button.disabled = true;
+            status.dataset.state = "idle";
+            status.textContent = "Signing in...";
+
+            try {
+                const response = await fetch(loginApi, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    status.dataset.state = "error";
+                    status.textContent = payload.error || `HTTP ${response.status}`;
+                    return;
+                }
+
+                status.dataset.state = "success";
+                status.textContent = "Authentication successful. Redirecting...";
+                window.location.assign(redirectPath);
+            } catch (error) {
+                status.dataset.state = "error";
+                status.textContent = error?.message || "Sign-in failed.";
+            } finally {
+                button.disabled = false;
+                document.getElementById("password").value = "";
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+    return (
+        html.replace("__LOGIN_API__", ADMIN_LOGIN_API_PATH)
+        .replace("__CONFIGURED__", "true" if configured else "false")
+        .replace(
+            "__FORM_ATTRS__",
+            "" if configured else 'aria-disabled="true"',
+        )
+        .replace("__INPUT_ATTRS__", "" if configured else "disabled")
+        .replace("__BUTTON_ATTRS__", "" if configured else "disabled")
+        .replace(
+            "__INITIAL_STATUS__",
+            "Dashboard authentication is ready."
+            if configured
+            else "Dashboard credentials are not configured on this host.",
+        )
+        .encode("utf-8")
+    )
+
+
 def create_dashboard_server(
     host: str = DASHBOARD_HOST,
     port: int = DASHBOARD_PORT,
@@ -88,15 +326,34 @@ def create_dashboard_server(
         def do_GET(self) -> None:
             route = self.path.split("?", 1)[0]
 
+            if route == LOGIN_PAGE_PATH:
+                admin_status = self._get_admin_status()
+                if admin_status["authenticated"]:
+                    self._send_redirect("/")
+                else:
+                    self._send_login_page(admin_status["configured"])
+                return
+
             if route == API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
                 self._send_json(HTTPStatus.OK, load_current_display_state(db_path))
                 return
 
             if route == CONTROL_STATE_API_PATH:
-                self._send_json(HTTPStatus.OK, self._build_control_state_payload())
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+                self._send_json(
+                    HTTPStatus.OK,
+                    self._build_control_state_payload(admin_status),
+                )
                 return
 
             if route in STATIC_ROUTES:
+                if self._require_authenticated_ui() is None:
+                    return
+
                 filename, content_type = STATIC_ROUTES[route]
                 body = (
                     _render_html()
@@ -110,32 +367,6 @@ def create_dashboard_server(
 
         def do_POST(self) -> None:
             route = self.path.split("?", 1)[0]
-
-            if route == SKIP_CATEGORY_API_PATH:
-                admin_status = self._get_admin_status()
-                result = request_skip_category(
-                    db_path=db_path,
-                    is_admin=admin_status["authenticated"],
-                )
-                self._send_json(self._control_status_code(result), result)
-                return
-
-            if route == SWITCH_CATEGORY_API_PATH:
-                admin_status = self._get_admin_status()
-                try:
-                    payload = self._read_json_body()
-                    category = self._require_text_field(payload, "category")
-                    result = request_switch_category(
-                        category=category,
-                        db_path=db_path,
-                        is_admin=admin_status["authenticated"],
-                    )
-                except ValueError as error:
-                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
-                    return
-
-                self._send_json(self._control_status_code(result), result)
-                return
 
             if route == ADMIN_LOGIN_API_PATH:
                 try:
@@ -174,7 +405,42 @@ def create_dashboard_server(
                 self._send_json(status, response_body, extra_headers=headers)
                 return
 
+            if route == SKIP_CATEGORY_API_PATH:
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+
+                result = request_skip_category(
+                    db_path=db_path,
+                    is_admin=admin_status["authenticated"],
+                )
+                self._send_json(self._control_status_code(result), result)
+                return
+
+            if route == SWITCH_CATEGORY_API_PATH:
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+
+                try:
+                    payload = self._read_json_body()
+                    category = self._require_text_field(payload, "category")
+                    result = request_switch_category(
+                        category=category,
+                        db_path=db_path,
+                        is_admin=admin_status["authenticated"],
+                    )
+                except ValueError as error:
+                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+
+                self._send_json(self._control_status_code(result), result)
+                return
+
             if route == ADMIN_LOGOUT_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
                 logout_admin(self._get_session_token(), db_path=db_path)
                 self._send_json(
                     HTTPStatus.OK,
@@ -187,7 +453,7 @@ def create_dashboard_server(
                 return
 
             if route == ADMIN_CONTROL_LOCK_API_PATH:
-                if not self._require_admin():
+                if self._require_authenticated_api() is None:
                     return
 
                 try:
@@ -248,12 +514,13 @@ def create_dashboard_server(
             body: bytes,
             *,
             extra_headers: dict | None = None,
+            content_security_policy: str = CSP_HEADER,
         ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Content-Security-Policy", CSP_HEADER)
+            self.send_header("Content-Security-Policy", content_security_policy)
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
@@ -262,6 +529,28 @@ def create_dashboard_server(
                     self.send_header(header, value)
             self.end_headers()
             self.wfile.write(body)
+
+        def _send_redirect(
+            self, location: str, *, extra_headers: dict | None = None
+        ) -> None:
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("Location", location)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            if extra_headers:
+                for header, value in extra_headers.items():
+                    self.send_header(header, value)
+            self.end_headers()
+
+        def _send_login_page(self, configured: bool) -> None:
+            self._send_response(
+                HTTPStatus.OK,
+                "text/html; charset=utf-8",
+                _render_login_html(configured),
+                content_security_policy=LOGIN_CSP_HEADER,
+            )
 
         def _read_json_body(self) -> dict:
             content_length = int(self.headers.get("Content-Length", "0"))
@@ -307,26 +596,46 @@ def create_dashboard_server(
                 db_path=db_path,
             )
 
-        def _require_admin(self) -> bool:
+        def _require_authenticated_api(self) -> dict | None:
             admin_status = self._get_admin_status()
             if admin_status["authenticated"]:
-                return True
+                return admin_status
+
+            message = "Dashboard authentication is required."
+            if not admin_status["configured"]:
+                message = (
+                    "Dashboard authentication is not configured on this host."
+                )
 
             self._send_json_error(
                 HTTPStatus.UNAUTHORIZED,
-                "Admin authentication is required for this action.",
-                extra={"authenticated": False},
+                message,
+                extra={
+                    "authenticated": False,
+                    "configured": admin_status["configured"],
+                },
                 headers={"Set-Cookie": _expired_cookie_header()},
             )
-            return False
+            return None
 
-        def _build_control_state_payload(self) -> dict:
+        def _require_authenticated_ui(self) -> dict | None:
             admin_status = self._get_admin_status()
+            if admin_status["authenticated"]:
+                return admin_status
+
+            self._send_redirect(
+                LOGIN_PAGE_PATH,
+                extra_headers={"Set-Cookie": _expired_cookie_header()},
+            )
+            return None
+
+        def _build_control_state_payload(self, admin_status: dict | None = None) -> dict:
+            auth_state = admin_status or self._get_admin_status()
             return {
-                "auth": admin_status,
+                "auth": auth_state,
                 "controls": get_runtime_control_state(
                     db_path=db_path,
-                    is_admin=admin_status["authenticated"],
+                    is_admin=auth_state["authenticated"],
                 ),
             }
 
