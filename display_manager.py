@@ -108,7 +108,11 @@ class DisplayManager:
             geometry_kwargs["rotation"] = orientation
 
         geometry = piomatter.Geometry(**geometry_kwargs)
-        pinout = piomatter.Pinout.AdafruitMatrixHatBGR
+        pinout = getattr(piomatter.Pinout, "AdafruitMatrixHatRGB", None)
+        if pinout is None:
+            pinout = getattr(piomatter.Pinout, "AdafruitMatrixHat", None)
+        if pinout is None:
+            pinout = piomatter.Pinout.AdafruitMatrixHatBGR
         colorspace_name = (
             "RGB888Packed"
             if hasattr(piomatter.Colorspace, "RGB888Packed")
@@ -244,8 +248,12 @@ class DisplayManager:
     def _push_prepared(self, image: Image.Image) -> None:
         if self.use_matrix and self.matrix is not None and self.framebuffer is not None:
             channel_count = self.framebuffer.shape[2]
-            mode = "RGB" if channel_count == 3 else "RGBA"
-            arr = np.array(image.convert(mode), dtype=np.uint8)
+            rgb_arr = np.array(image.convert("RGB"), dtype=np.uint8)
+            if channel_count == 3:
+                arr = rgb_arr
+            else:
+                alpha = np.full((self.height, self.width, 1), 255, dtype=np.uint8)
+                arr = np.concatenate((rgb_arr, alpha), axis=2)
             self.framebuffer[:] = np.flipud(np.fliplr(arr))
             self.matrix.show()
 
@@ -653,6 +661,56 @@ class DisplayManager:
             y += name_line_height
         return img
 
+    def _render_pokemon_intro_card(self, data: dict) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        title_line = "Today's Pokémon is:"
+        title_gap = 2
+        title_font = self.small_font
+        title_height = self.small_line_height
+        name_area_height = max(1, self.height - title_height - title_gap)
+
+        name_lines, name_font = self._fit_pokemon_name_lines(
+            str(data.get("name", "Unknown")),
+            self.width - (PANEL_PADDING * 2),
+            font_candidates=[
+                self.hero_font,
+                self.large_font,
+                self.medium_font,
+                self.font,
+                self.small_font,
+            ],
+            max_height_px=name_area_height,
+        )
+        name_line_height = self._get_line_height(name_font)
+        total_height = title_height + title_gap + (len(name_lines) * name_line_height)
+        y = max(0, (self.height - total_height) // 2)
+
+        title_x = max(0, (self.width - self._text_width(title_line, title_font)) // 2)
+        self._draw_line(
+            draw,
+            title_x,
+            y,
+            title_line,
+            fill=TEXT_ACCENT,
+            font=title_font,
+        )
+        y += title_height + title_gap
+
+        for line in name_lines:
+            line_width = self._text_width(line, name_font)
+            line_x = max(0, (self.width - line_width) // 2)
+            self._draw_line(
+                draw,
+                line_x,
+                y,
+                line,
+                fill=POKEMON_NAME,
+                font=name_font,
+            )
+            y += name_line_height
+        return img
+
     def _pokemon_artwork(self, data: dict) -> Optional[Image.Image]:
         art = None
         try:
@@ -990,7 +1048,7 @@ class DisplayManager:
         name_panel = self._render_pokemon_center_title(data)
         image_panel = self._render_pokemon_image_frame(data)
         stat_frames = self._pokemon_stat_frames(data)
-        intro = self._compose_pokemon_frame(name_panel=name_panel)
+        intro = self._render_pokemon_intro_card(data)
         content_frame = self._compose_pokemon_frame(
             name_panel=name_panel,
             stat_panel=stat_frames[0] if stat_frames else None,
