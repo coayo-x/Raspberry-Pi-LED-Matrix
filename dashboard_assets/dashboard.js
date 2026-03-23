@@ -57,8 +57,6 @@ const elements = {
     contentSecondaryLabel: document.getElementById("content-secondary-label"),
     setup: document.getElementById("setup-value"),
     punchline: document.getElementById("punchline-value"),
-    refreshStatus: document.getElementById("refresh-status"),
-    lastUpdated: document.getElementById("last-updated"),
     publicControlMode: document.getElementById("public-control-mode"),
     skipCategoryButton: document.getElementById("skip-category-button"),
     switchCategorySelect: document.getElementById("switch-category-select"),
@@ -98,6 +96,8 @@ const elements = {
     ),
     alignmentButtons: Array.from(document.querySelectorAll("[data-alignment]")),
     colorButtons: Array.from(document.querySelectorAll("[data-color-name]")),
+    aboutButton: document.getElementById("about-button"),
+    aboutModal: document.getElementById("about-modal"),
     adminControlButton: document.getElementById("admin-control-button"),
     adminLoginModal: document.getElementById("admin-login-modal"),
     adminControlsModal: document.getElementById("admin-controls-modal"),
@@ -137,6 +137,11 @@ const customTextStyleState = {
     textColor: "white",
     backgroundColor: "black",
 };
+const modalElements = [
+    elements.aboutModal,
+    elements.adminLoginModal,
+    elements.adminControlsModal,
+].filter(Boolean);
 
 function displayText(value) {
     if (value === null || value === undefined || value === "") {
@@ -259,10 +264,7 @@ async function fetchJson(url, options = {}) {
 }
 
 function hasOpenModal() {
-    return (
-        Boolean(elements.adminLoginModal && !elements.adminLoginModal.hidden) ||
-        Boolean(elements.adminControlsModal && !elements.adminControlsModal.hidden)
-    );
+    return modalElements.some((modal) => !modal.hidden);
 }
 
 function syncBodyModalState() {
@@ -286,12 +288,18 @@ function hideModal(modal) {
 }
 
 function closeAllModals() {
-    hideModal(elements.adminLoginModal);
-    hideModal(elements.adminControlsModal);
+    modalElements.forEach((modal) => {
+        hideModal(modal);
+    });
+}
+
+function openAboutModal() {
+    closeAllModals();
+    showModal(elements.aboutModal);
 }
 
 function openLoginModal() {
-    hideModal(elements.adminControlsModal);
+    closeAllModals();
     showModal(elements.adminLoginModal);
     if (
         elements.adminUsername &&
@@ -308,7 +316,7 @@ function openControlsModal() {
         return;
     }
 
-    hideModal(elements.adminLoginModal);
+    closeAllModals();
     showModal(elements.adminControlsModal);
 }
 
@@ -418,12 +426,6 @@ function applySnapshotState(state) {
     elements.category.textContent = displayText(state.category);
     elements.setup.textContent = displayText(state.setup);
     elements.punchline.textContent = displayText(state.punchline);
-    elements.refreshStatus.textContent = state.has_data
-        ? "Live snapshot loaded"
-        : "Waiting for runtime state";
-    elements.lastUpdated.textContent = state.updated_at
-        ? `Updated ${state.updated_at}`
-        : "No snapshot saved yet";
     renderPokemonCard(state);
 }
 
@@ -1069,9 +1071,8 @@ async function refreshSnapshotState() {
     try {
         const state = await fetchJson(currentDisplayApi);
         applySnapshotState(state);
-    } catch (error) {
-        elements.refreshStatus.textContent = "Snapshot refresh failed";
-        elements.lastUpdated.textContent = error.message;
+    } catch {
+        return;
     }
 }
 
@@ -1315,7 +1316,7 @@ async function toggleControlLock(action) {
 }
 
 function bindModalInteractions() {
-    [elements.adminLoginModal, elements.adminControlsModal].forEach((modal) => {
+    modalElements.forEach((modal) => {
         if (!modal) {
             return;
         }
@@ -1336,6 +1337,11 @@ function bindModalInteractions() {
 
     document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") {
+            return;
+        }
+
+        if (elements.aboutModal && !elements.aboutModal.hidden) {
+            hideModal(elements.aboutModal);
             return;
         }
 
@@ -1419,6 +1425,10 @@ if (elements.switchCategoryButton) {
 
 if (elements.adminControlButton) {
     elements.adminControlButton.addEventListener("click", openAdminControlFlow);
+}
+
+if (elements.aboutButton) {
+    elements.aboutButton.addEventListener("click", openAboutModal);
 }
 
 if (elements.adminLoginForm) {
