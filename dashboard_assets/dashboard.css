@@ -552,6 +552,16 @@ select {
     min-width: 0;
 }
 
+.brightness-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.custom-text-brightness {
+    min-width: 0;
+}
+
 .brightness-input-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -883,7 +893,8 @@ select {
     }
 
     .custom-text-toolbar,
-    .palette-grid {
+    .palette-grid,
+    .brightness-grid {
         grid-template-columns: 1fr;
     }
 }

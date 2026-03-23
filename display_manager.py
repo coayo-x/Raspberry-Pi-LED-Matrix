@@ -333,28 +333,27 @@ class DisplayManager:
         normalized = str(value or "").strip().lower()
         return CUSTOM_TEXT_COLORS.get(normalized, fallback)
 
-    def _apply_custom_text_brightness(
+    def _scale_custom_text_fill(
         self,
-        image: Image.Image,
+        fill: tuple[int, int, int, int],
         brightness_percent: int | float | None,
-    ) -> Image.Image:
+    ) -> tuple[int, int, int, int]:
         try:
             clamped_brightness = max(10, min(100, int(brightness_percent or 100)))
         except (TypeError, ValueError):
             clamped_brightness = 100
 
         if clamped_brightness >= 100:
-            return image
+            return fill
 
         factor = clamped_brightness / 100
-        pixels = np.array(image.convert("RGBA"), dtype=np.uint8)
-        scaled = pixels.copy()
-        scaled[..., :3] = np.clip(
-            np.rint(pixels[..., :3].astype(np.float32) * factor),
-            0,
-            255,
-        ).astype(np.uint8)
-        return Image.fromarray(scaled, mode="RGBA")
+        red, green, blue, alpha = fill
+        return (
+            int(round(red * factor)),
+            int(round(green * factor)),
+            int(round(blue * factor)),
+            alpha,
+        )
 
     def _prepare_image(self, image: Image.Image) -> Image.Image:
         img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
@@ -1156,10 +1155,13 @@ class DisplayManager:
         data = payload["data"]
         style = data.get("style") or {}
         pages, font = self._build_custom_text_pages(payload)
-        brightness = style.get("brightness", 100)
-        text_fill = self._custom_text_color(style.get("text_color"), TEXT_PRIMARY)
-        background_fill = self._custom_text_color(
-            style.get("background_color"), DEFAULT_BG
+        text_fill = self._scale_custom_text_fill(
+            self._custom_text_color(style.get("text_color"), TEXT_PRIMARY),
+            style.get("text_brightness", style.get("brightness", 100)),
+        )
+        background_fill = self._scale_custom_text_fill(
+            self._custom_text_color(style.get("background_color"), DEFAULT_BG),
+            style.get("background_brightness", style.get("brightness", 100)),
         )
         x_padding = 4
         max_width = max(1, self.width - (x_padding * 2))
@@ -1189,9 +1191,7 @@ class DisplayManager:
                 )
                 y += line_height
 
-            rendered_pages.append(
-                self._apply_custom_text_brightness(img, brightness)
-            )
+            rendered_pages.append(img)
 
         return rendered_pages or [
             Image.new("RGBA", (self.width, self.height), background_fill)

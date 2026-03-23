@@ -11,6 +11,7 @@ from custom_text import (
     get_custom_text_control_state,
     get_custom_text_interrupt_token,
     get_custom_text_override,
+    normalize_custom_text_style,
     request_custom_text_override,
     set_custom_text_lock,
 )
@@ -42,7 +43,8 @@ def test_request_custom_text_override_persists_active_state(
             "underline": True,
             "font_family": "serif",
             "font_size": 18,
-            "brightness": 55,
+            "text_brightness": 55,
+            "background_brightness": 35,
             "text_color": "orange",
             "background_color": "blue",
             "alignment": "right",
@@ -64,7 +66,8 @@ def test_request_custom_text_override_persists_active_state(
     assert loaded["style"]["underline"] is True
     assert loaded["style"]["font_family"] == "serif"
     assert loaded["style"]["alignment"] == "right"
-    assert loaded["style"]["brightness"] == 55
+    assert loaded["style"]["text_brightness"] == 55
+    assert loaded["style"]["background_brightness"] == 35
     assert loaded["duration_seconds"] == 90
     assert loaded["duration_minutes"] == 1.5
     assert loaded["remaining_seconds"] == 80
@@ -211,11 +214,18 @@ def test_custom_text_rejects_invalid_brightness(
 
     with pytest.raises(
         ValueError,
-        match="'brightness' must be between 10 and 100.",
+        match="'text_brightness' must be between 10 and 100.",
     ):
         request_custom_text_override(
             "Brightness out of range",
-            style={"brightness": 5},
+            style={"text_brightness": 5},
             db_path=str(isolated_db_path),
             now=datetime(2026, 3, 23, 12, 30, 0),
         )
+
+
+def test_custom_text_legacy_brightness_maps_to_text_and_background() -> None:
+    style = normalize_custom_text_style({"brightness": 55})
+
+    assert style["text_brightness"] == 55
+    assert style["background_brightness"] == 55
