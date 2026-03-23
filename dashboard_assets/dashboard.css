@@ -144,6 +144,7 @@ select {
 .status-pill,
 .state-chip,
 .admin-session-badge,
+.about-entry-button,
 .admin-entry-button {
     display: inline-flex;
     align-items: center;
@@ -156,6 +157,24 @@ select {
     color: var(--text-muted);
     text-align: center;
     text-decoration: none;
+}
+
+.about-entry-button {
+    cursor: pointer;
+    color: var(--text-main);
+    border-color: rgba(140, 230, 255, 0.22);
+    background: linear-gradient(180deg, rgba(111, 183, 210, 0.18), rgba(77, 162, 146, 0.12));
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.about-entry-button:hover,
+.about-entry-button:focus-visible {
+    transform: translateY(-1px);
+    border-color: rgba(140, 230, 255, 0.4);
+    box-shadow: 0 12px 24px rgba(1, 8, 18, 0.22);
+    outline: none;
 }
 
 .admin-entry-button {
@@ -672,16 +691,69 @@ select {
     padding: 20px;
     background: rgba(4, 10, 18, 0.66);
     backdrop-filter: blur(6px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
 }
 
 .modal-backdrop[hidden] {
     display: none;
 }
 
+.modal-backdrop.is-visible,
+.modal-backdrop.is-closing {
+    opacity: 1;
+    pointer-events: auto;
+}
+
 .modal-dialog {
     width: min(100%, 760px);
     border-radius: 22px;
     position: relative;
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+    transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.modal-backdrop.is-visible .modal-dialog,
+.modal-backdrop.is-closing .modal-dialog {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.about-dialog {
+    width: min(100%, 560px);
+}
+
+.about-modal {
+    padding: 24px;
+    border: 1px solid rgba(140, 230, 255, 0.2);
+    background: linear-gradient(180deg, rgba(13, 24, 38, 0.98), rgba(8, 17, 27, 0.96));
+    box-shadow:
+        0 24px 46px rgba(1, 8, 18, 0.55),
+        0 0 28px rgba(110, 212, 191, 0.1);
+    color: var(--text-main);
+}
+
+.about-modal-heading {
+    padding-right: 52px;
+}
+
+.about-copy {
+    display: grid;
+    gap: 14px;
+    margin-top: 18px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(164, 192, 214, 0.12);
+    background: linear-gradient(180deg, rgba(18, 32, 49, 0.88), rgba(12, 24, 38, 0.96));
+    box-shadow: inset 0 1px 0 rgba(140, 230, 255, 0.04);
+}
+
+.about-copy p {
+    margin: 0;
+    line-height: 1.7;
+    color: var(--text-main);
 }
 
 .admin-modal {
@@ -710,6 +782,30 @@ select {
     cursor: pointer;
     font-size: 0.86rem;
     letter-spacing: 0.04em;
+}
+
+.about-modal .modal-close {
+    top: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid rgba(140, 230, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(111, 183, 210, 0.08);
+    color: var(--text-muted);
+    display: grid;
+    place-items: center;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.about-modal .modal-close:hover,
+.about-modal .modal-close:focus-visible {
+    color: var(--teal-strong);
+    border-color: rgba(140, 230, 255, 0.34);
+    background: rgba(110, 212, 191, 0.12);
+    box-shadow: 0 0 18px rgba(110, 212, 191, 0.12);
 }
 
 .modal-close:hover,
@@ -957,6 +1053,10 @@ select {
 
     .admin-modal {
         padding: 16px;
+    }
+
+    .about-modal {
+        padding: 18px;
     }
 
     .admin-controls-dialog.admin-modal {
