@@ -555,6 +555,45 @@ def set_custom_text_lock(
         conn.close()
 
 
+def stop_custom_text_override(
+    db_path: str = DB_PATH,
+    *,
+    is_admin: bool = False,
+    now: datetime | None = None,
+) -> dict:
+    current = _now_or_default(now)
+
+    conn = connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing_override = _load_override_from_conn(conn, current=current)
+        conn.execute(
+            "DELETE FROM meta WHERE key = ?",
+            (CUSTOM_TEXT_OVERRIDE_KEY,),
+        )
+        conn.commit()
+
+        updated_state = _build_custom_text_state(
+            conn,
+            current=current,
+            is_admin=is_admin,
+        )
+        if existing_override is not None and existing_override["active"]:
+            return {
+                **updated_state,
+                "stopped": True,
+                "message": "Custom text stopped.",
+            }
+
+        return {
+            **updated_state,
+            "stopped": False,
+            "message": "No active custom text.",
+        }
+    finally:
+        conn.close()
+
+
 def request_custom_text_override(
     text: Any,
     *,

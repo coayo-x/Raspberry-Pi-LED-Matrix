@@ -6,6 +6,7 @@
     data-skip-api-path="__SKIP_API__"
     data-switch-api-path="__SWITCH_API__"
     data-custom-text-api="__CUSTOM_TEXT_API__"
+    data-stop-custom-text-api="__STOP_CUSTOM_TEXT_API__"
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
@@ -263,7 +264,10 @@
                             <p class="control-note custom-text-note" id="custom-text-note">Ready to send a temporary matrix override.</p>
                         </div>
 
-                        <button class="public-button custom-text-submit" id="custom-text-submit-button" type="submit">Display Text</button>
+                        <div class="custom-text-actions">
+                            <button class="public-button custom-text-submit" id="custom-text-submit-button" type="submit">Display Text</button>
+                            <button class="public-button public-button-danger custom-text-stop-button" id="custom-text-stop-button" type="button" hidden>Stop Custom Text</button>
+                        </div>
                     </div>
 
                     <p class="action-message" id="custom-text-status" aria-live="polite">Ready to send a temporary matrix override.</p>

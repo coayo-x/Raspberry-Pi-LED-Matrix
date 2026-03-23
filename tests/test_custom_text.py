@@ -14,6 +14,7 @@ from custom_text import (
     normalize_custom_text_style,
     request_custom_text_override,
     set_custom_text_lock,
+    stop_custom_text_override,
 )
 
 
@@ -168,6 +169,58 @@ def test_custom_text_rate_limits_rapid_repeats(
     assert rejected["rate_limited"] is True
     assert rejected["retry_after_seconds"] == 2
     assert accepted_again["accepted"] is True
+
+
+def test_stop_custom_text_override_clears_active_override(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    started_at = datetime(2026, 3, 23, 12, 18, 0)
+    request_custom_text_override(
+        "Stop me now",
+        db_path=str(isolated_db_path),
+        now=started_at,
+    )
+
+    stopped = stop_custom_text_override(
+        db_path=str(isolated_db_path),
+        is_admin=True,
+        now=started_at + timedelta(seconds=2),
+    )
+
+    assert stopped["stopped"] is True
+    assert stopped["message"] == "Custom text stopped."
+    assert stopped["active_override"] is False
+    assert (
+        get_active_custom_text_override(
+            db_path=str(isolated_db_path),
+            now=started_at + timedelta(seconds=2),
+        )
+        is None
+    )
+    assert (
+        get_custom_text_interrupt_token(
+            db_path=str(isolated_db_path),
+            now=started_at + timedelta(seconds=2),
+        )
+        is None
+    )
+
+
+def test_stop_custom_text_override_is_safe_when_inactive(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+
+    stopped = stop_custom_text_override(
+        db_path=str(isolated_db_path),
+        is_admin=True,
+        now=datetime(2026, 3, 23, 12, 19, 0),
+    )
+
+    assert stopped["stopped"] is False
+    assert stopped["message"] == "No active custom text."
+    assert stopped["active_override"] is False
 
 
 def test_custom_text_rejects_missing_badwords_file(

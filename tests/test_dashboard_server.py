@@ -137,6 +137,7 @@ def test_dashboard_root_is_public_without_authentication(
     assert "Current matrix payload" in page
     assert 'id="admin-control-button"' in page
     assert 'id="custom-text-form"' in page
+    assert 'id="custom-text-stop-button"' in page
     assert 'id="custom-text-lock-banner"' in page
     assert "/api/current-display-state" in page
     assert "/api/custom-text" in page
@@ -643,6 +644,74 @@ def test_dashboard_custom_text_submission_updates_control_state(
         control_state["controls"]["custom_text"]["override_text"]
         == "Maintenance window at 3 PM"
     )
+
+
+def test_dashboard_custom_text_stop_requires_admin_and_clears_active_override(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "Stop now", "duration_minutes": 5, "style": {}},
+        )
+        unauthorized_status, unauthorized_body = _post_json_expect_error(
+            f"{base_url}/api/admin/custom-text/stop"
+        )
+        _login(base_url, opener)
+        stop_status, stop_body = _post_json(
+            f"{base_url}/api/admin/custom-text/stop",
+            opener=opener,
+        )
+        control_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert unauthorized_status == 401
+    assert unauthorized_body["configured"] is True
+    assert stop_status == 200
+    assert stop_body["stopped"] is True
+    assert stop_body["message"] == "Custom text stopped."
+    assert control_state["controls"]["custom_text"]["active_override"] is False
+
+
+def test_dashboard_custom_text_stop_is_safe_when_override_inactive(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        stop_status, stop_body = _post_json(
+            f"{base_url}/api/admin/custom-text/stop",
+            opener=opener,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert stop_status == 200
+    assert stop_body["stopped"] is False
+    assert stop_body["message"] == "No active custom text."
 
 
 def test_dashboard_custom_text_rejects_blocked_words(

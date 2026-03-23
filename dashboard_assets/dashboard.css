@@ -364,6 +364,17 @@ select {
     min-width: 80px;
 }
 
+.public-button-danger {
+    border-color: rgba(255, 176, 154, 0.24);
+    background: linear-gradient(180deg, rgba(255, 176, 154, 0.18), rgba(171, 61, 38, 0.14));
+    color: #ffe9e1;
+}
+
+.public-button-danger:hover:not(:disabled),
+.public-button-danger:focus-visible {
+    border-color: rgba(255, 176, 154, 0.42);
+}
+
 .public-button:disabled,
 .admin-button:disabled {
     cursor: not-allowed;
@@ -602,6 +613,19 @@ select {
 
 .custom-text-submit {
     min-width: 168px;
+    min-height: 46px;
+}
+
+.custom-text-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.custom-text-stop-button {
+    min-width: 180px;
     min-height: 46px;
 }
 
@@ -940,8 +964,14 @@ select {
     }
 
     .color-swatch,
-    .custom-text-submit {
+    .custom-text-submit,
+    .custom-text-stop-button {
         width: 100%;
+    }
+
+    .custom-text-actions {
+        display: grid;
+        grid-template-columns: 1fr;
     }
 
     .brightness-value {

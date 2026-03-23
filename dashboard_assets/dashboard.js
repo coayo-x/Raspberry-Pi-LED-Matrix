@@ -8,6 +8,9 @@ const switchApiPath =
     document.documentElement.dataset.switchApiPath || "/api/switch-category";
 const customTextApi =
     document.documentElement.dataset.customTextApi || "/api/custom-text";
+const stopCustomTextApi =
+    document.documentElement.dataset.stopCustomTextApi ||
+    "/api/admin/custom-text/stop";
 const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
@@ -88,6 +91,7 @@ const elements = {
     customTextLockBanner: document.getElementById("custom-text-lock-banner"),
     customTextNote: document.getElementById("custom-text-note"),
     customTextSubmitButton: document.getElementById("custom-text-submit-button"),
+    customTextStopButton: document.getElementById("custom-text-stop-button"),
     customTextStatus: document.getElementById("custom-text-status"),
     toolbarToggleButtons: Array.from(
         document.querySelectorAll("[data-toggle-style]"),
@@ -707,6 +711,7 @@ function applyCustomTextControlState(control) {
     const nextControl =
         control || createGuestControlPayload().controls.custom_text;
     const isPublicLocked = Boolean(nextControl.locked && !nextControl.admin_override);
+    const isAdmin = Boolean(latestControlPayload?.auth?.authenticated);
 
     if (elements.customTextLockBanner) {
         elements.customTextLockBanner.hidden = !nextControl.locked;
@@ -718,6 +723,12 @@ function applyCustomTextControlState(control) {
     }
     if (elements.customTextSubmitButton) {
         elements.customTextSubmitButton.textContent = "Display Text";
+    }
+    if (elements.customTextStopButton) {
+        elements.customTextStopButton.hidden = !isAdmin;
+        elements.customTextStopButton.disabled =
+            !isAdmin || !nextControl.active_override;
+        elements.customTextStopButton.textContent = "Stop Custom Text";
     }
     setCustomTextInputsEnabled(Boolean(nextControl.available));
 
@@ -859,6 +870,59 @@ async function submitCustomText(event) {
         setMessage(
             elements.customTextStatus,
             describeResultError(error, "Custom text request failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard().catch(() => null);
+        applyCustomTextControlState(latestControlPayload?.controls?.custom_text);
+    }
+}
+
+async function stopCustomText() {
+    const control = latestControlPayload?.controls?.custom_text;
+    if (!latestControlPayload?.auth?.authenticated) {
+        setMessage(
+            elements.customTextStatus,
+            "Dashboard authentication is required.",
+            "error",
+        );
+        openLoginModal();
+        return;
+    }
+
+    if (!control?.active_override) {
+        setMessage(elements.customTextStatus, "No active custom text.", "error");
+        applyCustomTextControlState(control);
+        return;
+    }
+
+    if (elements.customTextStopButton) {
+        elements.customTextStopButton.disabled = true;
+    }
+    setMessage(elements.customTextStatus, "Stopping custom text...", "pending");
+
+    try {
+        const result = await fetchJson(stopCustomTextApi, {
+            method: "POST",
+        });
+        setMessage(
+            elements.customTextStatus,
+            result.message || "Custom text stopped.",
+            result.stopped ? "success" : "error",
+        );
+    } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.customTextStatus,
+                "Stop request failed",
+            )
+        ) {
+            return;
+        }
+        setMessage(
+            elements.customTextStatus,
+            describeResultError(error, "Stop request failed"),
             "error",
         );
     } finally {
@@ -1339,6 +1403,10 @@ elements.colorButtons.forEach((button) => {
 
 if (elements.customTextForm) {
     elements.customTextForm.addEventListener("submit", submitCustomText);
+}
+
+if (elements.customTextStopButton) {
+    elements.customTextStopButton.addEventListener("click", stopCustomText);
 }
 
 if (elements.skipCategoryButton) {

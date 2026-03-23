@@ -19,6 +19,7 @@ from custom_text import (
     get_custom_text_control_state,
     request_custom_text_override,
     set_custom_text_lock,
+    stop_custom_text_override,
 )
 from current_display_state import load_current_display_state
 from runtime_control import (
@@ -42,6 +43,7 @@ CONTROL_STATE_API_PATH = "/api/control-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
 SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 CUSTOM_TEXT_API_PATH = "/api/custom-text"
+STOP_CUSTOM_TEXT_API_PATH = "/api/admin/custom-text/stop"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
@@ -462,6 +464,18 @@ def create_dashboard_server(
                 self._send_json(self._control_status_code(result), result)
                 return
 
+            if route == STOP_CUSTOM_TEXT_API_PATH:
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+
+                result = stop_custom_text_override(
+                    db_path=db_path,
+                    is_admin=admin_status["authenticated"],
+                )
+                self._send_json(HTTPStatus.OK, result)
+                return
+
             if route == ADMIN_LOGOUT_API_PATH:
                 if self._require_authenticated_api() is None:
                     return
@@ -814,6 +828,7 @@ def _render_html() -> bytes:
         "__SKIP_API__": SKIP_CATEGORY_API_PATH,
         "__SWITCH_API__": SWITCH_CATEGORY_API_PATH,
         "__CUSTOM_TEXT_API__": CUSTOM_TEXT_API_PATH,
+        "__STOP_CUSTOM_TEXT_API__": STOP_CUSTOM_TEXT_API_PATH,
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,
