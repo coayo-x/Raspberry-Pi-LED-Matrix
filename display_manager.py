@@ -1162,6 +1162,9 @@ class DisplayManager:
         background_fill = self._scale_custom_text_fill(
             self._custom_text_color(style.get("background_color"), DEFAULT_BG),
             style.get("background_brightness", style.get("brightness", 100)),
+        text_fill = self._custom_text_color(style.get("text_color"), TEXT_PRIMARY)
+        background_fill = self._custom_text_color(
+            style.get("background_color"), DEFAULT_BG
         )
         x_padding = 4
         max_width = max(1, self.width - (x_padding * 2))

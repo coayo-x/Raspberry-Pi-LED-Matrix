@@ -447,6 +447,7 @@ function getCustomTextLockBannerMessage(control) {
     }
 
     return getCustomTextLockMessage();
+    return "Custom Text is locked by admin.";
 }
 
 function buildControlNote(control) {

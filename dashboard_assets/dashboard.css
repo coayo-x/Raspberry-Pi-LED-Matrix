@@ -895,6 +895,7 @@ select {
     .custom-text-toolbar,
     .palette-grid,
     .brightness-grid {
+    .palette-grid {
         grid-template-columns: 1fr;
     }
 }
