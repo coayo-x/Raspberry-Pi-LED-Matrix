@@ -320,6 +320,9 @@ class DisplayManager:
     def _new_canvas(self) -> Image.Image:
         return Image.new("RGBA", (self.width, self.height), DEFAULT_BG)
 
+    def _new_overlay(self, width: int, height: int) -> Image.Image:
+        return Image.new("RGBA", (width, height), (0, 0, 0, 0))
+
     def _download_image(self, url: Optional[str]) -> Optional[Image.Image]:
         if not url:
             return None
@@ -333,11 +336,16 @@ class DisplayManager:
         return Image.open(io.BytesIO(data)).convert("RGBA")
 
     def _fit_image(
-        self, image: Image.Image, target_width: int, target_height: int
+        self,
+        image: Image.Image,
+        target_width: int,
+        target_height: int,
+        *,
+        background=DEFAULT_BG,
     ) -> Image.Image:
         working = image.copy().convert("RGBA")
         working.thumbnail((target_width, target_height), Image.LANCZOS)
-        canvas = Image.new("RGBA", (target_width, target_height), DEFAULT_BG)
+        canvas = Image.new("RGBA", (target_width, target_height), background)
         x = (target_width - working.width) // 2
         y = (target_height - working.height) // 2
         canvas.paste(working, (x, y), working)
@@ -591,49 +599,48 @@ class DisplayManager:
             self._draw_cloud(draw, x, y)
 
     def _render_pokemon_center_title(self, data: dict) -> Image.Image:
-        img = self._new_canvas()
+        img = self._new_overlay(self.panel_width, self.height)
         draw = ImageDraw.Draw(img)
-        title = "Today's Pokemon is:"
-        title_width = self._text_width(title, self.small_font)
-        title_x = max(2, (self.width - title_width) // 2)
-        title_y = 2
-        self._draw_line(
-            draw,
-            title_x,
-            title_y,
-            title,
-            fill=TEXT_ACCENT,
-            font=self.small_font,
-        )
+        title_lines = ["Today's", "Pokémon is:"]
+        title_block_height = len(title_lines) * self.small_line_height
+        title_gap = 1
+        name_area_height = max(1, self.height - title_block_height - title_gap)
 
         name_lines, name_font = self._fit_pokemon_name_lines(
             str(data.get("name", "Unknown")),
-            self.width - 12,
-            font_candidates=[
-                self.hero_font,
-                self.large_font,
-                self.medium_font,
-                self.font,
-            ],
+            self.panel_width - (PANEL_PADDING * 2),
+            font_candidates=[self.medium_font, self.font, self.small_font],
+            max_height_px=name_area_height,
         )
         name_line_height = self._get_line_height(name_font)
-        name_block_height = len(name_lines) * name_line_height
-        name_y = max(
-            title_y + self.small_line_height + 2,
-            ((self.height - name_block_height) // 2) + 2,
-        )
+        total_height = title_block_height + title_gap + (len(name_lines) * name_line_height)
+        y = max(0, (self.height - total_height) // 2)
+
+        for title_line in title_lines:
+            title_x = max(0, (self.panel_width - self._text_width(title_line, self.small_font)) // 2)
+            self._draw_line(
+                draw,
+                title_x,
+                y,
+                title_line,
+                fill=TEXT_ACCENT,
+                font=self.small_font,
+            )
+            y += self.small_line_height
+
+        y += title_gap
         for line in name_lines:
             line_width = self._text_width(line, name_font)
-            line_x = max(2, (self.width - line_width) // 2)
+            line_x = max(0, (self.panel_width - line_width) // 2)
             self._draw_line(
                 draw,
                 line_x,
-                name_y,
+                y,
                 line,
                 fill=POKEMON_NAME,
                 font=name_font,
             )
-            name_y += name_line_height
+            y += name_line_height
         return img
 
     def _pokemon_artwork(self, data: dict) -> Optional[Image.Image]:
@@ -651,17 +658,22 @@ class DisplayManager:
         *,
         font_candidates: Optional[list] = None,
         max_lines: int = 2,
+        max_height_px: Optional[int] = None,
     ):
         candidates = font_candidates or [self.medium_font, self.font]
         for candidate_font in candidates:
             lines = self._wrap_text(name, max_width_px, font=candidate_font)
-            if len(lines) <= max_lines:
+            line_height = self._get_line_height(candidate_font)
+            if len(lines) <= max_lines and (
+                max_height_px is None or (len(lines) * line_height) <= max_height_px
+            ):
                 return lines, candidate_font
 
         fallback_font = candidates[-1]
-        return [
-            self._truncate_to_width(name, max_width_px, font=fallback_font)
-        ], fallback_font
+        truncated = self._truncate_to_width(name, max_width_px, font=fallback_font)
+        if max_height_px is not None and self._get_line_height(fallback_font) > max_height_px:
+            return [""], fallback_font
+        return [truncated], fallback_font
 
     def _render_pokemon_stat_frame(
         self,
@@ -670,33 +682,37 @@ class DisplayManager:
         *,
         value_fill=TEXT_PRIMARY,
     ) -> Image.Image:
-        img = self._new_canvas()
+        img = self._new_overlay(self.panel_width, self.height)
         draw = ImageDraw.Draw(img)
-        label_text = self._truncate_to_width(label, self.width - 12, font=self.small_font)
-        label_x = max(2, (self.width - self._text_width(label_text, self.small_font)) // 2)
+        label_text = self._truncate_to_width(
+            label,
+            self.panel_width - (PANEL_PADDING * 2),
+            font=self.small_font,
+        )
+        label_height = self.small_line_height
+        value_gap = 2
+
+        value_lines, value_font = self._fit_pokemon_name_lines(
+            value,
+            self.panel_width - (PANEL_PADDING * 2),
+            font_candidates=[self.medium_font, self.font, self.small_font],
+            max_height_px=max(1, self.height - label_height - value_gap),
+        )
+        value_line_height = self._get_line_height(value_font)
+        total_height = label_height + value_gap + (len(value_lines) * value_line_height)
+        label_y = max(0, (self.height - total_height) // 2)
         self._draw_line(
             draw,
-            label_x,
-            3,
+            max(0, (self.panel_width - self._text_width(label_text, self.small_font)) // 2),
+            label_y,
             label_text,
             fill=POKEMON_STAT_LABEL,
             font=self.small_font,
         )
-
-        value_lines, value_font = self._fit_pokemon_name_lines(
-            value,
-            self.width - 12,
-            font_candidates=[self.large_font, self.medium_font, self.font],
-        )
-        value_line_height = self._get_line_height(value_font)
-        value_block_height = len(value_lines) * value_line_height
-        value_y = max(
-            11,
-            ((self.height - value_block_height) // 2) + 4,
-        )
+        value_y = label_y + label_height + value_gap
         for line in value_lines:
             line_width = self._text_width(line, value_font)
-            line_x = max(2, (self.width - line_width) // 2)
+            line_x = max(0, (self.panel_width - line_width) // 2)
             self._draw_line(
                 draw,
                 line_x,
@@ -709,16 +725,50 @@ class DisplayManager:
         return img
 
     def _render_pokemon_image_frame(self, data: dict) -> Image.Image:
-        img = self._new_canvas()
+        img = self._new_overlay(self.panel_width, self.height)
         art = self._pokemon_artwork(data)
         if art is None:
             return img
 
-        fitted_art = self._fit_image(art, self.width - 12, self.height - 4)
-        art_x = (self.width - fitted_art.width) // 2
+        fitted_art = self._fit_image(
+            art,
+            self.panel_width - 4,
+            self.height - 2,
+            background=(0, 0, 0, 0),
+        )
+        art_x = (self.panel_width - fitted_art.width) // 2
         art_y = (self.height - fitted_art.height) // 2
         img.paste(fitted_art, (art_x, art_y), fitted_art)
         return img
+
+    def _compose_pokemon_frame(
+        self,
+        *,
+        name_panel: Optional[Image.Image] = None,
+        stat_panel: Optional[Image.Image] = None,
+        image_panel: Optional[Image.Image] = None,
+    ) -> Image.Image:
+        img = self._new_canvas()
+        panels = (
+            (0, name_panel),
+            (self.panel_width, stat_panel),
+            (self.panel_width * 2, image_panel),
+        )
+        for x_offset, panel in panels:
+            if panel is not None:
+                img.paste(panel, (x_offset, 0), panel)
+        return img
+
+    def _scale_image_alpha(self, image: Image.Image, factor: float) -> Image.Image:
+        if factor <= 0:
+            return self._new_overlay(image.width, image.height)
+        if factor >= 1:
+            return image
+
+        faded = image.copy()
+        alpha = faded.getchannel("A").point(lambda value: int(value * factor))
+        faded.putalpha(alpha)
+        return faded
 
     def _pokemon_stat_frames(self, data: dict) -> list[Image.Image]:
         stat_entries = [
@@ -738,7 +788,12 @@ class DisplayManager:
         ]
 
     def _render_pokemon_base(self, data: dict) -> Image.Image:
-        return self._render_pokemon_image_frame(data)
+        stat_frames = self._pokemon_stat_frames(data)
+        return self._compose_pokemon_frame(
+            name_panel=self._render_pokemon_center_title(data),
+            stat_panel=stat_frames[0] if stat_frames else None,
+            image_panel=self._render_pokemon_image_frame(data),
+        )
 
     def render_weather(self, payload: dict) -> Image.Image:
         ticker = self._build_weather_ticker(payload["data"])
@@ -858,6 +913,39 @@ class DisplayManager:
                 return True
         return False
 
+    def _fade_pokemon_stat_panel(
+        self,
+        *,
+        name_panel: Image.Image,
+        stat_panel: Image.Image,
+        image_panel: Image.Image,
+        steps: int = 5,
+        fade_in: bool = True,
+        delay: float = 0.04,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+        end_time: Optional[float] = None,
+    ) -> bool:
+        factors = (
+            [i / steps for i in range(1, steps + 1)]
+            if fade_in
+            else [i / steps for i in range(steps - 1, -1, -1)]
+        )
+        for factor in factors:
+            if end_time is not None and time.time() >= end_time:
+                return False
+            frame = self._compose_pokemon_frame(
+                name_panel=name_panel,
+                stat_panel=self._scale_image_alpha(stat_panel, factor),
+                image_panel=image_panel,
+            )
+            self._show_frame(frame)
+            sleep_for = delay
+            if end_time is not None:
+                sleep_for = min(delay, max(0.0, end_time - time.time()))
+            if sleep_for > 0 and self._sleep_with_interrupt(sleep_for, should_interrupt):
+                return True
+        return False
+
     def _animate_pokemon(
         self,
         payload: dict,
@@ -874,7 +962,14 @@ class DisplayManager:
             start_time + min(1.2, max(0.35, total_duration * 0.18)),
         )
 
-        intro = self._render_pokemon_center_title(data)
+        name_panel = self._render_pokemon_center_title(data)
+        image_panel = self._render_pokemon_image_frame(data)
+        stat_frames = self._pokemon_stat_frames(data)
+        intro = self._compose_pokemon_frame(
+            name_panel=name_panel,
+            stat_panel=stat_frames[0] if stat_frames else None,
+            image_panel=image_panel,
+        )
         if self._transition_to(
             intro,
             preview_name=f"{safe_slot}_pokemon_intro.png",
@@ -889,18 +984,24 @@ class DisplayManager:
         if time.time() >= end_time or self._is_interrupted(should_interrupt):
             return self._is_interrupted(should_interrupt)
 
-        image_frame = self._render_pokemon_image_frame(data)
-        stat_frames = self._pokemon_stat_frames(data)
         remaining_after_intro = max(0.0, end_time - time.time())
         stats_end_time = time.time() + (remaining_after_intro * 0.65)
         stat_index = 0
+        final_frame = intro
         while stat_frames and time.time() < stats_end_time:
             if self._is_interrupted(should_interrupt):
                 return True
 
-            frame = stat_frames[stat_index % len(stat_frames)]
-            if self._fade_sequence(
-                frame,
+            stat_panel = stat_frames[stat_index % len(stat_frames)]
+            final_frame = self._compose_pokemon_frame(
+                name_panel=name_panel,
+                stat_panel=stat_panel,
+                image_panel=image_panel,
+            )
+            if self._fade_pokemon_stat_panel(
+                name_panel=name_panel,
+                stat_panel=stat_panel,
+                image_panel=image_panel,
                 steps=5,
                 fade_in=True,
                 delay=0.04,
@@ -913,8 +1014,10 @@ class DisplayManager:
             if hold_time > 0 and self._sleep_with_interrupt(hold_time, should_interrupt):
                 return True
 
-            if self._fade_sequence(
-                frame,
+            if self._fade_pokemon_stat_panel(
+                name_panel=name_panel,
+                stat_panel=stat_panel,
+                image_panel=image_panel,
                 steps=5,
                 fade_in=False,
                 delay=0.04,
@@ -927,14 +1030,7 @@ class DisplayManager:
         if time.time() >= end_time:
             return False
 
-        if self._transition_to(
-            image_frame,
-            preview_name=f"{safe_slot}_pokemon_image.png",
-            steps=6,
-            delay=0.03,
-            should_interrupt=should_interrupt,
-        ):
-            return True
+        self._show_frame(final_frame, preview_name=f"{safe_slot}_pokemon_image.png")
 
         remaining = max(0.0, end_time - time.time())
         if remaining > 0:
