@@ -458,6 +458,10 @@ function getCustomTextLockBannerMessage(control) {
 }
 
 function buildControlNote(control, customTextControl) {
+    return "Custom Text is locked by admin.";
+}
+
+function buildControlNote(control) {
     if (!control) {
         return "Control state unavailable.";
     }
@@ -589,6 +593,7 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
 }
 
 function applyPublicControlState(control, button, noteElement, customTextControl) {
+function applyPublicControlState(control, button, noteElement) {
     if (!control || !button || !noteElement) {
         return;
     }
@@ -596,6 +601,8 @@ function applyPublicControlState(control, button, noteElement, customTextControl
     noteElement.textContent = buildControlNote(control, customTextControl);
     button.disabled =
         !control.available || isBlockedByActiveCustomText(customTextControl);
+    noteElement.textContent = buildControlNote(control);
+    button.disabled = !control.available;
 }
 
 function applyAdminLockState(control, button, labelElement) {
