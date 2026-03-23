@@ -3,8 +3,11 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
+from uuid import uuid4
 
 import admin_auth
+import custom_text
 from current_display_state import save_current_display_state
 from dashboard_server import create_dashboard_server
 from runtime_control import (
@@ -102,6 +105,17 @@ def _login(
     )
 
 
+def _install_bad_words(
+    monkeypatch,
+    base_dir: Path,
+    contents: str = "obscene\nblocked phrase\n",
+) -> Path:
+    path = base_dir / f"badwords-{uuid4().hex}.txt"
+    path.write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(custom_text, "BAD_WORDS_PATH", path)
+    return path
+
+
 def test_dashboard_root_is_public_without_authentication(
     monkeypatch, isolated_db_path
 ) -> None:
@@ -122,7 +136,9 @@ def test_dashboard_root_is_public_without_authentication(
 
     assert "Current matrix payload" in page
     assert 'id="admin-control-button"' in page
+    assert 'id="custom-text-form"' in page
     assert "/api/current-display-state" in page
+    assert "/api/custom-text" in page
     assert "Restricted Access" not in page
 
 
@@ -162,6 +178,7 @@ def test_dashboard_safe_default_keeps_public_routes_available_when_credentials_m
     assert control_body["auth"]["authenticated"] is False
     assert control_body["controls"]["skip_category"]["locked"] is False
     assert control_body["controls"]["switch_category"]["locked"] is False
+    assert control_body["controls"]["custom_text"]["locked"] is False
     assert skip_status == 200
     assert skip_body["accepted"] is True
     assert switch_status == 200
@@ -205,6 +222,7 @@ def test_dashboard_public_controls_work_without_authentication_and_admin_endpoin
     assert control_body["auth"]["authenticated"] is False
     assert control_body["controls"]["skip_category"]["locked"] is False
     assert control_body["controls"]["switch_category"]["locked"] is False
+    assert control_body["controls"]["custom_text"]["locked"] is False
     assert skip_status == 200
     assert skip_body["accepted"] is True
     assert switch_status == 200
@@ -572,3 +590,167 @@ def test_dashboard_control_state_reflects_public_lock_after_login(
     assert state["controls"]["skip_category"]["locked"] is False
     assert state["controls"]["switch_category"]["locked"] is True
     assert state["controls"]["switch_category"]["admin_override"] is True
+    assert state["controls"]["custom_text"]["locked"] is False
+
+
+def test_dashboard_custom_text_submission_updates_control_state(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json(
+            f"{base_url}/api/custom-text",
+            {
+                "text": "Maintenance window at 3 PM",
+                "duration_minutes": 5,
+                "style": {
+                    "bold": True,
+                    "italic": False,
+                    "underline": True,
+                    "font_family": "mono",
+                    "font_size": 18,
+                    "text_color": "orange",
+                    "background_color": "black",
+                    "alignment": "center",
+                },
+            },
+        )
+        control_state = _fetch_json(f"{base_url}/api/control-state")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 200
+    assert body["accepted"] is True
+    assert body["override"]["duration_minutes"] == 5
+    assert body["override"]["style"]["text_color"] == "orange"
+    assert control_state["controls"]["custom_text"]["active_override"] is True
+    assert (
+        control_state["controls"]["custom_text"]["override_text"]
+        == "Maintenance window at 3 PM"
+    )
+
+
+def test_dashboard_custom_text_rejects_blocked_words(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json_expect_error(
+            f"{base_url}/api/custom-text",
+            {
+                "text": "This obscene message is blocked.",
+                "duration_minutes": 5,
+                "style": {},
+            },
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 400
+    assert body["error"] == "Custom text contains blocked words and was rejected."
+
+
+def test_dashboard_custom_text_rate_limits_rapid_repeats(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        first_status, first_body = _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "First request", "duration_minutes": 5, "style": {}},
+        )
+        second_status, second_body = _post_json_expect_error(
+            f"{base_url}/api/custom-text",
+            {"text": "Second request", "duration_minutes": 5, "style": {}},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert first_status == 200
+    assert first_body["accepted"] is True
+    assert second_status == 429
+    assert second_body["rate_limited"] is True
+    assert 1 <= second_body["retry_after_seconds"] <= 3
+
+
+def test_dashboard_custom_text_lock_requires_admin_and_allows_admin_override(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        unauthorized_status, unauthorized_body = _post_json_expect_error(
+            f"{base_url}/api/lock-custom-text"
+        )
+        _login(base_url, opener)
+        lock_status, lock_body = _post_json(
+            f"{base_url}/api/lock-custom-text",
+            opener=opener,
+        )
+        public_status, public_body = _post_json_expect_error(
+            f"{base_url}/api/custom-text",
+            {"text": "Public request", "duration_minutes": 5, "style": {}},
+        )
+        admin_status, admin_body = _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "Admin request", "duration_minutes": 5, "style": {}},
+            opener=opener,
+        )
+        unlock_status, unlock_body = _post_json(
+            f"{base_url}/api/unlock-custom-text",
+            opener=opener,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert unauthorized_status == 401
+    assert unauthorized_body["configured"] is True
+    assert lock_status == 200
+    assert lock_body["control"]["locked"] is True
+    assert public_status == 423
+    assert public_body["locked"] is True
+    assert admin_status == 200
+    assert admin_body["accepted"] is True
+    assert admin_body["admin_override"] is True
+    assert unlock_status == 200
+    assert unlock_body["control"]["locked"] is False

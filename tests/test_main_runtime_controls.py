@@ -125,3 +125,44 @@ def test_run_once_uses_short_duration_for_single_render(monkeypatch) -> None:
     assert captured["payload"] == payload
     assert captured["duration_seconds"] == 1
     assert captured["should_interrupt"] is None
+
+
+def test_build_content_for_now_prioritizes_active_custom_text_override(
+    monkeypatch,
+) -> None:
+    now = real_datetime(2026, 3, 23, 12, 0, 0)
+    override = {
+        "request_id": "override-1",
+        "text": "Temporary maintenance notice",
+        "style": {
+            "bold": True,
+            "italic": False,
+            "underline": False,
+            "font_family": "sans",
+            "font_size": 16,
+            "text_color": "white",
+            "background_color": "black",
+            "alignment": "center",
+        },
+        "duration_seconds": 300,
+        "duration_minutes": 5,
+        "started_at": "2026-03-23T12:00:00",
+        "expires_at": "2026-03-23T12:05:00",
+        "remaining_seconds": 300,
+        "text_color_hex": "#f5f7fa",
+        "background_color_hex": "#000000",
+    }
+
+    monkeypatch.setattr(main, "get_active_custom_text_override", lambda now=None: override)
+    monkeypatch.setattr(main, "get_current_slot_key", lambda now=None: "2026-03-23:144")
+    monkeypatch.setattr(
+        main,
+        "get_current_category",
+        lambda now=None: pytest.fail("rotation category should not be requested"),
+    )
+
+    payload = main.build_content_for_now(now=now)
+
+    assert payload["category"] == "custom_text"
+    assert payload["data"]["text"] == "Temporary maintenance notice"
+    assert payload["data"]["duration_minutes"] == 5

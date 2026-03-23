@@ -15,6 +15,11 @@ from config import (
     DASHBOARD_PORT,
     DB_PATH,
 )
+from custom_text import (
+    get_custom_text_control_state,
+    request_custom_text_override,
+    set_custom_text_lock,
+)
 from current_display_state import load_current_display_state
 from runtime_control import (
     get_runtime_control_state,
@@ -36,6 +41,7 @@ API_PATH = "/api/current-display-state"
 CONTROL_STATE_API_PATH = "/api/control-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
 SWITCH_CATEGORY_API_PATH = "/api/switch-category"
+CUSTOM_TEXT_API_PATH = "/api/custom-text"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
@@ -43,6 +49,8 @@ LOCK_SKIP_API_PATH = "/api/lock-skip"
 UNLOCK_SKIP_API_PATH = "/api/unlock-skip"
 LOCK_SWITCH_API_PATH = "/api/lock-switch"
 UNLOCK_SWITCH_API_PATH = "/api/unlock-switch"
+LOCK_CUSTOM_TEXT_API_PATH = "/api/lock-custom-text"
+UNLOCK_CUSTOM_TEXT_API_PATH = "/api/unlock-custom-text"
 LOCK_CONTROLS_API_PATH = "/api/lock-controls"
 UNLOCK_CONTROLS_API_PATH = "/api/unlock-controls"
 
@@ -430,6 +438,30 @@ def create_dashboard_server(
                 self._send_json(self._control_status_code(result), result)
                 return
 
+            if route == CUSTOM_TEXT_API_PATH:
+                admin_status = self._get_admin_status()
+                try:
+                    payload = self._read_json_body()
+                    text = self._require_text_field(payload, "text")
+                    duration_minutes = payload.get("duration_minutes")
+                    style = payload.get("style") or {}
+                    if not isinstance(style, dict):
+                        raise ValueError("'style' must be an object.")
+
+                    result = request_custom_text_override(
+                        text=text,
+                        duration_minutes=duration_minutes,
+                        style=style,
+                        db_path=db_path,
+                        is_admin=admin_status["authenticated"],
+                    )
+                except ValueError as error:
+                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+
+                self._send_json(self._control_status_code(result), result)
+                return
+
             if route == ADMIN_LOGOUT_API_PATH:
                 if self._require_authenticated_api() is None:
                     return
@@ -513,6 +545,32 @@ def create_dashboard_server(
                 )
                 return
 
+            if route == LOCK_CUSTOM_TEXT_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_custom_text_lock(True, db_path=db_path),
+                    },
+                )
+                return
+
+            if route == UNLOCK_CUSTOM_TEXT_API_PATH:
+                if self._require_authenticated_api() is None:
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "updated": True,
+                        "control": set_custom_text_lock(False, db_path=db_path),
+                    },
+                )
+                return
+
             if route == LOCK_CONTROLS_API_PATH:
                 if self._require_authenticated_api() is None:
                     return
@@ -559,7 +617,10 @@ def create_dashboard_server(
                     payload = self._read_json_body()
                     action = self._require_text_field(payload, "action")
                     locked = self._require_bool_field(payload, "locked")
-                    control_state = set_control_lock(action, locked, db_path=db_path)
+                    if action == "custom_text":
+                        control_state = set_custom_text_lock(locked, db_path=db_path)
+                    else:
+                        control_state = set_control_lock(action, locked, db_path=db_path)
                 except ValueError as error:
                     self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
                     return
@@ -719,12 +780,17 @@ def create_dashboard_server(
 
         def _build_control_state_payload(self, admin_status: dict | None = None) -> dict:
             auth_state = admin_status or self._get_admin_status()
+            controls = get_runtime_control_state(
+                db_path=db_path,
+                is_admin=auth_state["authenticated"],
+            )
+            controls["custom_text"] = get_custom_text_control_state(
+                db_path=db_path,
+                is_admin=auth_state["authenticated"],
+            )
             return {
                 "auth": auth_state,
-                "controls": get_runtime_control_state(
-                    db_path=db_path,
-                    is_admin=auth_state["authenticated"],
-                ),
+                "controls": controls,
             }
 
         def _control_status_code(self, result: dict) -> HTTPStatus:
@@ -747,6 +813,7 @@ def _render_html() -> bytes:
         "__CONTROL_STATE_API__": CONTROL_STATE_API_PATH,
         "__SKIP_API__": SKIP_CATEGORY_API_PATH,
         "__SWITCH_API__": SWITCH_CATEGORY_API_PATH,
+        "__CUSTOM_TEXT_API__": CUSTOM_TEXT_API_PATH,
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,
@@ -754,6 +821,8 @@ def _render_html() -> bytes:
         "__UNLOCK_SKIP_API__": UNLOCK_SKIP_API_PATH,
         "__LOCK_SWITCH_API__": LOCK_SWITCH_API_PATH,
         "__UNLOCK_SWITCH_API__": UNLOCK_SWITCH_API_PATH,
+        "__LOCK_CUSTOM_TEXT_API__": LOCK_CUSTOM_TEXT_API_PATH,
+        "__UNLOCK_CUSTOM_TEXT_API__": UNLOCK_CUSTOM_TEXT_API_PATH,
         "__LOCK_CONTROLS_API__": LOCK_CONTROLS_API_PATH,
         "__UNLOCK_CONTROLS_API__": UNLOCK_CONTROLS_API_PATH,
     }

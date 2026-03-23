@@ -88,3 +88,34 @@ def test_save_and_load_current_display_state_uses_isolated_database(
     assert state["setup"] == "Why did the byte cross the bus?"
     assert state["punchline"] == "To get to the other side of memory."
     assert state["data"]["type"] == "twopart"
+
+
+def test_normalize_current_display_state_maps_custom_text_style_summary() -> None:
+    custom_text_state = normalize_current_display_state(
+        {
+            "time": "2026-03-23 12:00:00",
+            "slot_key": "2026-03-23:144",
+            "category": "custom_text",
+            "data": {
+                "text": "Maintenance window at 3 PM",
+                "duration_minutes": 5,
+                "style": {
+                    "bold": True,
+                    "italic": False,
+                    "underline": True,
+                    "font_family": "mono",
+                    "font_size": 18,
+                    "text_color": "orange",
+                    "background_color": "black",
+                    "alignment": "center",
+                },
+            },
+        },
+        updated_at="2026-03-23T12:00:01",
+    )
+
+    assert custom_text_state["setup"] == "Maintenance window at 3 PM"
+    assert (
+        custom_text_state["punchline"]
+        == "mono 18px | Center | Bold/Underline | orange on black | 5m"
+    )
