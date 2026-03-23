@@ -1,6 +1,7 @@
 import io
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -34,6 +35,10 @@ PANEL_DIVIDER = (28, 56, 80, 255)
 WEATHER_TEMP_COLD = (146, 214, 255, 255)
 WEATHER_TEMP_WARM = (255, 208, 126, 255)
 WEATHER_TICKER = (224, 232, 240, 255)
+WEATHER_CONDITION_SUNNY = (255, 219, 112, 255)
+WEATHER_CONDITION_CLOUDY = (168, 176, 186, 255)
+WEATHER_CONDITION_RAIN = (118, 186, 255, 255)
+WEATHER_DIVIDER_GLOW = (124, 214, 255, 255)
 JOKE_LABEL = TEXT_HIGHLIGHT
 JOKE_DELIVERY = (135, 230, 202, 255)
 POKEMON_NAME = (255, 224, 134, 255)
@@ -72,10 +77,12 @@ class DisplayManager:
         self.small_font = self._load_font(size=8)
         self.medium_font = self._load_font(size=10, bold=True)
         self.large_font = self._load_font(size=12, bold=True)
+        self.hero_font = self._load_font(size=14, bold=True)
         self.line_height = self._get_line_height(self.font)
         self.small_line_height = self._get_line_height(self.small_font)
         self.medium_line_height = self._get_line_height(self.medium_font)
         self.large_line_height = self._get_line_height(self.large_font)
+        self.hero_line_height = self._get_line_height(self.hero_font)
         self.panel_width = max(1, self.width // PANEL_CHAIN_LENGTH)
 
         self.matrix = None
@@ -363,6 +370,16 @@ class DisplayManager:
             draw.text((cursor_x, y), text, font=active_font, fill=fill)
             cursor_x += self._text_width(text, active_font)
 
+    def _segments_width(
+        self,
+        segments: list[tuple[str, tuple[int, int, int, int]]],
+        font=None,
+    ) -> int:
+        active_font = font or self.font
+        return sum(
+            self._text_width(text, active_font) for text, _ in segments if text
+        )
+
     def _panel_bounds(self, index: int) -> tuple[int, int]:
         x0 = index * self.panel_width
         if index >= PANEL_CHAIN_LENGTH - 1:
@@ -425,6 +442,27 @@ class DisplayManager:
 
         while x < self.width:
             self._draw_line(draw, x, y, text, fill=fill, font=active_font)
+            x += loop_width
+
+    def _draw_repeating_ticker_segments(
+        self,
+        draw: ImageDraw.ImageDraw,
+        segments: list[tuple[str, tuple[int, int, int, int]]],
+        *,
+        y: int,
+        offset_px: int,
+        font=None,
+        x_start: int = 0,
+    ) -> None:
+        active_font = font or self.font
+        loop_width = max(1, self._segments_width(segments, active_font))
+        offset = offset_px % loop_width
+        x = x_start - offset
+        while x + loop_width < x_start:
+            x += loop_width
+
+        while x < self.width:
+            self._draw_text_segments(draw, x, y, segments, font=active_font)
             x += loop_width
 
     def render_scrolling_text(
@@ -555,29 +593,46 @@ class DisplayManager:
     def _render_pokemon_center_title(self, data: dict) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        title = "Today's Pokemon is"
-        title_width = self._text_width(title, self.medium_font)
+        title = "Today's Pokemon is:"
+        title_width = self._text_width(title, self.small_font)
         title_x = max(2, (self.width - title_width) // 2)
-        title_y = max(2, (self.height // 2) - self.large_line_height)
+        title_y = 2
         self._draw_line(
             draw,
             title_x,
             title_y,
             title,
             fill=TEXT_ACCENT,
-            font=self.medium_font,
+            font=self.small_font,
         )
 
         name_lines, name_font = self._fit_pokemon_name_lines(
             str(data.get("name", "Unknown")),
             self.width - 12,
+            font_candidates=[
+                self.hero_font,
+                self.large_font,
+                self.medium_font,
+                self.font,
+            ],
         )
-        name_y = title_y + self.medium_line_height + 3
         name_line_height = self._get_line_height(name_font)
+        name_block_height = len(name_lines) * name_line_height
+        name_y = max(
+            title_y + self.small_line_height + 2,
+            ((self.height - name_block_height) // 2) + 2,
+        )
         for line in name_lines:
             line_width = self._text_width(line, name_font)
             line_x = max(2, (self.width - line_width) // 2)
-            self._draw_line(draw, line_x, name_y, line, fill=POKEMON_NAME, font=name_font)
+            self._draw_line(
+                draw,
+                line_x,
+                name_y,
+                line,
+                fill=POKEMON_NAME,
+                font=name_font,
+            )
             name_y += name_line_height
         return img
 
@@ -589,152 +644,105 @@ class DisplayManager:
             art = None
         return art
 
-    def _fit_pokemon_name_lines(self, name: str, max_width_px: int):
-        lines = self._wrap_text(name, max_width_px, font=self.medium_font)
-        if len(lines) <= 2:
-            return lines, self.medium_font
+    def _fit_pokemon_name_lines(
+        self,
+        name: str,
+        max_width_px: int,
+        *,
+        font_candidates: Optional[list] = None,
+        max_lines: int = 2,
+    ):
+        candidates = font_candidates or [self.medium_font, self.font]
+        for candidate_font in candidates:
+            lines = self._wrap_text(name, max_width_px, font=candidate_font)
+            if len(lines) <= max_lines:
+                return lines, candidate_font
 
-        lines = self._wrap_text(name, max_width_px, font=self.font)
-        if len(lines) <= 2:
-            return lines, self.font
+        fallback_font = candidates[-1]
+        return [
+            self._truncate_to_width(name, max_width_px, font=fallback_font)
+        ], fallback_font
 
-        return [self._truncate_to_width(name, max_width_px, font=self.font)], self.font
-
-    def _render_pokemon_showcase(self, data: dict) -> Image.Image:
+    def _render_pokemon_stat_frame(
+        self,
+        label: str,
+        value: str,
+        *,
+        value_fill=TEXT_PRIMARY,
+    ) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_panel_backgrounds(draw)
-
-        left_x0, left_x1 = self._panel_bounds(0)
-        middle_x0, middle_x1 = self._panel_bounds(1)
-        right_x0, right_x1 = self._panel_bounds(2)
-
-        left_width = left_x1 - left_x0 + 1
-        middle_width = middle_x1 - middle_x0 + 1
-        right_width = right_x1 - right_x0 + 1
-
-        title_lines = self._wrap_text(
-            "Today's Pokemon is:",
-            left_width - (PANEL_PADDING * 2),
-            font=self.small_font,
-        )
-        name_lines, name_font = self._fit_pokemon_name_lines(
-            str(data.get("name", "Unknown")),
-            left_width - (PANEL_PADDING * 2),
-        )
-        name_line_height = self._get_line_height(name_font)
-        title_block_height = len(title_lines) * self.small_line_height
-        name_block_height = len(name_lines) * name_line_height
-        content_y = max(
-            2,
-            (self.height - (title_block_height + name_block_height + 2)) // 2,
-        )
-        for line in title_lines:
-            line_width = self._text_width(line, self.small_font)
-            line_x = left_x0 + max(PANEL_PADDING, (left_width - line_width) // 2)
-            self._draw_line(
-                draw,
-                line_x,
-                content_y,
-                line,
-                fill=TEXT_ACCENT,
-                font=self.small_font,
-            )
-            content_y += self.small_line_height
-
-        content_y += 2
-        for line in name_lines:
-            line_width = self._text_width(line, name_font)
-            line_x = left_x0 + max(PANEL_PADDING, (left_width - line_width) // 2)
-            self._draw_line(
-                draw,
-                line_x,
-                content_y,
-                line,
-                fill=POKEMON_NAME,
-                font=name_font,
-            )
-            content_y += name_line_height
-
-        types_text = "/".join(
-            str(value) for value in data.get("types", []) if value
-        ) or "Unknown"
-        types_line = self._truncate_to_width(
-            types_text,
-            middle_width - (PANEL_PADDING * 2),
-            font=self.small_font,
-        )
+        label_text = self._truncate_to_width(label, self.width - 12, font=self.small_font)
+        label_x = max(2, (self.width - self._text_width(label_text, self.small_font)) // 2)
         self._draw_line(
             draw,
-            middle_x0 + PANEL_PADDING,
-            4,
-            types_line,
-            fill=POKEMON_DETAIL,
-            font=self.small_font,
-        )
-        self._draw_text_segments(
-            draw,
-            middle_x0 + PANEL_PADDING,
-            12,
-            [
-                ("HP ", POKEMON_STAT_LABEL),
-                (str(data.get("hp", "--")), TEXT_PRIMARY),
-                ("  ATK ", POKEMON_STAT_LABEL),
-                (str(data.get("attack", "--")), TEXT_PRIMARY),
-            ],
-            font=self.small_font,
-        )
-        self._draw_text_segments(
-            draw,
-            middle_x0 + PANEL_PADDING,
-            20,
-            [
-                ("DEF ", POKEMON_STAT_LABEL),
-                (str(data.get("defense", "--")), TEXT_PRIMARY),
-            ],
-            font=self.small_font,
-        )
-        self._draw_text_segments(
-            draw,
-            middle_x0 + PANEL_PADDING,
-            27,
-            [
-                ("HT ", POKEMON_STAT_LABEL),
-                (str(data.get("height", "--")), TEXT_PRIMARY),
-                ("  WT ", POKEMON_STAT_LABEL),
-                (str(data.get("weight", "--")), TEXT_PRIMARY),
-            ],
+            label_x,
+            3,
+            label_text,
+            fill=POKEMON_STAT_LABEL,
             font=self.small_font,
         )
 
-        art_frame = (right_x0 + 3, 2, right_x1 - 3, self.height - 3)
-        draw.rectangle(art_frame, outline=POKEMON_ART_FRAME)
-        art = self._pokemon_artwork(data)
-        if art is not None:
-            art = self._fit_image(art, right_width - 8, self.height - 8)
-            art_x = right_x0 + ((right_width - art.width) // 2)
-            art_y = (self.height - art.height) // 2
-            img.paste(art, (art_x, art_y), art)
-        else:
-            no_img = "NO IMG"
-            no_img_width = self._text_width(no_img, self.small_font)
+        value_lines, value_font = self._fit_pokemon_name_lines(
+            value,
+            self.width - 12,
+            font_candidates=[self.large_font, self.medium_font, self.font],
+        )
+        value_line_height = self._get_line_height(value_font)
+        value_block_height = len(value_lines) * value_line_height
+        value_y = max(
+            11,
+            ((self.height - value_block_height) // 2) + 4,
+        )
+        for line in value_lines:
+            line_width = self._text_width(line, value_font)
+            line_x = max(2, (self.width - line_width) // 2)
             self._draw_line(
                 draw,
-                right_x0 + max(PANEL_PADDING, (right_width - no_img_width) // 2),
-                (self.height - self.small_line_height) // 2,
-                no_img,
-                fill=TEXT_SECONDARY,
-                font=self.small_font,
+                line_x,
+                value_y,
+                line,
+                fill=value_fill,
+                font=value_font,
             )
-
+            value_y += value_line_height
         return img
 
+    def _render_pokemon_image_frame(self, data: dict) -> Image.Image:
+        img = self._new_canvas()
+        art = self._pokemon_artwork(data)
+        if art is None:
+            return img
+
+        fitted_art = self._fit_image(art, self.width - 12, self.height - 4)
+        art_x = (self.width - fitted_art.width) // 2
+        art_y = (self.height - fitted_art.height) // 2
+        img.paste(fitted_art, (art_x, art_y), fitted_art)
+        return img
+
+    def _pokemon_stat_frames(self, data: dict) -> list[Image.Image]:
+        stat_entries = [
+            (
+                "Type",
+                " / ".join(str(value) for value in data.get("types", []) if value)
+                or "Unknown",
+                POKEMON_NAME,
+            ),
+            ("HP", str(data.get("hp", "--")), TEXT_PRIMARY),
+            ("Attack", str(data.get("attack", "--")), TEXT_PRIMARY),
+            ("Defense", str(data.get("defense", "--")), TEXT_PRIMARY),
+        ]
+        return [
+            self._render_pokemon_stat_frame(label, value, value_fill=fill)
+            for label, value, fill in stat_entries
+        ]
+
     def _render_pokemon_base(self, data: dict) -> Image.Image:
-        return self._render_pokemon_showcase(data)
+        return self._render_pokemon_image_frame(data)
 
     def render_weather(self, payload: dict) -> Image.Image:
         ticker = self._build_weather_ticker(payload["data"])
-        return self._weather_ticker_frame(payload["data"], ticker, offset_px=0)
+        return self._weather_ticker_frame(payload, ticker, offset_px=0)
 
     def _render_joke_page(
         self,
@@ -746,21 +754,7 @@ class DisplayManager:
     ) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        label_x = 6
-        label_y = 2
-        self._draw_line(draw, label_x, label_y, label, fill=label_fill, font=self.small_font)
-        label_width = self._text_width(label, self.small_font)
-        draw.line(
-            (label_x + label_width + 5, label_y + 4, self.width - 6, label_y + 4),
-            fill=PANEL_DIVIDER,
-        )
-
-        top_y = 11
-        total_height = len(lines) * self.medium_line_height
-        body_y = max(top_y, top_y + max(0, (self.height - top_y - total_height) // 2))
-        for line in lines:
-            self._draw_line(draw, 6, body_y, line, fill=fill, font=self.medium_font)
-            body_y += self.medium_line_height
+        self._draw_text_centered(draw, lines, fill=fill, font=self.medium_font)
         return img
 
     def _paginate_lines(self, lines: list[str], max_lines: int = 3) -> list[list[str]]:
@@ -845,6 +839,7 @@ class DisplayManager:
         fade_in: bool = True,
         delay: float = 0.05,
         should_interrupt: Optional[Callable[[], bool]] = None,
+        end_time: Optional[float] = None,
     ) -> bool:
         factors = (
             [i / steps for i in range(1, steps + 1)]
@@ -852,9 +847,14 @@ class DisplayManager:
             else [i / steps for i in range(steps - 1, -1, -1)]
         )
         for factor in factors:
+            if end_time is not None and time.time() >= end_time:
+                return False
             frame = Image.blend(self._new_canvas(), image, factor)
             self._show_frame(frame)
-            if self._sleep_with_interrupt(delay, should_interrupt):
+            sleep_for = delay
+            if end_time is not None:
+                sleep_for = min(delay, max(0.0, end_time - time.time()))
+            if sleep_for > 0 and self._sleep_with_interrupt(sleep_for, should_interrupt):
                 return True
         return False
 
@@ -872,30 +872,74 @@ class DisplayManager:
         if self._transition_to(
             intro,
             preview_name=f"{safe_slot}_pokemon_intro.png",
-            steps=8,
-            delay=0.04,
+            steps=6,
+            delay=0.03,
             should_interrupt=should_interrupt,
         ):
             return True
-        intro_hold = min(2.5, max(0.0, end_time - time.time() - 0.3))
+        intro_hold = min(1.8, max(0.0, end_time - time.time() - 0.4))
         if intro_hold > 0 and self._sleep_with_interrupt(intro_hold, should_interrupt):
             return True
         if time.time() >= end_time or self._is_interrupted(should_interrupt):
             return self._is_interrupted(should_interrupt)
 
-        showcase = self._render_pokemon_showcase(data)
+        image_frame = self._render_pokemon_image_frame(data)
+        stat_frames = self._pokemon_stat_frames(data)
+
+        remaining = max(0.0, end_time - time.time())
+        image_hold = 0.0
+        if remaining > 0.9:
+            image_hold = min(2.0, max(0.8, remaining * 0.25))
+            image_hold = min(image_hold, max(0.0, remaining - 0.6))
+
+        stats_end_time = end_time - image_hold
+        stat_index = 0
+        while stat_frames and time.time() < stats_end_time:
+            if self._is_interrupted(should_interrupt):
+                return True
+
+            frame = stat_frames[stat_index % len(stat_frames)]
+            if self._fade_sequence(
+                frame,
+                steps=5,
+                fade_in=True,
+                delay=0.04,
+                should_interrupt=should_interrupt,
+                end_time=stats_end_time,
+            ):
+                return True
+
+            hold_time = min(0.75, max(0.0, stats_end_time - time.time()))
+            if hold_time > 0 and self._sleep_with_interrupt(hold_time, should_interrupt):
+                return True
+
+            if self._fade_sequence(
+                frame,
+                steps=5,
+                fade_in=False,
+                delay=0.04,
+                should_interrupt=should_interrupt,
+                end_time=stats_end_time,
+            ):
+                return True
+            stat_index += 1
+
+        if time.time() >= end_time:
+            return False
+
         if self._transition_to(
-            showcase,
-            preview_name=f"{safe_slot}_pokemon_showcase.png",
-            steps=8,
-            delay=0.04,
+            image_frame,
+            preview_name=f"{safe_slot}_pokemon_image.png",
+            steps=6,
+            delay=0.03,
             should_interrupt=should_interrupt,
         ):
             return True
 
-        self._show_frame(showcase, preview_name=f"{safe_slot}_pokemon_showcase.png")
         remaining = max(0.0, end_time - time.time())
-        return self._sleep_with_interrupt(remaining, should_interrupt)
+        if remaining > 0:
+            return self._sleep_with_interrupt(remaining, should_interrupt)
+        return False
 
     def _animate_joke(
         self,
@@ -995,105 +1039,118 @@ class DisplayManager:
         location = str(data.get("location", ""))
         return f"{location} | {condition} | {temp}F | Wind {wind} mph   |   "
 
-    def _draw_weather_header(self, draw: ImageDraw.ImageDraw, data: dict) -> None:
-        condition = str(data.get("condition", "Unknown"))
-        location = self._truncate_to_width(
-            str(data.get("location", "Unknown")),
-            self.panel_width - 32,
-            font=self.small_font,
-        )
-        temp_text = self._truncate_to_width(
-            f"{data.get('temperature_f', '--')}F",
-            self.panel_width - (PANEL_PADDING * 2),
-            font=self.large_font,
-        )
-        wind_text = self._truncate_to_width(
-            f"Wind {data.get('wind_mph', '--')} mph",
-            self.panel_width - (PANEL_PADDING * 2),
-            font=self.small_font,
-        )
+    def _weather_condition_fill(self, condition: str) -> tuple[int, int, int, int]:
+        lowered = condition.lower()
+        if "rain" in lowered or "drizzle" in lowered or "shower" in lowered:
+            return WEATHER_CONDITION_RAIN
+        if "cloud" in lowered or "overcast" in lowered or "fog" in lowered:
+            return WEATHER_CONDITION_CLOUDY
+        if "clear" in lowered or "sun" in lowered:
+            return WEATHER_CONDITION_SUNNY
+        return WEATHER_TICKER
 
-        condition_lines = self._wrap_text(
-            condition.upper(),
-            self.panel_width - (PANEL_PADDING * 2),
+    def _weather_date_text(self, payload: dict) -> str:
+        raw_time = str(payload.get("time", "")).strip()
+        if raw_time:
+            try:
+                return datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S").strftime(
+                    "%b %d, %Y"
+                )
+            except ValueError:
+                return raw_time.split(" ")[0]
+        return datetime.now().strftime("%b %d, %Y")
+
+    def _build_weather_ticker_segments(
+        self, data: dict
+    ) -> list[tuple[str, tuple[int, int, int, int]]]:
+        condition = str(data.get("condition", "Unknown"))
+        temp = str(data.get("temperature_f", "--"))
+        wind = str(data.get("wind_mph", "--"))
+        location = str(data.get("location", ""))
+        divider = (" | ", TEXT_SECONDARY)
+        return [
+            (location, WEATHER_TICKER),
+            divider,
+            (condition, self._weather_condition_fill(condition)),
+            divider,
+            (f"{temp}F", WEATHER_TICKER),
+            divider,
+            (f"Wind {wind} mph", WEATHER_TICKER),
+            ("   |   ", TEXT_SECONDARY),
+        ]
+
+    def _draw_weather_divider(
+        self, draw: ImageDraw.ImageDraw, offset_px: int
+    ) -> None:
+        divider_y = WEATHER_HEADER_HEIGHT
+        draw.line((0, divider_y, self.width - 1, divider_y), fill=PANEL_DIVIDER)
+
+        sweep_width = 28
+        sweep_start = ((offset_px * 3) % (self.width + sweep_width + 18)) - sweep_width
+        sweep_end = sweep_start + sweep_width
+        if sweep_end >= 0 and sweep_start < self.width:
+            draw.line(
+                (
+                    max(0, sweep_start),
+                    divider_y,
+                    min(self.width - 1, sweep_end),
+                    divider_y,
+                ),
+                fill=WEATHER_DIVIDER_GLOW,
+            )
+
+        spark_start = sweep_end - 5
+        spark_end = spark_start + 5
+        if spark_end >= 0 and spark_start < self.width:
+            draw.line(
+                (
+                    max(0, spark_start),
+                    divider_y,
+                    min(self.width - 1, spark_end),
+                    divider_y,
+                ),
+                fill=TEXT_HIGHLIGHT,
+            )
+
+    def _draw_weather_header(
+        self, draw: ImageDraw.ImageDraw, payload: dict, offset_px: int
+    ) -> None:
+        data = payload["data"]
+        condition = str(data.get("condition", "Unknown"))
+        date_text = self._truncate_to_width(
+            self._weather_date_text(payload),
+            self.width - 42,
+            font=self.small_font,
+        )
+        self._draw_weather_icon(draw, condition, 4, 1)
+        self._draw_line(
+            draw,
+            30,
+            2,
+            "The Weather",
+            fill=TEXT_ACCENT,
             font=self.medium_font,
         )
-        condition_font = self.medium_font
-        if len(condition_lines) > 1:
-            condition_lines = self._wrap_text(
-                condition,
-                self.panel_width - (PANEL_PADDING * 2),
-                font=self.small_font,
-            )[:2]
-            condition_font = self.small_font
-
-        self._draw_panel_backgrounds(draw, top=0, bottom=WEATHER_HEADER_HEIGHT - 1)
-        draw.line(
-            (0, WEATHER_HEADER_HEIGHT, self.width - 1, WEATHER_HEADER_HEIGHT),
-            fill=PANEL_DIVIDER,
-        )
-
-        self._draw_weather_icon(draw, condition, 5, 2)
-        self._draw_line(draw, 29, 2, "WEATHER", fill=TEXT_ACCENT, font=self.small_font)
-        self._draw_line(draw, 29, 10, location, fill=TEXT_SECONDARY, font=self.small_font)
-
-        middle_x0, _ = self._panel_bounds(1)
-        condition_y = (
-            4
-            if len(condition_lines) == 1
-            else max(
-                1,
-                (
-                    WEATHER_HEADER_HEIGHT
-                    - (len(condition_lines) * self._get_line_height(condition_font))
-                )
-                // 2,
-            )
-        )
-        for line in condition_lines:
-            line_width = self._text_width(line, condition_font)
-            line_x = middle_x0 + max(PANEL_PADDING, (self.panel_width - line_width) // 2)
-            self._draw_line(
-                draw,
-                line_x,
-                condition_y,
-                line,
-                fill=TEXT_PRIMARY,
-                font=condition_font,
-            )
-            condition_y += self._get_line_height(condition_font)
-
-        right_x0, _ = self._panel_bounds(2)
-        temp_width = self._text_width(temp_text, self.large_font)
         self._draw_line(
             draw,
-            right_x0 + max(PANEL_PADDING, (self.panel_width - temp_width) // 2),
-            1,
-            temp_text,
-            fill=self._weather_temperature_fill(data.get("temperature_f")),
-            font=self.large_font,
-        )
-        wind_width = self._text_width(wind_text, self.small_font)
-        self._draw_line(
-            draw,
-            right_x0 + max(PANEL_PADDING, (self.panel_width - wind_width) // 2),
+            30,
             11,
-            wind_text,
+            date_text,
             fill=TEXT_SECONDARY,
             font=self.small_font,
         )
+        self._draw_weather_divider(draw, offset_px)
 
-    def _weather_ticker_frame(self, data: dict, ticker: str, offset_px: int) -> Image.Image:
+    def _weather_ticker_frame(self, payload: dict, ticker: str, offset_px: int) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_weather_header(draw, data)
-        self._draw_repeating_ticker(
+        self._draw_weather_header(draw, payload, offset_px)
+        self._draw_repeating_ticker_segments(
             draw,
-            ticker,
+            self._build_weather_ticker_segments(payload["data"]),
             y=WEATHER_TICKER_Y,
             offset_px=offset_px,
             font=self.font,
-            fill=WEATHER_TICKER,
         )
         return img
 
@@ -1104,14 +1161,13 @@ class DisplayManager:
         safe_slot: str,
         should_interrupt: Optional[Callable[[], bool]] = None,
     ) -> bool:
-        data = payload["data"]
-        ticker = self._build_weather_ticker(data)
+        ticker = self._build_weather_ticker(payload["data"])
 
         end_time = time.time() + max(1, duration_seconds)
         loop_width = max(1, self._text_width(ticker, font=self.font))
         offset_px = 0
 
-        first = self._weather_ticker_frame(data, ticker, offset_px)
+        first = self._weather_ticker_frame(payload, ticker, offset_px)
         if self._transition_to(
             first,
             preview_name=f"{safe_slot}_weather.png",
@@ -1125,7 +1181,7 @@ class DisplayManager:
             if self._is_interrupted(should_interrupt):
                 return True
 
-            frame = self._weather_ticker_frame(data, ticker, offset_px)
+            frame = self._weather_ticker_frame(payload, ticker, offset_px)
             self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
             offset_px = (offset_px + 1) % loop_width
             if self._sleep_with_interrupt(0.06, should_interrupt):
