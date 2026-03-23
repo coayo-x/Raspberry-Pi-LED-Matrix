@@ -186,6 +186,8 @@ function createGuestControlPayload(configured = true) {
                     override_remaining_seconds: 0,
                     override_text: "",
                     override: null,
+                    blocked_by_custom_text: false,
+                    blocked_reason: "",
                 },
             ]),
         ),
@@ -437,6 +439,13 @@ function getControlLockMessage(control) {
         : "Switch locked by admin.";
 }
 
+function getCategoryChangeBlockedMessage(control) {
+    return (
+        control?.blocked_reason ||
+        "Cannot change category while custom text is active"
+    );
+}
+
 function getCustomTextLockMessage() {
     return "Custom text is currently locked by admin.";
 }
@@ -456,6 +465,10 @@ function getCustomTextLockBannerMessage(control) {
 function buildControlNote(control) {
     if (!control) {
         return "Control state unavailable.";
+    }
+
+    if (control.blocked_by_custom_text) {
+        return getCategoryChangeBlockedMessage(control);
     }
 
     if (control.locked && !control.admin_override) {
@@ -489,8 +502,10 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     const nextSwitch = controls?.switch_category;
     const lockStateChanged =
         previousSkip?.locked !== nextSkip?.locked ||
+        previousSkip?.blocked_by_custom_text !== nextSkip?.blocked_by_custom_text ||
         previousSkip?.admin_override !== nextSkip?.admin_override ||
         previousSwitch?.locked !== nextSwitch?.locked ||
+        previousSwitch?.blocked_by_custom_text !== nextSwitch?.blocked_by_custom_text ||
         previousSwitch?.admin_override !== nextSwitch?.admin_override;
     const authStateChanged =
         previousAuth?.configured !== auth?.configured ||
@@ -506,8 +521,20 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
 
     const skipLocked = Boolean(nextSkip?.locked && !nextSkip?.admin_override);
     const switchLocked = Boolean(nextSwitch?.locked && !nextSwitch?.admin_override);
+    const customTextBlocking = Boolean(
+        nextSkip?.blocked_by_custom_text || nextSwitch?.blocked_by_custom_text,
+    );
     const skipOverride = Boolean(nextSkip?.admin_override);
     const switchOverride = Boolean(nextSwitch?.admin_override);
+
+    if (customTextBlocking) {
+        setMessage(
+            elements.actionStatus,
+            getCategoryChangeBlockedMessage(nextSkip || nextSwitch),
+            "error",
+        );
+        return;
+    }
 
     if (skipLocked && switchLocked) {
         setMessage(
@@ -943,6 +970,9 @@ function applyControlPayload(payload) {
     const skipControl = controls.skip_category;
     const switchControl = controls.switch_category;
     const customTextControl = controls.custom_text;
+    const customTextBlocking = Boolean(
+        skipControl?.blocked_by_custom_text || switchControl?.blocked_by_custom_text,
+    );
     const publicLockedCount = [skipControl, switchControl].filter(
         (control) => Boolean(control?.locked && !control?.admin_override),
     ).length;
@@ -967,13 +997,15 @@ function applyControlPayload(payload) {
     }
 
     if (elements.publicControlMode) {
-        elements.publicControlMode.textContent = publicLockedCount === 2
-            ? "Locked"
-            : publicLockedCount === 1
-                ? "Partial Lock"
-                : adminOverride
-                    ? "Admin Override"
-                    : "Active";
+        elements.publicControlMode.textContent = customTextBlocking
+            ? "Custom Text Active"
+            : publicLockedCount === 2
+                ? "Locked"
+                : publicLockedCount === 1
+                    ? "Partial Lock"
+                    : adminOverride
+                        ? "Admin Override"
+                        : "Active";
     }
 
     syncPublicActionStatus(auth, controls, previousPayload);

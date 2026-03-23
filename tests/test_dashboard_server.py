@@ -11,6 +11,7 @@ import custom_text
 from current_display_state import save_current_display_state
 from dashboard_server import create_dashboard_server
 from runtime_control import (
+    CATEGORY_CHANGE_BLOCKED_MESSAGE,
     consume_skip_category_request,
     consume_switch_category_request,
     get_skip_category_state,
@@ -829,3 +830,72 @@ def test_dashboard_custom_text_lock_requires_admin_and_allows_admin_override(
     assert admin_body["admin_override"] is True
     assert unlock_status == 200
     assert unlock_body["control"]["locked"] is False
+
+
+def test_dashboard_blocks_skip_and_switch_while_custom_text_override_is_active(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        custom_status, custom_body = _post_json(
+            f"{base_url}/api/custom-text",
+            {
+                "text": "Matrix maintenance in progress",
+                "duration_minutes": 5,
+                "style": {},
+            },
+        )
+        public_state = _fetch_json(f"{base_url}/api/control-state")
+        admin_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+        public_skip_status, public_skip_body = _post_json_expect_error(
+            f"{base_url}/api/skip-category"
+        )
+        public_switch_status, public_switch_body = _post_json_expect_error(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+        )
+        admin_skip_status, admin_skip_body = _post_json_expect_error(
+            f"{base_url}/api/skip-category",
+            opener=opener,
+        )
+        admin_switch_status, admin_switch_body = _post_json_expect_error(
+            f"{base_url}/api/switch-category",
+            {"category": "science"},
+            opener=opener,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert custom_status == 200
+    assert custom_body["accepted"] is True
+    assert public_state["controls"]["custom_text"]["active_override"] is True
+    assert public_state["controls"]["skip_category"]["available"] is False
+    assert public_state["controls"]["skip_category"]["blocked_by_custom_text"] is True
+    assert public_state["controls"]["switch_category"]["available"] is False
+    assert (
+        public_state["controls"]["switch_category"]["blocked_reason"]
+        == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    )
+    assert admin_state["controls"]["skip_category"]["available"] is False
+    assert admin_state["controls"]["switch_category"]["available"] is False
+    assert public_skip_status == 409
+    assert public_skip_body["accepted"] is False
+    assert public_skip_body["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    assert public_switch_status == 409
+    assert public_switch_body["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    assert admin_skip_status == 409
+    assert admin_skip_body["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    assert admin_switch_status == 409
+    assert admin_switch_body["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
