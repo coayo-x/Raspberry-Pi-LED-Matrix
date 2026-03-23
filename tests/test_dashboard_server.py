@@ -618,6 +618,8 @@ def test_dashboard_custom_text_submission_updates_control_state(
                     "underline": True,
                     "font_family": "mono",
                     "font_size": 18,
+                    "text_brightness": 55,
+                    "background_brightness": 35,
                     "text_color": "orange",
                     "background_color": "black",
                     "alignment": "center",
@@ -633,6 +635,8 @@ def test_dashboard_custom_text_submission_updates_control_state(
     assert status == 200
     assert body["accepted"] is True
     assert body["override"]["duration_minutes"] == 5
+    assert body["override"]["style"]["text_brightness"] == 55
+    assert body["override"]["style"]["background_brightness"] == 35
     assert body["override"]["style"]["text_color"] == "orange"
     assert control_state["controls"]["custom_text"]["active_override"] is True
     assert (

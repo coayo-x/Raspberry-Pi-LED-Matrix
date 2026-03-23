@@ -144,6 +144,8 @@ def test_render_custom_text_payload_uses_requested_palette_and_content() -> None
                 "underline": True,
                 "font_family": "mono",
                 "font_size": 18,
+                "text_brightness": 100,
+                "background_brightness": 100,
                 "text_color": "orange",
                 "background_color": "blue",
                 "alignment": "center",
@@ -157,3 +159,98 @@ def test_render_custom_text_payload_uses_requested_palette_and_content() -> None
 
     assert tuple(frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
     assert np.any(np.any(pixels != background, axis=-1))
+
+
+def test_render_custom_text_brightness_controls_text_and_background_independently() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    base_style = {
+        "font_family": "sans",
+        "font_size": 24,
+        "underline": True,
+        "text_color": "orange",
+        "background_color": "blue",
+        "alignment": "center",
+    }
+    bright_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "M",
+            "style": {
+                **base_style,
+                "text_brightness": 100,
+                "background_brightness": 100,
+            },
+        },
+    }
+    text_dim_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "M",
+            "style": {
+                **base_style,
+                "text_brightness": 40,
+                "background_brightness": 100,
+            },
+        },
+    }
+    background_dim_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "M",
+            "style": {
+                **base_style,
+                "text_brightness": 100,
+                "background_brightness": 40,
+            },
+        },
+    }
+    full_background_only_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "",
+            "style": {
+                **base_style,
+                "text_brightness": 100,
+                "background_brightness": 100,
+            },
+        },
+    }
+    dim_background_only_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "",
+            "style": {
+                **base_style,
+                "text_brightness": 100,
+                "background_brightness": 40,
+            },
+        },
+    }
+
+    bright_frame = display.render_payload(bright_payload)
+    text_dim_frame = display.render_payload(text_dim_payload)
+    background_dim_frame = display.render_payload(background_dim_payload)
+    full_background_only_frame = display.render_payload(full_background_only_payload)
+    dim_background_only_frame = display.render_payload(dim_background_only_payload)
+    bright_pixels = np.array(bright_frame)
+    text_dim_pixels = np.array(text_dim_frame)
+    background_dim_pixels = np.array(background_dim_frame)
+    full_background_only_pixels = np.array(full_background_only_frame)
+    dim_background_only_pixels = np.array(dim_background_only_frame)
+    text_mask = np.any(bright_pixels != full_background_only_pixels, axis=-1)
+
+    assert text_mask.any()
+    assert tuple(bright_frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    assert tuple(text_dim_frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    assert tuple(background_dim_frame.getpixel((0, 0))) == (4, 53, 102, 255)
+    assert np.array_equal(text_dim_pixels[~text_mask], bright_pixels[~text_mask])
+    assert int(text_dim_pixels[text_mask, :3].sum()) < int(bright_pixels[text_mask, :3].sum())
+    assert np.array_equal(
+        background_dim_pixels[~text_mask],
+        dim_background_only_pixels[~text_mask],
+    )
+    assert int(background_dim_pixels[~text_mask, :3].sum()) < int(
+        bright_pixels[~text_mask, :3].sum()
+    )
+    assert np.array_equal(text_dim_pixels[..., 3], bright_pixels[..., 3])
+    assert np.array_equal(background_dim_pixels[..., 3], bright_pixels[..., 3])

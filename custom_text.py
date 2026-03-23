@@ -28,6 +28,8 @@ MIN_DURATION_MINUTES = MIN_DURATION_SECONDS / 60
 MAX_DURATION_MINUTES = MAX_DURATION_SECONDS / 60
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
+MIN_BRIGHTNESS_PERCENT = 10
+MAX_BRIGHTNESS_PERCENT = 100
 
 COLOR_PALETTE = {
     "red": {"label": "Red", "hex": "#ff3b30"},
@@ -50,6 +52,8 @@ DEFAULT_STYLE = {
     "underline": False,
     "font_family": "sans",
     "font_size": 16,
+    "text_brightness": 100,
+    "background_brightness": 100,
     "text_color": "white",
     "background_color": "black",
     "alignment": "center",
@@ -159,6 +163,33 @@ def _normalize_font_size(value: Any) -> int:
     return font_size
 
 
+def _normalize_brightness(value: Any, field_name: str, default: int) -> int:
+    if value in {None, ""}:
+        return default
+
+    try:
+        brightness = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"'{field_name}' must be a number.") from error
+
+    if math.isnan(brightness) or math.isinf(brightness):
+        raise ValueError(f"'{field_name}' must be a finite number.")
+
+    if not brightness.is_integer():
+        raise ValueError(f"'{field_name}' must be an integer percentage.")
+
+    brightness_percent = int(brightness)
+    if (
+        brightness_percent < MIN_BRIGHTNESS_PERCENT
+        or brightness_percent > MAX_BRIGHTNESS_PERCENT
+    ):
+        raise ValueError(
+            f"'{field_name}' must be between {MIN_BRIGHTNESS_PERCENT} and {MAX_BRIGHTNESS_PERCENT}."
+        )
+
+    return brightness_percent
+
+
 def _normalize_color(value: Any, field_name: str, default: str) -> str:
     if value in {None, ""}:
         return default
@@ -223,6 +254,7 @@ def normalize_custom_text_style(style: dict | None) -> dict:
     if not isinstance(active_style, dict):
         raise ValueError("'style' must be an object.")
 
+    legacy_brightness = active_style.get("brightness")
     return {
         "bold": _normalize_bool(
             active_style.get("bold", DEFAULT_STYLE["bold"]), "bold"
@@ -238,6 +270,26 @@ def normalize_custom_text_style(style: dict | None) -> dict:
         ),
         "font_size": _normalize_font_size(
             active_style.get("font_size", DEFAULT_STYLE["font_size"])
+        ),
+        "text_brightness": _normalize_brightness(
+            active_style.get(
+                "text_brightness",
+                legacy_brightness
+                if legacy_brightness not in {None, ""}
+                else DEFAULT_STYLE["text_brightness"],
+            ),
+            "text_brightness",
+            DEFAULT_STYLE["text_brightness"],
+        ),
+        "background_brightness": _normalize_brightness(
+            active_style.get(
+                "background_brightness",
+                legacy_brightness
+                if legacy_brightness not in {None, ""}
+                else DEFAULT_STYLE["background_brightness"],
+            ),
+            "background_brightness",
+            DEFAULT_STYLE["background_brightness"],
         ),
         "text_color": _normalize_color(
             active_style.get("text_color"),

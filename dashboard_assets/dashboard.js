@@ -70,6 +70,18 @@ const elements = {
     pokemonMeta: document.getElementById("pokemon-meta"),
     customTextForm: document.getElementById("custom-text-form"),
     customTextInput: document.getElementById("custom-text-input"),
+    customTextTextBrightness: document.getElementById(
+        "custom-text-text-brightness",
+    ),
+    customTextTextBrightnessValue: document.getElementById(
+        "custom-text-text-brightness-value",
+    ),
+    customTextBackgroundBrightness: document.getElementById(
+        "custom-text-background-brightness",
+    ),
+    customTextBackgroundBrightnessValue: document.getElementById(
+        "custom-text-background-brightness-value",
+    ),
     customTextDuration: document.getElementById("custom-text-duration"),
     customTextFontFamily: document.getElementById("custom-text-font-family"),
     customTextFontSize: document.getElementById("custom-text-font-size"),
@@ -116,6 +128,8 @@ const customTextStyleState = {
     italic: false,
     underline: false,
     alignment: "center",
+    textBrightness: 100,
+    backgroundBrightness: 100,
     textColor: "white",
     backgroundColor: "black",
 };
@@ -603,6 +617,8 @@ function syncCustomTextStyleButtons() {
 function setCustomTextInputsEnabled(enabled) {
     const controls = [
         elements.customTextInput,
+        elements.customTextTextBrightness,
+        elements.customTextBackgroundBrightness,
         elements.customTextDuration,
         elements.customTextFontFamily,
         elements.customTextFontSize,
@@ -617,6 +633,40 @@ function setCustomTextInputsEnabled(enabled) {
             control.disabled = !enabled;
         }
     });
+}
+
+function formatBrightnessValue(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric)
+        ? Math.min(100, Math.max(10, Math.round(numeric)))
+        : 100;
+}
+
+function syncCustomTextBrightnessValues() {
+    const textBrightness = formatBrightnessValue(
+        customTextStyleState.textBrightness,
+    );
+    const backgroundBrightness = formatBrightnessValue(
+        customTextStyleState.backgroundBrightness,
+    );
+    customTextStyleState.textBrightness = textBrightness;
+    customTextStyleState.backgroundBrightness = backgroundBrightness;
+
+    if (elements.customTextTextBrightness) {
+        elements.customTextTextBrightness.value = String(textBrightness);
+    }
+    if (elements.customTextTextBrightnessValue) {
+        elements.customTextTextBrightnessValue.textContent = `${textBrightness}%`;
+    }
+    if (elements.customTextBackgroundBrightness) {
+        elements.customTextBackgroundBrightness.value = String(
+            backgroundBrightness,
+        );
+    }
+    if (elements.customTextBackgroundBrightnessValue) {
+        elements.customTextBackgroundBrightnessValue.textContent =
+            `${backgroundBrightness}%`;
+    }
 }
 
 function buildCustomTextNote(control) {
@@ -783,6 +833,12 @@ async function submitCustomText(event) {
                     underline: customTextStyleState.underline,
                     font_family: elements.customTextFontFamily?.value || "sans",
                     font_size: Number(elements.customTextFontSize?.value || 16),
+                    text_brightness: formatBrightnessValue(
+                        customTextStyleState.textBrightness,
+                    ),
+                    background_brightness: formatBrightnessValue(
+                        customTextStyleState.backgroundBrightness,
+                    ),
                     text_color: customTextStyleState.textColor,
                     background_color: customTextStyleState.backgroundColor,
                     alignment: customTextStyleState.alignment,
@@ -1245,6 +1301,22 @@ if (elements.customTextDuration) {
     });
 }
 
+if (elements.customTextTextBrightness) {
+    elements.customTextTextBrightness.addEventListener("input", () => {
+        customTextStyleState.textBrightness =
+            elements.customTextTextBrightness.value;
+        syncCustomTextBrightnessValues();
+    });
+}
+
+if (elements.customTextBackgroundBrightness) {
+    elements.customTextBackgroundBrightness.addEventListener("input", () => {
+        customTextStyleState.backgroundBrightness =
+            elements.customTextBackgroundBrightness.value;
+        syncCustomTextBrightnessValues();
+    });
+}
+
 elements.toolbarToggleButtons.forEach((button) => {
     button.addEventListener("click", () => {
         toggleCustomTextStyle(button.dataset.toggleStyle);
@@ -1308,6 +1380,7 @@ if (elements.toggleCustomTextLockButton) {
     );
 }
 
+syncCustomTextBrightnessValues();
 syncCustomTextStyleButtons();
 bindModalInteractions();
 applyControlPayload(latestControlPayload);

@@ -333,6 +333,28 @@ class DisplayManager:
         normalized = str(value or "").strip().lower()
         return CUSTOM_TEXT_COLORS.get(normalized, fallback)
 
+    def _scale_custom_text_fill(
+        self,
+        fill: tuple[int, int, int, int],
+        brightness_percent: int | float | None,
+    ) -> tuple[int, int, int, int]:
+        try:
+            clamped_brightness = max(10, min(100, int(brightness_percent or 100)))
+        except (TypeError, ValueError):
+            clamped_brightness = 100
+
+        if clamped_brightness >= 100:
+            return fill
+
+        factor = clamped_brightness / 100
+        red, green, blue, alpha = fill
+        return (
+            int(round(red * factor)),
+            int(round(green * factor)),
+            int(round(blue * factor)),
+            alpha,
+        )
+
     def _prepare_image(self, image: Image.Image) -> Image.Image:
         img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
         if GLOBAL_ROTATE_180:
@@ -1133,6 +1155,13 @@ class DisplayManager:
         data = payload["data"]
         style = data.get("style") or {}
         pages, font = self._build_custom_text_pages(payload)
+        text_fill = self._scale_custom_text_fill(
+            self._custom_text_color(style.get("text_color"), TEXT_PRIMARY),
+            style.get("text_brightness", style.get("brightness", 100)),
+        )
+        background_fill = self._scale_custom_text_fill(
+            self._custom_text_color(style.get("background_color"), DEFAULT_BG),
+            style.get("background_brightness", style.get("brightness", 100)),
         text_fill = self._custom_text_color(style.get("text_color"), TEXT_PRIMARY)
         background_fill = self._custom_text_color(
             style.get("background_color"), DEFAULT_BG
