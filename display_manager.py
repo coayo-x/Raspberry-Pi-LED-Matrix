@@ -63,6 +63,7 @@ CUSTOM_TEXT_COLORS = {
 PANEL_PADDING = 4
 WEATHER_HEADER_HEIGHT = 18
 WEATHER_TICKER_Y = 21
+WEATHER_TICKER_FRAME_DELAY = 0.08
 
 GLOBAL_ROTATE_180 = True
 
@@ -148,9 +149,11 @@ class DisplayManager:
         if mono:
             names = ["DejaVuSansMono-Bold.ttf" if bold else "DejaVuSansMono.ttf"]
             paths = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
-                if bold
-                else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+                (
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+                    if bold
+                    else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+                )
             ]
         else:
             names = [
@@ -158,12 +161,16 @@ class DisplayManager:
                 "DejaVuSansMono-Bold.ttf" if bold else "DejaVuSansMono.ttf",
             ]
             paths = [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-                if bold
-                else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
-                if bold
-                else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                (
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                    if bold
+                    else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                ),
+                (
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+                    if bold
+                    else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+                ),
             ]
 
         for name in names + paths:
@@ -329,7 +336,9 @@ class DisplayManager:
 
         return wrapped or [""]
 
-    def _custom_text_color(self, value: str | None, fallback) -> tuple[int, int, int, int]:
+    def _custom_text_color(
+        self, value: str | None, fallback
+    ) -> tuple[int, int, int, int]:
         normalized = str(value or "").strip().lower()
         return CUSTOM_TEXT_COLORS.get(normalized, fallback)
 
@@ -508,9 +517,7 @@ class DisplayManager:
         font=None,
     ) -> int:
         active_font = font or self.font
-        return sum(
-            self._text_width(text, active_font) for text, _ in segments if text
-        )
+        return sum(self._text_width(text, active_font) for text, _ in segments if text)
 
     def _panel_bounds(self, index: int) -> tuple[int, int]:
         x0 = index * self.panel_width
@@ -855,7 +862,10 @@ class DisplayManager:
 
         fallback_font = candidates[-1]
         truncated = self._truncate_to_width(name, max_width_px, font=fallback_font)
-        if max_height_px is not None and self._get_line_height(fallback_font) > max_height_px:
+        if (
+            max_height_px is not None
+            and self._get_line_height(fallback_font) > max_height_px
+        ):
             return [""], fallback_font
         return [truncated], fallback_font
 
@@ -887,7 +897,10 @@ class DisplayManager:
         label_y = max(0, (self.height - total_height) // 2)
         self._draw_line(
             draw,
-            max(0, (self.panel_width - self._text_width(label_text, self.small_font)) // 2),
+            max(
+                0,
+                (self.panel_width - self._text_width(label_text, self.small_font)) // 2,
+            ),
             label_y,
             label_text,
             fill=POKEMON_STAT_LABEL,
@@ -981,7 +994,15 @@ class DisplayManager:
 
     def render_weather(self, payload: dict) -> Image.Image:
         ticker = self._build_weather_ticker(payload["data"])
-        return self._weather_ticker_frame(payload, ticker, offset_px=0)
+        frame_time = datetime.now()
+        base_frame = self._render_weather_static_frame(payload, frame_time=frame_time)
+        return self._weather_ticker_frame(
+            payload,
+            ticker,
+            offset_px=0,
+            frame_time=frame_time,
+            base_frame=base_frame,
+        )
 
     def _render_joke_page(
         self,
@@ -1237,7 +1258,9 @@ class DisplayManager:
             sleep_for = delay
             if end_time is not None:
                 sleep_for = min(delay, max(0.0, end_time - time.time()))
-            if sleep_for > 0 and self._sleep_with_interrupt(sleep_for, should_interrupt):
+            if sleep_for > 0 and self._sleep_with_interrupt(
+                sleep_for, should_interrupt
+            ):
                 return True
         return False
 
@@ -1270,7 +1293,9 @@ class DisplayManager:
             sleep_for = delay
             if end_time is not None:
                 sleep_for = min(delay, max(0.0, end_time - time.time()))
-            if sleep_for > 0 and self._sleep_with_interrupt(sleep_for, should_interrupt):
+            if sleep_for > 0 and self._sleep_with_interrupt(
+                sleep_for, should_interrupt
+            ):
                 return True
         return False
 
@@ -1445,7 +1470,9 @@ class DisplayManager:
                 return True
 
             hold_time = min(0.75, max(0.0, stats_end_time - time.time()))
-            if hold_time > 0 and self._sleep_with_interrupt(hold_time, should_interrupt):
+            if hold_time > 0 and self._sleep_with_interrupt(
+                hold_time, should_interrupt
+            ):
                 return True
 
             if self._fade_pokemon_stat_panel(
@@ -1579,16 +1606,23 @@ class DisplayManager:
             return WEATHER_CONDITION_SUNNY
         return WEATHER_TICKER
 
-    def _weather_date_text(self, payload: dict) -> str:
-        raw_time = str(payload.get("time", "")).strip()
-        if raw_time:
-            try:
-                return datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S").strftime(
-                    "%b %d, %Y"
-                )
-            except ValueError:
-                return raw_time.split(" ")[0]
-        return datetime.now().strftime("%b %d, %Y")
+    def _weather_date_text(
+        self,
+        payload: dict | None = None,
+        *,
+        frame_time: datetime | None = None,
+    ) -> str:
+        current = frame_time or datetime.now()
+        return current.strftime("%b %d, %Y")
+
+    def _weather_time_text(self, *, frame_time: datetime | None = None) -> str:
+        current = frame_time or datetime.now()
+        time_text = current.strftime("%I:%M:%S %p")
+        return time_text.lstrip("0") or time_text
+
+    def _weather_header_key(self, *, frame_time: datetime | None = None) -> str:
+        current = frame_time or datetime.now()
+        return current.strftime("%Y-%m-%d %H:%M:%S")
 
     def _build_weather_ticker_segments(
         self, data: dict
@@ -1609,46 +1643,27 @@ class DisplayManager:
             ("   |   ", TEXT_SECONDARY),
         ]
 
-    def _draw_weather_divider(
-        self, draw: ImageDraw.ImageDraw, offset_px: int
-    ) -> None:
+    def _draw_weather_divider(self, draw: ImageDraw.ImageDraw, offset_px: int) -> None:
         divider_y = WEATHER_HEADER_HEIGHT
         draw.line((0, divider_y, self.width - 1, divider_y), fill=PANEL_DIVIDER)
 
-        sweep_width = 28
-        sweep_start = ((offset_px * 3) % (self.width + sweep_width + 18)) - sweep_width
-        sweep_end = sweep_start + sweep_width
-        if sweep_end >= 0 and sweep_start < self.width:
-            draw.line(
-                (
-                    max(0, sweep_start),
-                    divider_y,
-                    min(self.width - 1, sweep_end),
-                    divider_y,
-                ),
-                fill=WEATHER_DIVIDER_GLOW,
-            )
-
-        spark_start = sweep_end - 5
-        spark_end = spark_start + 5
-        if spark_end >= 0 and spark_start < self.width:
-            draw.line(
-                (
-                    max(0, spark_start),
-                    divider_y,
-                    min(self.width - 1, spark_end),
-                    divider_y,
-                ),
-                fill=TEXT_HIGHLIGHT,
-            )
-
     def _draw_weather_header(
-        self, draw: ImageDraw.ImageDraw, payload: dict, offset_px: int
+        self,
+        draw: ImageDraw.ImageDraw,
+        payload: dict,
+        offset_px: int,
+        *,
+        frame_time: datetime | None = None,
     ) -> None:
         data = payload["data"]
         condition = str(data.get("condition", "Unknown"))
         date_text = self._truncate_to_width(
-            self._weather_date_text(payload),
+            self._weather_date_text(payload, frame_time=frame_time),
+            self.width - 42,
+            font=self.small_font,
+        )
+        time_text = self._truncate_to_width(
+            self._weather_time_text(frame_time=frame_time),
             self.width - 42,
             font=self.small_font,
         )
@@ -1657,27 +1672,53 @@ class DisplayManager:
             draw,
             30,
             2,
-            "The Weather",
+            date_text,
             fill=TEXT_ACCENT,
-            font=self.medium_font,
+            font=self.small_font,
         )
         self._draw_line(
             draw,
             30,
-            11,
-            date_text,
-            fill=TEXT_SECONDARY,
+            10,
+            time_text,
+            fill=TEXT_PRIMARY,
             font=self.small_font,
         )
         self._draw_weather_divider(draw, offset_px)
 
-    def _weather_ticker_frame(self, payload: dict, ticker: str, offset_px: int) -> Image.Image:
+    def _render_weather_static_frame(
+        self,
+        payload: dict,
+        *,
+        frame_time: datetime | None = None,
+    ) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_weather_header(draw, payload, offset_px)
+        self._draw_weather_header(draw, payload, offset_px=0, frame_time=frame_time)
+        return img
+
+    def _weather_ticker_frame(
+        self,
+        payload: dict,
+        ticker: str,
+        offset_px: int,
+        *,
+        frame_time: datetime | None = None,
+        base_frame: Image.Image | None = None,
+        ticker_segments: list[tuple[str, tuple[int, int, int, int]]] | None = None,
+    ) -> Image.Image:
+        img = (
+            base_frame.copy()
+            if base_frame is not None
+            else self._render_weather_static_frame(
+                payload,
+                frame_time=frame_time,
+            )
+        )
+        draw = ImageDraw.Draw(img)
         self._draw_repeating_ticker_segments(
             draw,
-            self._build_weather_ticker_segments(payload["data"]),
+            ticker_segments or self._build_weather_ticker_segments(payload["data"]),
             y=WEATHER_TICKER_Y,
             offset_px=offset_px,
             font=self.font,
@@ -1692,12 +1733,23 @@ class DisplayManager:
         should_interrupt: Optional[Callable[[], bool]] = None,
     ) -> bool:
         ticker = self._build_weather_ticker(payload["data"])
+        ticker_segments = self._build_weather_ticker_segments(payload["data"])
 
         end_time = time.time() + max(1, duration_seconds)
-        loop_width = max(1, self._text_width(ticker, font=self.font))
+        loop_width = max(1, self._segments_width(ticker_segments, font=self.font))
         offset_px = 0
+        frame_time = datetime.now()
+        header_key = self._weather_header_key(frame_time=frame_time)
+        base_frame = self._render_weather_static_frame(payload, frame_time=frame_time)
 
-        first = self._weather_ticker_frame(payload, ticker, offset_px)
+        first = self._weather_ticker_frame(
+            payload,
+            ticker,
+            offset_px,
+            frame_time=frame_time,
+            base_frame=base_frame,
+            ticker_segments=ticker_segments,
+        )
         if self._transition_to(
             first,
             preview_name=f"{safe_slot}_weather.png",
@@ -1711,11 +1763,33 @@ class DisplayManager:
             if self._is_interrupted(should_interrupt):
                 return True
 
-            frame = self._weather_ticker_frame(payload, ticker, offset_px)
-            self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
-            offset_px = (offset_px + 1) % loop_width
-            if self._sleep_with_interrupt(0.06, should_interrupt):
+            if self._sleep_with_interrupt(
+                WEATHER_TICKER_FRAME_DELAY,
+                should_interrupt,
+            ):
                 return True
+            if time.time() >= end_time:
+                break
+
+            offset_px = (offset_px + 1) % loop_width
+            frame_time = datetime.now()
+            next_header_key = self._weather_header_key(frame_time=frame_time)
+            if next_header_key != header_key:
+                base_frame = self._render_weather_static_frame(
+                    payload,
+                    frame_time=frame_time,
+                )
+                header_key = next_header_key
+
+            frame = self._weather_ticker_frame(
+                payload,
+                ticker,
+                offset_px,
+                frame_time=frame_time,
+                base_frame=base_frame,
+                ticker_segments=ticker_segments,
+            )
+            self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
         return False
 
     def display_payload(
