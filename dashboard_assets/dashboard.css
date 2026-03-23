@@ -919,6 +919,7 @@ select {
     .custom-text-toolbar,
     .palette-grid,
     .brightness-grid {
+    .palette-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -972,6 +973,10 @@ select {
     .custom-text-actions {
         display: grid;
         grid-template-columns: 1fr;
+    }
+
+    .custom-text-submit {
+        width: 100%;
     }
 
     .brightness-value {

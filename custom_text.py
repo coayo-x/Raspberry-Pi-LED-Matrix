@@ -651,6 +651,7 @@ def request_custom_text_override(
                 "requested": False,
                 "rate_limited": False,
                 "error": "Custom text is currently locked by admin.",
+                "error": "Custom Text is locked by an admin.",
             }
 
         if current_state["cooldown_remaining_seconds"] > 0:

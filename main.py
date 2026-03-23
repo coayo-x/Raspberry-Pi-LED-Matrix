@@ -288,6 +288,13 @@ def _build_interrupt_checker(
     custom_text_baseline: str | None,
 ) -> Callable[[], bool]:
     return lambda: (
+        (
+            custom_text_baseline is None
+            and (
+                get_skip_category_state()[0] > skip_baseline
+                or get_switch_category_state()[0] > switch_baseline
+            )
+        )
         get_skip_category_state()[0] > skip_baseline
         or get_switch_category_state()[0] > switch_baseline
         or get_custom_text_interrupt_token() != custom_text_baseline
@@ -324,6 +331,63 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         skip_handled_count: int
         switch_handled_count: int
         custom_text_baseline: str | None
+
+        if custom_override is not None:
+            if slot_key != active_slot_key:
+                (
+                    skip_handled_count,
+                    switch_handled_count,
+                    custom_text_baseline,
+                ) = _clear_expired_runtime_control_requests(now=now)
+            else:
+                _, skip_handled_count = get_skip_category_state()
+                _, switch_handled_count, _ = get_switch_category_state()
+                custom_text_baseline = get_custom_text_interrupt_token(now=now)
+
+            payload = build_runtime_payload(now, custom_override=custom_override)
+            print_payload(payload)
+            display.display_payload(
+                payload,
+                duration_seconds=max(
+                    1,
+                    get_custom_text_remaining_seconds(custom_override, now=now),
+                ),
+                should_interrupt=_build_interrupt_checker(
+                    skip_handled_count,
+                    switch_handled_count,
+                    custom_text_baseline,
+                ),
+            )
+            active_slot_key = slot_key
+            active_category = payload["category"]
+            continue
+
+
+        if custom_override is not None:
+            (
+                skip_handled_count,
+                switch_handled_count,
+                custom_text_baseline,
+            ) = _clear_expired_runtime_control_requests(now=now)
+
+            payload = build_runtime_payload(now, custom_override=custom_override)
+            print_payload(payload)
+            display.display_payload(
+                payload,
+                duration_seconds=max(
+                    1,
+                    get_custom_text_remaining_seconds(custom_override, now=now),
+                ),
+                should_interrupt=_build_interrupt_checker(
+                    skip_handled_count,
+                    switch_handled_count,
+                    custom_text_baseline,
+                ),
+            )
+            active_slot_key = slot_key
+            active_category = payload["category"]
+            continue
+
 
         if custom_override is not None:
             if slot_key != active_slot_key:
