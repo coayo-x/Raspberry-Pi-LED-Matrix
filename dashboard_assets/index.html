@@ -36,8 +36,7 @@
                 </p>
             </div>
             <div class="hero-actions">
-                <span class="status-pill" id="refresh-status">Connecting</span>
-                <span class="status-pill" id="last-updated">Waiting for state</span>
+                <button class="about-entry-button" id="about-button" type="button">About</button>
                 <button class="admin-entry-button" id="admin-control-button" type="button">Admin Control</button>
             </div>
         </section>
@@ -275,6 +274,23 @@
             </article>
         </section>
     </main>
+
+    <div class="modal-backdrop" id="about-modal" hidden>
+        <div class="modal-dialog about-dialog about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title">
+            <button class="modal-close" type="button" data-close-modal="about-modal" aria-label="Close About modal">&times;</button>
+
+            <div class="modal-heading about-modal-heading">
+                <h2 id="about-title">About</h2>
+            </div>
+
+            <div class="about-copy">
+                <p>This is a real-time LED Matrix system built on a Raspberry Pi, designed to display dynamic content across multiple panels.</p>
+                <p>The system rotates between categories like Pok&eacute;mon, weather, jokes, and science facts, while also allowing live interaction through a web dashboard.</p>
+                <p>Admins can control the display, manage runtime behavior, and override the screen with custom messages when needed.</p>
+                <p>Designed and built by coayo.</p>
+            </div>
+        </div>
+    </div>
 
     <div class="modal-backdrop" id="admin-login-modal" hidden>
         <div class="modal-dialog admin-modal admin-login-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-login-title">

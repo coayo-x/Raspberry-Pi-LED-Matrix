@@ -48,6 +48,7 @@ const durationRange = {
     min: 0.1,
     max: 5,
 };
+const modalTransitionMs = 180;
 
 const elements = {
     time: document.getElementById("time-value"),
@@ -57,8 +58,6 @@ const elements = {
     contentSecondaryLabel: document.getElementById("content-secondary-label"),
     setup: document.getElementById("setup-value"),
     punchline: document.getElementById("punchline-value"),
-    refreshStatus: document.getElementById("refresh-status"),
-    lastUpdated: document.getElementById("last-updated"),
     publicControlMode: document.getElementById("public-control-mode"),
     skipCategoryButton: document.getElementById("skip-category-button"),
     switchCategorySelect: document.getElementById("switch-category-select"),
@@ -98,6 +97,8 @@ const elements = {
     ),
     alignmentButtons: Array.from(document.querySelectorAll("[data-alignment]")),
     colorButtons: Array.from(document.querySelectorAll("[data-color-name]")),
+    aboutButton: document.getElementById("about-button"),
+    aboutModal: document.getElementById("about-modal"),
     adminControlButton: document.getElementById("admin-control-button"),
     adminLoginModal: document.getElementById("admin-login-modal"),
     adminControlsModal: document.getElementById("admin-controls-modal"),
@@ -127,6 +128,7 @@ const elements = {
 };
 
 let latestControlPayload = createGuestControlPayload(true);
+const modalHideTimers = new WeakMap();
 const customTextStyleState = {
     bold: false,
     italic: false,
@@ -261,39 +263,98 @@ async function fetchJson(url, options = {}) {
 }
 
 function hasOpenModal() {
-    return (
-        Boolean(elements.adminLoginModal && !elements.adminLoginModal.hidden) ||
-        Boolean(elements.adminControlsModal && !elements.adminControlsModal.hidden)
-    );
+    return getModalElements().some(isModalOpen);
 }
 
 function syncBodyModalState() {
     document.body.classList.toggle("modal-open", hasOpenModal());
 }
 
+function getModalElements() {
+    return [
+        elements.aboutModal,
+        elements.adminLoginModal,
+        elements.adminControlsModal,
+    ].filter(Boolean);
+}
+
+function isModalOpen(modal) {
+    return Boolean(modal && !modal.hidden);
+}
+
+function clearModalHideTimer(modal) {
+    const timer = modalHideTimers.get(modal);
+    if (timer !== undefined) {
+        window.clearTimeout(timer);
+        modalHideTimers.delete(modal);
+    }
+}
+
+function finalizeModalHide(modal) {
+    clearModalHideTimer(modal);
+    modal.hidden = true;
+    modal.classList.remove("is-closing");
+    modal.classList.remove("is-visible");
+    syncBodyModalState();
+}
+
 function showModal(modal) {
     if (!modal) {
         return;
     }
+
+    clearModalHideTimer(modal);
     modal.hidden = false;
+    modal.classList.remove("is-closing");
+    window.requestAnimationFrame(() => {
+        modal.classList.add("is-visible");
+    });
     syncBodyModalState();
 }
 
-function hideModal(modal) {
+function hideModal(modal, { immediate = false } = {}) {
     if (!modal) {
         return;
     }
-    modal.hidden = true;
+
+    if (modal.hidden) {
+        syncBodyModalState();
+        return;
+    }
+
+    clearModalHideTimer(modal);
+    modal.classList.remove("is-visible");
+    if (immediate) {
+        finalizeModalHide(modal);
+        return;
+    }
+
+    modal.classList.add("is-closing");
+    modalHideTimers.set(
+        modal,
+        window.setTimeout(() => {
+            finalizeModalHide(modal);
+        }, modalTransitionMs),
+    );
     syncBodyModalState();
 }
 
 function closeAllModals() {
-    hideModal(elements.adminLoginModal);
-    hideModal(elements.adminControlsModal);
+    hideModal(elements.aboutModal, { immediate: true });
+    hideModal(elements.adminLoginModal, { immediate: true });
+    hideModal(elements.adminControlsModal, { immediate: true });
+}
+
+function openAboutModal() {
+    hideModal(elements.adminLoginModal, { immediate: true });
+    hideModal(elements.adminControlsModal, { immediate: true });
+    showModal(elements.aboutModal);
+    elements.aboutModal?.querySelector("[data-close-modal]")?.focus();
 }
 
 function openLoginModal() {
-    hideModal(elements.adminControlsModal);
+    hideModal(elements.aboutModal, { immediate: true });
+    hideModal(elements.adminControlsModal, { immediate: true });
     showModal(elements.adminLoginModal);
     if (
         elements.adminUsername &&
@@ -310,7 +371,8 @@ function openControlsModal() {
         return;
     }
 
-    hideModal(elements.adminLoginModal);
+    hideModal(elements.aboutModal, { immediate: true });
+    hideModal(elements.adminLoginModal, { immediate: true });
     showModal(elements.adminControlsModal);
 }
 
@@ -420,12 +482,6 @@ function applySnapshotState(state) {
     elements.category.textContent = displayText(state.category);
     elements.setup.textContent = displayText(state.setup);
     elements.punchline.textContent = displayText(state.punchline);
-    elements.refreshStatus.textContent = state.has_data
-        ? "Live snapshot loaded"
-        : "Waiting for runtime state";
-    elements.lastUpdated.textContent = state.updated_at
-        ? `Updated ${state.updated_at}`
-        : "No snapshot saved yet";
     renderPokemonCard(state);
 }
 
@@ -1101,9 +1157,8 @@ async function refreshSnapshotState() {
     try {
         const state = await fetchJson(currentDisplayApi);
         applySnapshotState(state);
-    } catch (error) {
-        elements.refreshStatus.textContent = "Snapshot refresh failed";
-        elements.lastUpdated.textContent = error.message;
+    } catch {
+        return;
     }
 }
 
@@ -1347,7 +1402,7 @@ async function toggleControlLock(action) {
 }
 
 function bindModalInteractions() {
-    [elements.adminLoginModal, elements.adminControlsModal].forEach((modal) => {
+    getModalElements().forEach((modal) => {
         if (!modal) {
             return;
         }
@@ -1371,12 +1426,17 @@ function bindModalInteractions() {
             return;
         }
 
-        if (!elements.adminControlsModal.hidden) {
+        if (isModalOpen(elements.aboutModal)) {
+            hideModal(elements.aboutModal);
+            return;
+        }
+
+        if (isModalOpen(elements.adminControlsModal)) {
             hideModal(elements.adminControlsModal);
             return;
         }
 
-        if (!elements.adminLoginModal.hidden) {
+        if (isModalOpen(elements.adminLoginModal)) {
             hideModal(elements.adminLoginModal);
         }
     });
@@ -1451,6 +1511,10 @@ if (elements.switchCategoryButton) {
 
 if (elements.adminControlButton) {
     elements.adminControlButton.addEventListener("click", openAdminControlFlow);
+}
+
+if (elements.aboutButton) {
+    elements.aboutButton.addEventListener("click", openAboutModal);
 }
 
 if (elements.adminLoginForm) {
