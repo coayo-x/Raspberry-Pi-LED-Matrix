@@ -130,6 +130,7 @@ def test_custom_text_lock_blocks_public_requests_but_allows_admin_override(
 
     assert public_attempt["accepted"] is False
     assert public_attempt["locked"] is True
+    assert public_attempt["error"] == "Custom text is currently locked by admin."
     assert admin_attempt["accepted"] is True
     assert admin_attempt["admin_override"] is True
     assert admin_state["locked"] is True

@@ -559,6 +559,7 @@ def request_custom_text_override(
                 "accepted": False,
                 "requested": False,
                 "rate_limited": False,
+                "error": "Custom text is currently locked by admin.",
                 "error": "Custom Text is locked by an admin.",
             }
 
