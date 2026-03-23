@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 
 import admin_auth
+from custom_text import get_active_custom_text_override
 from current_display_state import save_current_display_state
 from dashboard_server import create_dashboard_server
 from runtime_control import (
@@ -572,3 +573,81 @@ def test_dashboard_control_state_reflects_public_lock_after_login(
     assert state["controls"]["skip_category"]["locked"] is False
     assert state["controls"]["switch_category"]["locked"] is True
     assert state["controls"]["switch_category"]["admin_override"] is True
+
+
+def test_dashboard_custom_text_endpoint_accepts_override(isolated_db_path) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json(
+            f"{base_url}/api/custom-text",
+            {
+                "text": "Lunch break at 1 PM",
+                "duration_seconds": 45,
+                "style": {
+                    "bold": True,
+                    "italic": False,
+                    "underline": True,
+                    "font_family": "sans",
+                    "font_size": 16,
+                    "text_color": "#abcdef",
+                    "background_color": "#123456",
+                    "alignment": "center",
+                },
+            },
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    active_override = get_active_custom_text_override(db_path=str(isolated_db_path))
+
+    assert status == 200
+    assert body["accepted"] is True
+    assert body["override"]["text"] == "Lunch break at 1 PM"
+    assert body["override"]["style"]["underline"] is True
+    assert active_override is not None
+    assert active_override["style"]["font_family"] == "sans"
+
+
+def test_dashboard_custom_text_endpoint_rejects_banned_words(
+    isolated_db_path,
+) -> None:
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json_expect_error(
+            f"{base_url}/api/custom-text",
+            {
+                "text": "This is obscene",
+                "duration_seconds": 45,
+                "style": {
+                    "alignment": "left",
+                    "font_family": "mono",
+                    "font_size": 14,
+                    "text_color": "#ffffff",
+                    "background_color": "#000000",
+                    "bold": False,
+                    "italic": False,
+                    "underline": False,
+                },
+            },
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 400
+    assert "rejected" in body["error"].lower()

@@ -51,6 +51,26 @@ def test_normalize_current_display_state_maps_non_joke_categories() -> None:
         },
         updated_at="2026-03-15T09:15:01",
     )
+    custom_text_state = normalize_current_display_state(
+        {
+            "time": "2026-03-15 09:20:00",
+            "slot_key": "2026-03-15:112",
+            "category": "custom_text",
+            "data": {
+                "text": "Hello, matrix!",
+                "duration_seconds": 45,
+                "style": {
+                    "font_family": "sans",
+                    "font_size": 16,
+                    "alignment": "center",
+                    "bold": True,
+                    "italic": False,
+                    "underline": False,
+                },
+            },
+        },
+        updated_at="2026-03-15T09:20:01",
+    )
 
     assert pokemon_state["setup"] == "Bulbasaur"
     assert pokemon_state["punchline"] == "Grass / Poison | HP 45 | ATK 49 | DEF 49"
@@ -61,6 +81,8 @@ def test_normalize_current_display_state_maps_non_joke_categories() -> None:
 
     assert science_state["setup"] == "Helium (He)"
     assert science_state["punchline"] == "Atomic 2"
+    assert custom_text_state["setup"] == "Hello, matrix!"
+    assert custom_text_state["punchline"] == "sans 16px | Center | Bold | 45s"
 
 
 def test_save_and_load_current_display_state_uses_isolated_database(

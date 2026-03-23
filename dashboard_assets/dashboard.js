@@ -6,6 +6,8 @@ const skipApiPath =
     document.documentElement.dataset.skipApiPath || "/api/skip-category";
 const switchApiPath =
     document.documentElement.dataset.switchApiPath || "/api/switch-category";
+const customTextApi =
+    document.documentElement.dataset.customTextApi || "/api/custom-text";
 const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
@@ -28,6 +30,7 @@ const categoryFieldLabels = {
     weather: { primary: "Location", secondary: "Details" },
     science: { primary: "Title", secondary: "Description" },
     pokemon: { primary: "Name", secondary: "Stats" },
+    custom_text: { primary: "Text", secondary: "Style" },
 };
 const defaultCategoryFieldLabels = {
     primary: "Content",
@@ -51,6 +54,17 @@ const elements = {
     skipCategoryNote: document.getElementById("skip-category-note"),
     switchCategoryNote: document.getElementById("switch-category-note"),
     actionStatus: document.getElementById("action-status"),
+    customTextForm: document.getElementById("custom-text-form"),
+    customTextInput: document.getElementById("custom-text-input"),
+    customTextDuration: document.getElementById("custom-text-duration"),
+    customTextFontFamily: document.getElementById("custom-text-font-family"),
+    customTextFontSize: document.getElementById("custom-text-font-size"),
+    customTextColor: document.getElementById("custom-text-color"),
+    customTextBackground: document.getElementById("custom-text-background"),
+    customTextSubmitButton: document.getElementById("custom-text-submit-button"),
+    customTextStatus: document.getElementById("custom-text-status"),
+    toolbarToggleButtons: Array.from(document.querySelectorAll("[data-toggle-style]")),
+    alignmentButtons: Array.from(document.querySelectorAll("[data-alignment]")),
     pokemonCard: document.getElementById("pokemon-card"),
     pokemonImage: document.getElementById("pokemon-image"),
     pokemonImageFallback: document.getElementById("pokemon-image-fallback"),
@@ -79,6 +93,12 @@ const elements = {
 };
 
 let latestControlPayload = createGuestControlPayload(true);
+const customTextStyleState = {
+    bold: false,
+    italic: false,
+    underline: false,
+    alignment: "center",
+};
 
 function displayText(value) {
     if (value === null || value === undefined || value === "") {
@@ -352,7 +372,7 @@ function applySnapshotState(state) {
     applyCategoryFieldLabels(state.category);
     elements.time.textContent = displayText(state.time);
     elements.slot.textContent = displayText(state.slot);
-    elements.category.textContent = displayText(state.category);
+    elements.category.textContent = displayText(state.category).replaceAll("_", " ");
     elements.setup.textContent = displayText(state.setup);
     elements.punchline.textContent = displayText(state.punchline);
     elements.refreshStatus.textContent = state.has_data
@@ -362,6 +382,108 @@ function applySnapshotState(state) {
         ? `Updated ${state.updated_at}`
         : "No snapshot saved yet";
     renderPokemonCard(state);
+}
+
+function syncCustomTextStyleButtons() {
+    elements.toolbarToggleButtons.forEach((button) => {
+        const key = button.dataset.toggleStyle;
+        const active = Boolean(customTextStyleState[key]);
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+
+    elements.alignmentButtons.forEach((button) => {
+        const active = button.dataset.alignment === customTextStyleState.alignment;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+}
+
+function toggleCustomTextStyle(styleKey) {
+    if (!(styleKey in customTextStyleState)) {
+        return;
+    }
+
+    customTextStyleState[styleKey] = !customTextStyleState[styleKey];
+    syncCustomTextStyleButtons();
+}
+
+function setCustomTextAlignment(alignment) {
+    if (!["left", "center", "right", "justify"].includes(alignment)) {
+        return;
+    }
+
+    customTextStyleState.alignment = alignment;
+    syncCustomTextStyleButtons();
+}
+
+async function submitCustomText(event) {
+    event.preventDefault();
+    const text = elements.customTextInput?.value?.trim() || "";
+    const durationSeconds = Number(elements.customTextDuration?.value || 300);
+    const fontSize = Number(elements.customTextFontSize?.value || 16);
+
+    if (!text) {
+        setMessage(elements.customTextStatus, "Text is required.", "error");
+        return;
+    }
+
+    if (!Number.isInteger(durationSeconds) || durationSeconds < 5 || durationSeconds > 300) {
+        setMessage(
+            elements.customTextStatus,
+            "Duration must be between 5 and 300 seconds.",
+            "error",
+        );
+        return;
+    }
+
+    if (!Number.isInteger(fontSize) || fontSize < 8 || fontSize > 32) {
+        setMessage(
+            elements.customTextStatus,
+            "Font size must be between 8 and 32.",
+            "error",
+        );
+        return;
+    }
+
+    elements.customTextSubmitButton.disabled = true;
+    setMessage(elements.customTextStatus, "Sending custom text...", "pending");
+
+    try {
+        const result = await fetchJson(customTextApi, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                text,
+                duration_seconds: durationSeconds,
+                style: {
+                    bold: customTextStyleState.bold,
+                    italic: customTextStyleState.italic,
+                    underline: customTextStyleState.underline,
+                    font_family: elements.customTextFontFamily?.value || "sans",
+                    font_size: fontSize,
+                    text_color: elements.customTextColor?.value || "#eef5fb",
+                    background_color:
+                        elements.customTextBackground?.value || "#08111b",
+                    alignment: customTextStyleState.alignment,
+                },
+            }),
+        });
+        setMessage(
+            elements.customTextStatus,
+            `Custom text accepted until ${displayText(result.override?.expires_at)}.`,
+            "success",
+        );
+    } catch (error) {
+        setMessage(
+            elements.customTextStatus,
+            describeResultError(error, "Custom text request failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard().catch(() => null);
+        elements.customTextSubmitButton.disabled = false;
+    }
 }
 
 function getControlLockMessage(control) {
@@ -925,6 +1047,22 @@ if (elements.switchCategoryButton) {
     elements.switchCategoryButton.addEventListener("click", switchCategory);
 }
 
+if (elements.customTextForm) {
+    elements.customTextForm.addEventListener("submit", submitCustomText);
+}
+
+elements.toolbarToggleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        toggleCustomTextStyle(button.dataset.toggleStyle);
+    });
+});
+
+elements.alignmentButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        setCustomTextAlignment(button.dataset.alignment);
+    });
+});
+
 if (elements.adminControlButton) {
     elements.adminControlButton.addEventListener("click", openAdminControlFlow);
 }
@@ -950,6 +1088,7 @@ if (elements.toggleSwitchLockButton) {
 }
 
 bindModalInteractions();
+syncCustomTextStyleButtons();
 applyControlPayload(latestControlPayload);
 refreshDashboard().catch(() => {});
 window.setInterval(() => {

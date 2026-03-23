@@ -5,6 +5,7 @@
     data-control-state-api="__CONTROL_STATE_API__"
     data-skip-api-path="__SKIP_API__"
     data-switch-api-path="__SWITCH_API__"
+    data-custom-text-api="__CUSTOM_TEXT_API__"
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
@@ -112,6 +113,75 @@
                     </div>
 
                     <p class="action-message" id="action-status" aria-live="polite">Controls are active.</p>
+                </article>
+
+                <article class="custom-text-card">
+                    <div class="card-heading">
+                        <div>
+                            <p class="section-kicker">Custom Text</p>
+                            <h2>Temporary override</h2>
+                        </div>
+                    </div>
+
+                    <form class="custom-text-form" id="custom-text-form">
+                        <label class="custom-text-field" for="custom-text-input">
+                            <span class="control-title">Message</span>
+                            <textarea
+                                id="custom-text-input"
+                                name="custom-text"
+                                maxlength="240"
+                                rows="4"
+                                placeholder="Send a temporary message to the LED matrix."
+                            ></textarea>
+                        </label>
+
+                        <div class="custom-text-toolbar" role="group" aria-label="Text styling">
+                            <button class="toolbar-toggle" id="custom-text-bold" type="button" data-toggle-style="bold" aria-pressed="false">Bold</button>
+                            <button class="toolbar-toggle" id="custom-text-italic" type="button" data-toggle-style="italic" aria-pressed="false">Italic</button>
+                            <button class="toolbar-toggle" id="custom-text-underline" type="button" data-toggle-style="underline" aria-pressed="false">Underline</button>
+                            <label class="toolbar-select">
+                                <span>Font</span>
+                                <select id="custom-text-font-family" name="font-family">
+                                    <option value="sans">Sans</option>
+                                    <option value="serif">Serif</option>
+                                    <option value="mono">Mono</option>
+                                </select>
+                            </label>
+                            <label class="toolbar-select toolbar-number">
+                                <span>Size</span>
+                                <input id="custom-text-font-size" name="font-size" type="number" min="8" max="32" value="16">
+                            </label>
+                            <label class="toolbar-color">
+                                <span>Text</span>
+                                <input id="custom-text-color" name="text-color" type="color" value="#eef5fb">
+                            </label>
+                            <label class="toolbar-color">
+                                <span>Background</span>
+                                <input id="custom-text-background" name="background-color" type="color" value="#08111b">
+                            </label>
+                        </div>
+
+                        <div class="alignment-group" role="group" aria-label="Text alignment">
+                            <button class="alignment-button is-active" type="button" data-alignment="left" aria-pressed="false">Left</button>
+                            <button class="alignment-button" type="button" data-alignment="center" aria-pressed="true">Center</button>
+                            <button class="alignment-button" type="button" data-alignment="right" aria-pressed="false">Right</button>
+                            <button class="alignment-button" type="button" data-alignment="justify" aria-pressed="false">Justify</button>
+                        </div>
+
+                        <div class="custom-text-footer">
+                            <label class="custom-text-field custom-text-duration" for="custom-text-duration">
+                                <span class="control-title">Duration</span>
+                                <div class="duration-input-row">
+                                    <input id="custom-text-duration" name="duration-seconds" type="number" min="5" max="300" value="300">
+                                    <span class="duration-hint">5s to 300s</span>
+                                </div>
+                            </label>
+
+                            <button class="public-button custom-text-submit" id="custom-text-submit-button" type="submit">Display Text</button>
+                        </div>
+
+                        <p class="action-message" id="custom-text-status" aria-live="polite">Ready to send a temporary matrix override.</p>
+                    </form>
                 </article>
 
                 <article class="pokemon-card" id="pokemon-card" hidden>

@@ -74,6 +74,28 @@ def _normalize_dashboard_fields(category: str, data: dict) -> tuple[str, str]:
             f"Atomic {atomic_number}",
         )
 
+    if category == "custom_text":
+        style = data.get("style") or {}
+        style_flags = [
+            label
+            for enabled, label in (
+                (style.get("bold"), "Bold"),
+                (style.get("italic"), "Italic"),
+                (style.get("underline"), "Underline"),
+            )
+            if enabled
+        ]
+        style_summary = _join_parts(
+            f"{style.get('font_family', 'sans')} {style.get('font_size', '--')}px",
+            str(style.get("alignment", "center")).title(),
+            "/".join(style_flags) if style_flags else "Plain",
+            f"{_stringify(data.get('duration_seconds'))}s",
+        )
+        return (
+            str(data.get("text") or ""),
+            style_summary,
+        )
+
     return ("", "")
 
 

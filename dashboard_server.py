@@ -15,6 +15,7 @@ from config import (
     DASHBOARD_PORT,
     DB_PATH,
 )
+from custom_text import request_custom_text_override
 from current_display_state import load_current_display_state
 from runtime_control import (
     get_runtime_control_state,
@@ -36,6 +37,7 @@ API_PATH = "/api/current-display-state"
 CONTROL_STATE_API_PATH = "/api/control-state"
 SKIP_CATEGORY_API_PATH = "/api/skip-category"
 SWITCH_CATEGORY_API_PATH = "/api/switch-category"
+CUSTOM_TEXT_API_PATH = "/api/custom-text"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
@@ -315,9 +317,11 @@ def _render_login_html(configured: bool) -> bytes:
         .replace("__BUTTON_ATTRS__", "" if configured else "disabled")
         .replace(
             "__INITIAL_STATUS__",
-            "Dashboard authentication is ready."
-            if configured
-            else "Dashboard credentials are not configured on this host.",
+            (
+                "Dashboard authentication is ready."
+                if configured
+                else "Dashboard credentials are not configured on this host."
+            ),
         )
         .encode("utf-8")
     )
@@ -428,6 +432,34 @@ def create_dashboard_server(
                     return
 
                 self._send_json(self._control_status_code(result), result)
+                return
+
+            if route == CUSTOM_TEXT_API_PATH:
+                try:
+                    payload = self._read_json_body()
+                    text = self._require_text_field(payload, "text")
+                    duration_seconds = payload.get("duration_seconds")
+                    style = payload.get("style") or {}
+                    if not isinstance(style, dict):
+                        raise ValueError("'style' must be an object.")
+
+                    override = request_custom_text_override(
+                        text=text,
+                        duration_seconds=duration_seconds,
+                        style=style,
+                        db_path=db_path,
+                    )
+                except ValueError as error:
+                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "accepted": True,
+                        "override": override,
+                    },
+                )
                 return
 
             if route == ADMIN_LOGOUT_API_PATH:
@@ -702,9 +734,7 @@ def create_dashboard_server(
 
             message = "Dashboard authentication is required."
             if not admin_status["configured"]:
-                message = (
-                    "Dashboard authentication is not configured on this host."
-                )
+                message = "Dashboard authentication is not configured on this host."
 
             self._send_json_error(
                 HTTPStatus.UNAUTHORIZED,
@@ -717,7 +747,9 @@ def create_dashboard_server(
             )
             return None
 
-        def _build_control_state_payload(self, admin_status: dict | None = None) -> dict:
+        def _build_control_state_payload(
+            self, admin_status: dict | None = None
+        ) -> dict:
             auth_state = admin_status or self._get_admin_status()
             return {
                 "auth": auth_state,
@@ -747,6 +779,7 @@ def _render_html() -> bytes:
         "__CONTROL_STATE_API__": CONTROL_STATE_API_PATH,
         "__SKIP_API__": SKIP_CATEGORY_API_PATH,
         "__SWITCH_API__": SWITCH_CATEGORY_API_PATH,
+        "__CUSTOM_TEXT_API__": CUSTOM_TEXT_API_PATH,
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,

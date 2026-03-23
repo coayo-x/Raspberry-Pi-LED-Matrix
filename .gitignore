@@ -41,3 +41,6 @@ dist/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+badwordslist.txt
+!badwordslist.example.txt

@@ -64,6 +64,7 @@ select {
 .hero-card,
 .snapshot-card,
 .public-controls-card,
+.custom-text-card,
 .pokemon-card {
     border: 1px solid var(--border);
     border-radius: 20px;
@@ -82,6 +83,7 @@ select {
 .hero-copy h1,
 .snapshot-card h2,
 .public-controls-card h2,
+.custom-text-card h2,
 .pokemon-card h2,
 .admin-modal h2,
 .admin-subcard h3 {
@@ -93,6 +95,7 @@ select {
 
 .snapshot-card h2,
 .public-controls-card h2,
+.custom-text-card h2,
 .pokemon-card h2 {
     font-size: 1.2rem;
 }
@@ -240,6 +243,7 @@ select {
 }
 
 .public-controls-card,
+.custom-text-card,
 .pokemon-card {
     padding: 16px;
 }
@@ -256,6 +260,11 @@ select {
 .public-controls-card {
     display: grid;
     gap: 12px;
+}
+
+.custom-text-card {
+    display: grid;
+    gap: 14px;
 }
 
 .control-block {
@@ -286,7 +295,11 @@ select {
 .category-select,
 .public-button,
 .admin-button,
-.admin-field input {
+.admin-field input,
+.custom-text-field textarea,
+.toolbar-select select,
+.toolbar-number input,
+.toolbar-color input {
     border-radius: 12px;
     border: 1px solid rgba(140, 230, 255, 0.2);
     background: linear-gradient(180deg, rgba(111, 183, 210, 0.18), rgba(77, 162, 146, 0.12));
@@ -295,7 +308,10 @@ select {
 }
 
 .category-select,
-.admin-field input {
+.admin-field input,
+.custom-text-field textarea,
+.toolbar-select select,
+.toolbar-number input {
     padding: 9px 11px;
 }
 
@@ -312,7 +328,13 @@ select {
 .category-select:focus-visible,
 .admin-button:hover:not(:disabled),
 .admin-button:focus-visible,
-.admin-field input:focus-visible {
+.admin-field input:focus-visible,
+.custom-text-field textarea:focus-visible,
+.toolbar-select select:focus-visible,
+.toolbar-number input:focus-visible,
+.toolbar-color input:focus-visible,
+.toolbar-toggle:focus-visible,
+.alignment-button:focus-visible {
     transform: translateY(-1px);
     border-color: rgba(140, 230, 255, 0.4);
     outline: none;
@@ -350,6 +372,106 @@ select {
 .action-message[data-state="pending"],
 .admin-status-message[data-state="pending"] {
     color: var(--teal);
+}
+
+.custom-text-form {
+    display: grid;
+    gap: 12px;
+}
+
+.custom-text-field {
+    display: grid;
+    gap: 6px;
+}
+
+.custom-text-field textarea {
+    width: 100%;
+    min-height: 96px;
+    resize: vertical;
+}
+
+.custom-text-toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, auto)) repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    align-items: end;
+}
+
+.toolbar-toggle,
+.alignment-button {
+    min-height: 40px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(140, 230, 255, 0.2);
+    background: rgba(111, 183, 210, 0.08);
+    color: var(--text-main);
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.toolbar-toggle:hover,
+.alignment-button:hover {
+    border-color: rgba(140, 230, 255, 0.34);
+}
+
+.toolbar-toggle.is-active,
+.alignment-button.is-active {
+    background: linear-gradient(180deg, rgba(111, 183, 210, 0.22), rgba(77, 162, 146, 0.18));
+    border-color: rgba(140, 230, 255, 0.42);
+    color: var(--teal-strong);
+}
+
+.toolbar-select,
+.toolbar-color {
+    display: grid;
+    gap: 5px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.toolbar-number input,
+.toolbar-select select,
+.toolbar-color input {
+    width: 100%;
+}
+
+.toolbar-color input {
+    min-height: 40px;
+    padding: 4px;
+}
+
+.alignment-group {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.custom-text-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.custom-text-duration {
+    min-width: 0;
+}
+
+.duration-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.duration-hint {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.custom-text-submit {
+    min-width: 152px;
 }
 
 .pokemon-card {
@@ -647,7 +769,20 @@ select {
 
     .metric-row,
     .switch-row,
+    .custom-text-footer,
     .pokemon-card {
+        grid-template-columns: 1fr;
+    }
+
+    .custom-text-toolbar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .alignment-group {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .duration-input-row {
         grid-template-columns: 1fr;
     }
 

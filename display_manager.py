@@ -112,6 +112,80 @@ class DisplayManager:
                 continue
         return ImageFont.load_default()
 
+    def _load_styled_font(
+        self,
+        size: int,
+        *,
+        family: str = "sans",
+        bold: bool = False,
+        italic: bool = False,
+    ):
+        family_key = str(family).strip().lower()
+        font_candidates = {
+            "sans": {
+                (False, False): [
+                    "DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                ],
+                (True, False): [
+                    "DejaVuSans-Bold.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                ],
+                (False, True): [
+                    "DejaVuSans-Oblique.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+                ],
+                (True, True): [
+                    "DejaVuSans-BoldOblique.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+                ],
+            },
+            "serif": {
+                (False, False): [
+                    "DejaVuSerif.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                ],
+                (True, False): [
+                    "DejaVuSerif-Bold.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+                ],
+                (False, True): [
+                    "DejaVuSerif-Italic.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf",
+                ],
+                (True, True): [
+                    "DejaVuSerif-BoldItalic.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-BoldItalic.ttf",
+                ],
+            },
+            "mono": {
+                (False, False): [
+                    "DejaVuSansMono.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                ],
+                (True, False): [
+                    "DejaVuSansMono-Bold.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+                ],
+                (False, True): [
+                    "DejaVuSansMono-Oblique.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf",
+                ],
+                (True, True): [
+                    "DejaVuSansMono-BoldOblique.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-BoldOblique.ttf",
+                ],
+            },
+        }
+
+        selected_family = font_candidates.get(family_key) or font_candidates["sans"]
+        for candidate in selected_family[(bold, italic)]:
+            try:
+                return ImageFont.truetype(candidate, size=size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
     def _get_line_height(self, font) -> int:
         bbox = font.getbbox("Ag")
         return max(7, bbox[3] - bbox[1] + 1)
@@ -131,10 +205,28 @@ class DisplayManager:
             value = value[:-1]
         return (value + ellipsis) if value else ""
 
+    def _split_prefix_to_width(self, text: str, max_width_px: int, font=None) -> int:
+        active_font = font or self.font
+        if not text or max_width_px <= 0:
+            return 0
+
+        low = 1
+        high = len(text)
+        best = 0
+        while low <= high:
+            mid = (low + high) // 2
+            if self._text_width(text[:mid], active_font) <= max_width_px:
+                best = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        return max(1, best)
+
     def _wrap_text(self, text: str, width_px: int, font=None) -> list[str]:
         active_font = font or self.font
         cleaned = " ".join(str(text).split())
-        if not cleaned:
+        if not cleaned or width_px <= 0:
             return [""]
 
         wrapped: list[str] = []
@@ -142,6 +234,24 @@ class DisplayManager:
         line = ""
 
         for word in words:
+            if self._text_width(word, active_font) > width_px:
+                if line:
+                    wrapped.append(line)
+                    line = ""
+
+                remaining = word
+                while remaining:
+                    split_at = self._split_prefix_to_width(
+                        remaining, width_px, active_font
+                    )
+                    piece = remaining[:split_at]
+                    remaining = remaining[split_at:]
+                    if remaining:
+                        wrapped.append(piece)
+                    else:
+                        line = piece
+                continue
+
             candidate = f"{line} {word}".strip()
             if line and self._text_width(candidate, active_font) > width_px:
                 wrapped.append(line)
@@ -149,14 +259,27 @@ class DisplayManager:
             else:
                 line = candidate
 
-            while line and self._text_width(line, active_font) > width_px:
-                wrapped.append(line[:-1])
-                line = line[-1]
-
         if line:
             wrapped.append(line)
 
         return wrapped or [""]
+
+    def _parse_hex_color(
+        self, value: str | None, fallback
+    ) -> tuple[int, int, int, int]:
+        normalized = str(value or "").strip().lstrip("#")
+        if len(normalized) != 6:
+            return fallback
+
+        try:
+            return (
+                int(normalized[0:2], 16),
+                int(normalized[2:4], 16),
+                int(normalized[4:6], 16),
+                255,
+            )
+        except ValueError:
+            return fallback
 
     def _prepare_image(self, image: Image.Image) -> Image.Image:
         img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
@@ -583,6 +706,144 @@ class DisplayManager:
         )
         return img
 
+    def _draw_custom_text_line(
+        self,
+        draw: ImageDraw.ImageDraw,
+        line: str,
+        *,
+        y: int,
+        x_start: int,
+        max_width: int,
+        font,
+        fill,
+        alignment: str,
+        underline: bool,
+        is_last_line: bool,
+    ) -> None:
+        if not line:
+            return
+
+        text_width = self._text_width(line, font=font)
+        if alignment == "center":
+            x = x_start + max(0, (max_width - text_width) // 2)
+            draw.text((x, y), line, font=font, fill=fill)
+            underline_start = x
+            underline_end = x + text_width
+        elif alignment == "right":
+            x = x_start + max(0, max_width - text_width)
+            draw.text((x, y), line, font=font, fill=fill)
+            underline_start = x
+            underline_end = x + text_width
+        elif alignment == "justify" and not is_last_line:
+            words = [word for word in line.split(" ") if word]
+            if len(words) <= 1:
+                draw.text((x_start, y), line, font=font, fill=fill)
+                underline_start = x_start
+                underline_end = x_start + text_width
+            else:
+                words_width = sum(self._text_width(word, font=font) for word in words)
+                gap_count = len(words) - 1
+                total_gap_width = max(0, max_width - words_width)
+                gap_width = total_gap_width // gap_count if gap_count > 0 else 0
+                remainder = total_gap_width - (gap_width * gap_count)
+                cursor_x = x_start
+                underline_start = x_start
+                underline_end = x_start
+                for index, word in enumerate(words):
+                    word_width = self._text_width(word, font=font)
+                    draw.text((cursor_x, y), word, font=font, fill=fill)
+                    underline_end = cursor_x + word_width
+                    cursor_x += word_width
+                    if index < gap_count:
+                        cursor_x += gap_width + (1 if index < remainder else 0)
+        else:
+            draw.text((x_start, y), line, font=font, fill=fill)
+            underline_start = x_start
+            underline_end = x_start + text_width
+
+        if underline:
+            underline_y = min(self.height - 1, y + self._get_line_height(font) - 2)
+            draw.line(
+                (underline_start, underline_y, underline_end, underline_y), fill=fill
+            )
+
+    def _build_custom_text_pages(self, payload: dict):
+        data = payload["data"]
+        style = data.get("style") or {}
+        text = str(data.get("text") or "")
+        x_padding = 4
+        y_padding = 2
+        max_width = max(1, self.width - (x_padding * 2))
+        max_height = max(1, self.height - (y_padding * 2))
+
+        requested_size = max(8, int(style.get("font_size", 16)))
+        font = self._load_styled_font(
+            requested_size,
+            family=style.get("font_family", "sans"),
+            bold=bool(style.get("bold")),
+            italic=bool(style.get("italic")),
+        )
+        line_height = self._get_line_height(font)
+        max_lines = max(1, max_height // line_height)
+        lines = self._wrap_text(text, width_px=max_width, font=font)
+
+        while requested_size > 8 and len(lines) > max_lines:
+            requested_size -= 1
+            font = self._load_styled_font(
+                requested_size,
+                family=style.get("font_family", "sans"),
+                bold=bool(style.get("bold")),
+                italic=bool(style.get("italic")),
+            )
+            line_height = self._get_line_height(font)
+            max_lines = max(1, max_height // line_height)
+            lines = self._wrap_text(text, width_px=max_width, font=font)
+
+        pages = self._paginate_lines(lines, max_lines=max_lines)
+        return pages, font
+
+    def render_custom_text_pages(self, payload: dict) -> list[Image.Image]:
+        data = payload["data"]
+        style = data.get("style") or {}
+        pages, font = self._build_custom_text_pages(payload)
+        text_fill = self._parse_hex_color(style.get("text_color"), TEXT_PRIMARY)
+        background_fill = self._parse_hex_color(
+            style.get("background_color"), DEFAULT_BG
+        )
+        x_padding = 4
+        max_width = max(1, self.width - (x_padding * 2))
+        alignment = str(style.get("alignment", "center")).lower()
+        underline = bool(style.get("underline"))
+        line_height = self._get_line_height(font)
+
+        rendered_pages: list[Image.Image] = []
+        for lines in pages:
+            img = Image.new("RGBA", (self.width, self.height), background_fill)
+            draw = ImageDraw.Draw(img)
+            total_height = len(lines) * line_height
+            y = max(0, (self.height - total_height) // 2)
+
+            for index, line in enumerate(lines):
+                self._draw_custom_text_line(
+                    draw,
+                    line,
+                    y=y,
+                    x_start=x_padding,
+                    max_width=max_width,
+                    font=font,
+                    fill=text_fill,
+                    alignment=alignment,
+                    underline=underline,
+                    is_last_line=index == len(lines) - 1,
+                )
+                y += line_height
+
+            rendered_pages.append(img)
+
+        return rendered_pages or [
+            Image.new("RGBA", (self.width, self.height), background_fill)
+        ]
+
     def render_payload(self, payload: dict) -> Image.Image:
         category = payload["category"]
         if category == "pokemon":
@@ -593,6 +854,8 @@ class DisplayManager:
             return self.render_joke_pages(payload)[0]
         if category == "science":
             return self.render_science(payload)
+        if category == "custom_text":
+            return self.render_custom_text_pages(payload)[0]
 
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
@@ -617,6 +880,41 @@ class DisplayManager:
             self._show_frame(frame)
             if self._sleep_with_interrupt(delay, should_interrupt):
                 return True
+        return False
+
+    def _animate_custom_text(
+        self,
+        payload: dict,
+        duration_seconds: int,
+        safe_slot: str,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+    ) -> bool:
+        pages = self.render_custom_text_pages(payload)
+        end_time = time.time() + max(1, duration_seconds)
+
+        if self._transition_to(
+            pages[0],
+            preview_name=f"{safe_slot}_custom_text_0.png",
+            steps=5,
+            delay=0.03,
+            should_interrupt=should_interrupt,
+        ):
+            return True
+
+        page_index = 0
+        while time.time() < end_time:
+            if self._is_interrupted(should_interrupt):
+                return True
+
+            page = pages[page_index % len(pages)]
+            self._show_frame(
+                page,
+                preview_name=f"{safe_slot}_custom_text_{page_index % len(pages)}.png",
+            )
+            page_duration = min(2.5, max(0.2, end_time - time.time()))
+            if self._sleep_with_interrupt(page_duration, should_interrupt):
+                return True
+            page_index += 1
         return False
 
     def _animate_pokemon(
@@ -837,6 +1135,15 @@ class DisplayManager:
         total_duration = (
             duration_seconds if duration_seconds is not None else ROTATION_INTERVAL
         )
+
+        if category == "custom_text":
+            self._animate_custom_text(
+                payload,
+                total_duration,
+                safe_slot,
+                should_interrupt=should_interrupt,
+            )
+            return
 
         if category == "pokemon":
             self._animate_pokemon(
