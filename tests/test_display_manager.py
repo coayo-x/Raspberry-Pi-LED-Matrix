@@ -144,6 +144,7 @@ def test_render_custom_text_payload_uses_requested_palette_and_content() -> None
                 "underline": True,
                 "font_family": "mono",
                 "font_size": 18,
+                "brightness": 100,
                 "text_color": "orange",
                 "background_color": "blue",
                 "alignment": "center",
@@ -157,3 +158,45 @@ def test_render_custom_text_payload_uses_requested_palette_and_content() -> None
 
     assert tuple(frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
     assert np.any(np.any(pixels != background, axis=-1))
+
+
+def test_render_custom_text_brightness_scales_only_custom_text_frame() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    bright_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "Dim this override",
+            "style": {
+                "font_family": "sans",
+                "font_size": 18,
+                "brightness": 100,
+                "text_color": "orange",
+                "background_color": "blue",
+                "alignment": "center",
+            },
+        },
+    }
+    dim_payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "Dim this override",
+            "style": {
+                "font_family": "sans",
+                "font_size": 18,
+                "brightness": 40,
+                "text_color": "orange",
+                "background_color": "blue",
+                "alignment": "center",
+            },
+        },
+    }
+
+    bright_frame = display.render_payload(bright_payload)
+    dim_frame = display.render_payload(dim_payload)
+    bright_pixels = np.array(bright_frame)
+    dim_pixels = np.array(dim_frame)
+
+    assert tuple(bright_frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    assert tuple(dim_frame.getpixel((0, 0))) == (4, 53, 102, 255)
+    assert int(dim_pixels[..., :3].sum()) < int(bright_pixels[..., :3].sum())
+    assert np.array_equal(dim_pixels[..., 3], bright_pixels[..., 3])

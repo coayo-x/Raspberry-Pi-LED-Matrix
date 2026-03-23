@@ -28,6 +28,8 @@ MIN_DURATION_MINUTES = MIN_DURATION_SECONDS / 60
 MAX_DURATION_MINUTES = MAX_DURATION_SECONDS / 60
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
+MIN_BRIGHTNESS_PERCENT = 10
+MAX_BRIGHTNESS_PERCENT = 100
 
 COLOR_PALETTE = {
     "red": {"label": "Red", "hex": "#ff3b30"},
@@ -50,6 +52,7 @@ DEFAULT_STYLE = {
     "underline": False,
     "font_family": "sans",
     "font_size": 16,
+    "brightness": 100,
     "text_color": "white",
     "background_color": "black",
     "alignment": "center",
@@ -159,6 +162,33 @@ def _normalize_font_size(value: Any) -> int:
     return font_size
 
 
+def _normalize_brightness(value: Any) -> int:
+    if value in {None, ""}:
+        return DEFAULT_STYLE["brightness"]
+
+    try:
+        brightness = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("'brightness' must be a number.") from error
+
+    if math.isnan(brightness) or math.isinf(brightness):
+        raise ValueError("'brightness' must be a finite number.")
+
+    if not brightness.is_integer():
+        raise ValueError("'brightness' must be an integer percentage.")
+
+    brightness_percent = int(brightness)
+    if (
+        brightness_percent < MIN_BRIGHTNESS_PERCENT
+        or brightness_percent > MAX_BRIGHTNESS_PERCENT
+    ):
+        raise ValueError(
+            f"'brightness' must be between {MIN_BRIGHTNESS_PERCENT} and {MAX_BRIGHTNESS_PERCENT}."
+        )
+
+    return brightness_percent
+
+
 def _normalize_color(value: Any, field_name: str, default: str) -> str:
     if value in {None, ""}:
         return default
@@ -238,6 +268,9 @@ def normalize_custom_text_style(style: dict | None) -> dict:
         ),
         "font_size": _normalize_font_size(
             active_style.get("font_size", DEFAULT_STYLE["font_size"])
+        ),
+        "brightness": _normalize_brightness(
+            active_style.get("brightness", DEFAULT_STYLE["brightness"])
         ),
         "text_color": _normalize_color(
             active_style.get("text_color"),

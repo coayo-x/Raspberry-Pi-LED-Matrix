@@ -552,6 +552,27 @@ select {
     min-width: 0;
 }
 
+.brightness-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+}
+
+.brightness-input-row input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--teal-strong);
+}
+
+.brightness-value {
+    min-width: 56px;
+    color: var(--text-main);
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-align: right;
+}
+
 .duration-input-row {
     display: grid;
     grid-template-columns: minmax(0, 180px) auto;
@@ -881,6 +902,7 @@ select {
     .toolbar-select-group,
     .alignment-group,
     .custom-text-footer,
+    .brightness-input-row,
     .duration-input-row {
         grid-template-columns: 1fr;
     }
@@ -909,6 +931,10 @@ select {
     .color-swatch,
     .custom-text-submit {
         width: 100%;
+    }
+
+    .brightness-value {
+        text-align: left;
     }
 
     .admin-modal-header,

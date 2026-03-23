@@ -333,6 +333,29 @@ class DisplayManager:
         normalized = str(value or "").strip().lower()
         return CUSTOM_TEXT_COLORS.get(normalized, fallback)
 
+    def _apply_custom_text_brightness(
+        self,
+        image: Image.Image,
+        brightness_percent: int | float | None,
+    ) -> Image.Image:
+        try:
+            clamped_brightness = max(10, min(100, int(brightness_percent or 100)))
+        except (TypeError, ValueError):
+            clamped_brightness = 100
+
+        if clamped_brightness >= 100:
+            return image
+
+        factor = clamped_brightness / 100
+        pixels = np.array(image.convert("RGBA"), dtype=np.uint8)
+        scaled = pixels.copy()
+        scaled[..., :3] = np.clip(
+            np.rint(pixels[..., :3].astype(np.float32) * factor),
+            0,
+            255,
+        ).astype(np.uint8)
+        return Image.fromarray(scaled, mode="RGBA")
+
     def _prepare_image(self, image: Image.Image) -> Image.Image:
         img = image.convert("RGBA").resize((self.width, self.height), Image.NEAREST)
         if GLOBAL_ROTATE_180:
@@ -1133,6 +1156,7 @@ class DisplayManager:
         data = payload["data"]
         style = data.get("style") or {}
         pages, font = self._build_custom_text_pages(payload)
+        brightness = style.get("brightness", 100)
         text_fill = self._custom_text_color(style.get("text_color"), TEXT_PRIMARY)
         background_fill = self._custom_text_color(
             style.get("background_color"), DEFAULT_BG
@@ -1165,7 +1189,9 @@ class DisplayManager:
                 )
                 y += line_height
 
-            rendered_pages.append(img)
+            rendered_pages.append(
+                self._apply_custom_text_brightness(img, brightness)
+            )
 
         return rendered_pages or [
             Image.new("RGBA", (self.width, self.height), background_fill)

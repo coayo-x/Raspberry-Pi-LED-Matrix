@@ -70,6 +70,10 @@ const elements = {
     pokemonMeta: document.getElementById("pokemon-meta"),
     customTextForm: document.getElementById("custom-text-form"),
     customTextInput: document.getElementById("custom-text-input"),
+    customTextBrightness: document.getElementById("custom-text-brightness"),
+    customTextBrightnessValue: document.getElementById(
+        "custom-text-brightness-value",
+    ),
     customTextDuration: document.getElementById("custom-text-duration"),
     customTextFontFamily: document.getElementById("custom-text-font-family"),
     customTextFontSize: document.getElementById("custom-text-font-size"),
@@ -116,6 +120,7 @@ const customTextStyleState = {
     italic: false,
     underline: false,
     alignment: "center",
+    brightness: 100,
     textColor: "white",
     backgroundColor: "black",
 };
@@ -602,6 +607,7 @@ function syncCustomTextStyleButtons() {
 function setCustomTextInputsEnabled(enabled) {
     const controls = [
         elements.customTextInput,
+        elements.customTextBrightness,
         elements.customTextDuration,
         elements.customTextFontFamily,
         elements.customTextFontSize,
@@ -616,6 +622,25 @@ function setCustomTextInputsEnabled(enabled) {
             control.disabled = !enabled;
         }
     });
+}
+
+function formatBrightnessValue(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric)
+        ? Math.min(100, Math.max(10, Math.round(numeric)))
+        : 100;
+}
+
+function syncCustomTextBrightnessValue() {
+    const brightness = formatBrightnessValue(customTextStyleState.brightness);
+    customTextStyleState.brightness = brightness;
+
+    if (elements.customTextBrightness) {
+        elements.customTextBrightness.value = String(brightness);
+    }
+    if (elements.customTextBrightnessValue) {
+        elements.customTextBrightnessValue.textContent = `${brightness}%`;
+    }
 }
 
 function buildCustomTextNote(control) {
@@ -782,6 +807,9 @@ async function submitCustomText(event) {
                     underline: customTextStyleState.underline,
                     font_family: elements.customTextFontFamily?.value || "sans",
                     font_size: Number(elements.customTextFontSize?.value || 16),
+                    brightness: formatBrightnessValue(
+                        customTextStyleState.brightness,
+                    ),
                     text_color: customTextStyleState.textColor,
                     background_color: customTextStyleState.backgroundColor,
                     alignment: customTextStyleState.alignment,
@@ -1244,6 +1272,13 @@ if (elements.customTextDuration) {
     });
 }
 
+if (elements.customTextBrightness) {
+    elements.customTextBrightness.addEventListener("input", () => {
+        customTextStyleState.brightness = elements.customTextBrightness.value;
+        syncCustomTextBrightnessValue();
+    });
+}
+
 elements.toolbarToggleButtons.forEach((button) => {
     button.addEventListener("click", () => {
         toggleCustomTextStyle(button.dataset.toggleStyle);
@@ -1307,6 +1342,7 @@ if (elements.toggleCustomTextLockButton) {
     );
 }
 
+syncCustomTextBrightnessValue();
 syncCustomTextStyleButtons();
 bindModalInteractions();
 applyControlPayload(latestControlPayload);
