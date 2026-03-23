@@ -5,6 +5,7 @@
     data-control-state-api="__CONTROL_STATE_API__"
     data-skip-api-path="__SKIP_API__"
     data-switch-api-path="__SWITCH_API__"
+    data-custom-text-api="__CUSTOM_TEXT_API__"
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
@@ -12,6 +13,8 @@
     data-unlock-skip-api="__UNLOCK_SKIP_API__"
     data-lock-switch-api="__LOCK_SWITCH_API__"
     data-unlock-switch-api="__UNLOCK_SWITCH_API__"
+    data-lock-custom-text-api="__LOCK_CUSTOM_TEXT_API__"
+    data-unlock-custom-text-api="__UNLOCK_CUSTOM_TEXT_API__"
     data-poll-interval-ms="__POLL_INTERVAL_MS__"
 >
 <head>
@@ -127,6 +130,124 @@
                 </article>
             </aside>
         </section>
+
+        <section class="custom-text-section">
+            <article class="custom-text-card">
+                <div class="card-heading custom-text-heading">
+                    <div>
+                        <p class="section-kicker">Custom Text</p>
+                        <h2>Temporary override</h2>
+                    </div>
+                    <p class="custom-text-summary">
+                        Send a polished, time-limited message to the matrix without changing the normal category rotation.
+                    </p>
+                </div>
+
+                <form class="custom-text-form" id="custom-text-form">
+                    <label class="custom-text-field" for="custom-text-input">
+                        <span class="control-title">Message</span>
+                        <textarea
+                            id="custom-text-input"
+                            name="custom-text"
+                            maxlength="240"
+                            rows="4"
+                            placeholder="Enter the temporary message you want to display on the LED matrix."
+                        ></textarea>
+                    </label>
+
+                    <div class="custom-text-toolbar" aria-label="Text styling">
+                        <div class="toolbar-group toolbar-button-group" role="group" aria-label="Text emphasis">
+                            <button class="toolbar-toggle" id="custom-text-bold" type="button" data-toggle-style="bold" aria-pressed="false">Bold</button>
+                            <button class="toolbar-toggle" id="custom-text-italic" type="button" data-toggle-style="italic" aria-pressed="false">Italic</button>
+                            <button class="toolbar-toggle" id="custom-text-underline" type="button" data-toggle-style="underline" aria-pressed="false">Underline</button>
+                        </div>
+
+                        <div class="toolbar-group toolbar-select-group">
+                            <label class="toolbar-select" for="custom-text-font-family">
+                                <span>Font</span>
+                                <select id="custom-text-font-family" name="font-family">
+                                    <option value="sans">Sans</option>
+                                    <option value="serif">Serif</option>
+                                    <option value="mono">Mono</option>
+                                </select>
+                            </label>
+
+                            <label class="toolbar-select" for="custom-text-font-size">
+                                <span>Size</span>
+                                <select id="custom-text-font-size" name="font-size">
+                                    <option value="12">12 px</option>
+                                    <option value="14">14 px</option>
+                                    <option value="16" selected>16 px</option>
+                                    <option value="18">18 px</option>
+                                    <option value="20">20 px</option>
+                                    <option value="24">24 px</option>
+                                    <option value="28">28 px</option>
+                                    <option value="32">32 px</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div class="toolbar-group alignment-group" role="group" aria-label="Text alignment">
+                            <button class="alignment-button" type="button" data-alignment="left" aria-pressed="false">Left</button>
+                            <button class="alignment-button is-active" type="button" data-alignment="center" aria-pressed="true">Center</button>
+                            <button class="alignment-button" type="button" data-alignment="right" aria-pressed="false">Right</button>
+                            <button class="alignment-button" type="button" data-alignment="justify" aria-pressed="false">Justify</button>
+                        </div>
+                    </div>
+
+                    <div class="palette-grid">
+                        <div class="palette-field">
+                            <span class="control-title">Text Color</span>
+                            <div class="color-palette" role="group" aria-label="Text color palette">
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="red" aria-pressed="false"><span class="color-dot" style="--swatch:#ff3b30"></span><span>Red</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="green" aria-pressed="false"><span class="color-dot" style="--swatch:#34c759"></span><span>Green</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="blue" aria-pressed="false"><span class="color-dot" style="--swatch:#0a84ff"></span><span>Blue</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="yellow" aria-pressed="false"><span class="color-dot" style="--swatch:#ffd60a"></span><span>Yellow</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="magenta" aria-pressed="false"><span class="color-dot" style="--swatch:#ff2d55"></span><span>Magenta</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="cyan" aria-pressed="false"><span class="color-dot" style="--swatch:#64d2ff"></span><span>Cyan</span></button>
+                                <button class="color-swatch is-active" type="button" data-color-target="text" data-color-name="white" aria-pressed="true"><span class="color-dot" style="--swatch:#f5f7fa"></span><span>White</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="black" aria-pressed="false"><span class="color-dot" style="--swatch:#000000"></span><span>Black</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="orange" aria-pressed="false"><span class="color-dot" style="--swatch:#ff9f0a"></span><span>Orange</span></button>
+                                <button class="color-swatch" type="button" data-color-target="text" data-color-name="purple" aria-pressed="false"><span class="color-dot" style="--swatch:#bf5af2"></span><span>Purple</span></button>
+                            </div>
+                        </div>
+
+                        <div class="palette-field">
+                            <span class="control-title">Background Color</span>
+                            <div class="color-palette" role="group" aria-label="Background color palette">
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="red" aria-pressed="false"><span class="color-dot" style="--swatch:#ff3b30"></span><span>Red</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="green" aria-pressed="false"><span class="color-dot" style="--swatch:#34c759"></span><span>Green</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="blue" aria-pressed="false"><span class="color-dot" style="--swatch:#0a84ff"></span><span>Blue</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="yellow" aria-pressed="false"><span class="color-dot" style="--swatch:#ffd60a"></span><span>Yellow</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="magenta" aria-pressed="false"><span class="color-dot" style="--swatch:#ff2d55"></span><span>Magenta</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="cyan" aria-pressed="false"><span class="color-dot" style="--swatch:#64d2ff"></span><span>Cyan</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="white" aria-pressed="false"><span class="color-dot" style="--swatch:#f5f7fa"></span><span>White</span></button>
+                                <button class="color-swatch is-active" type="button" data-color-target="background" data-color-name="black" aria-pressed="true"><span class="color-dot" style="--swatch:#000000"></span><span>Black</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="orange" aria-pressed="false"><span class="color-dot" style="--swatch:#ff9f0a"></span><span>Orange</span></button>
+                                <button class="color-swatch" type="button" data-color-target="background" data-color-name="purple" aria-pressed="false"><span class="color-dot" style="--swatch:#bf5af2"></span><span>Purple</span></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="custom-text-footer">
+                        <div class="custom-text-meta">
+                            <label class="custom-text-field custom-text-duration" for="custom-text-duration">
+                                <span class="control-title">Duration (Minutes)</span>
+                                <div class="duration-input-row">
+                                    <input id="custom-text-duration" name="duration-minutes" type="number" min="0.1" max="5" step="0.1" value="5">
+                                    <span class="duration-hint">0.1 to 5 minutes</span>
+                                </div>
+                            </label>
+                            <p class="control-note custom-text-note" id="custom-text-note">Ready to send a temporary matrix override.</p>
+                        </div>
+
+                        <button class="public-button custom-text-submit" id="custom-text-submit-button" type="submit">Display Text</button>
+                    </div>
+
+                    <p class="action-message" id="custom-text-status" aria-live="polite">Ready to send a temporary matrix override.</p>
+                </form>
+            </article>
+        </section>
     </main>
 
     <div class="modal-backdrop" id="admin-login-modal" hidden>
@@ -184,7 +305,7 @@
                             <h3>Dashboard controls</h3>
                         </div>
                         <p class="admin-subcard-copy">
-                            Lock or unlock public access to the skip and switch actions from this dashboard.
+                            Lock or unlock public access to the skip, switch, and custom text actions from this dashboard.
                         </p>
                     </div>
 
@@ -202,6 +323,14 @@
                             <p class="lock-state" id="admin-switch-lock-state">Loading...</p>
                         </div>
                         <button class="admin-button admin-lock-button" id="toggle-switch-lock-button" type="button">Lock Switch</button>
+                    </div>
+
+                    <div class="lock-row">
+                        <div class="lock-copy">
+                            <p class="lock-title">Custom Text</p>
+                            <p class="lock-state" id="admin-custom-text-lock-state">Loading...</p>
+                        </div>
+                        <button class="admin-button admin-lock-button" id="toggle-custom-text-lock-button" type="button">Lock Custom Text</button>
                     </div>
                 </article>
 

@@ -4,6 +4,11 @@ from datetime import datetime
 from typing import Callable
 
 from config import DB_PATH
+from custom_text import (
+    get_active_custom_text_override,
+    get_custom_text_interrupt_token,
+    get_custom_text_remaining_seconds,
+)
 from current_display_state import save_current_display_state
 from db_manager import connect, init_db
 from display_manager import DisplayManager
@@ -129,17 +134,49 @@ except Exception:
 
 
 def build_runtime_payload(
-    now: datetime | None = None, category_override: str | None = None
+    now: datetime | None = None,
+    category_override: str | None = None,
+    custom_override: dict | None = None,
 ) -> dict:
-    payload = build_content_for_now(now, category_override=category_override)
+    payload = build_content_for_now(
+        now,
+        category_override=category_override,
+        custom_override=custom_override,
+    )
     save_current_display_state(payload)
     return payload
 
 
+def _build_custom_text_payload(now: datetime, override: dict) -> dict:
+    return {
+        "slot_key": get_current_slot_key(now),
+        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "category": "custom_text",
+        "data": {
+            "request_id": override["request_id"],
+            "text": override["text"],
+            "style": override["style"],
+            "duration_seconds": override["duration_seconds"],
+            "duration_minutes": override["duration_minutes"],
+            "started_at": override["started_at"],
+            "expires_at": override["expires_at"],
+            "remaining_seconds": override["remaining_seconds"],
+            "text_color_hex": override["text_color_hex"],
+            "background_color_hex": override["background_color_hex"],
+        },
+    }
+
+
 def build_content_for_now(
-    now: datetime | None = None, category_override: str | None = None
+    now: datetime | None = None,
+    category_override: str | None = None,
+    custom_override: dict | None = None,
 ) -> dict:
     now = now or datetime.now()
+    active_custom_override = custom_override or get_active_custom_text_override(now=now)
+    if active_custom_override is not None:
+        return _build_custom_text_payload(now, active_custom_override)
+
     category = category_override or get_current_category(now)
 
     payload = {
@@ -205,6 +242,28 @@ def print_payload(payload: dict) -> None:
     elif category == "science":
         print(f"Science Fact: {data['text']}")
 
+    elif category == "custom_text":
+        style = data.get("style") or {}
+        style_flags = [
+            label
+            for enabled, label in (
+                (style.get("bold"), "bold"),
+                (style.get("italic"), "italic"),
+                (style.get("underline"), "underline"),
+            )
+            if enabled
+        ]
+        print(f"Custom Text: {data.get('text', '')}")
+        print(
+            f"Style: {style.get('font_family', 'sans')} {style.get('font_size', '--')}px | "
+            f"{style.get('alignment', 'center')} | "
+            f"{', '.join(style_flags) if style_flags else 'plain'} | "
+            f"{style.get('text_color', 'white')} on {style.get('background_color', 'black')}"
+        )
+        print(
+            f"Duration: {data.get('duration_minutes', '--')}m | Expires: {data.get('expires_at', '')}"
+        )
+
 
 def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     init_db()
@@ -214,29 +273,37 @@ def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     return payload
 
 
-def _get_interrupt_baselines() -> tuple[int, int]:
+def _get_interrupt_baselines(
+    now: datetime | None = None,
+) -> tuple[int, int, str | None]:
     _, skip_handled_count = get_skip_category_state()
     _, switch_handled_count, _ = get_switch_category_state()
-    return skip_handled_count, switch_handled_count
+    custom_interrupt_token = get_custom_text_interrupt_token(now=now)
+    return skip_handled_count, switch_handled_count, custom_interrupt_token
 
 
 def _build_interrupt_checker(
-    skip_baseline: int, switch_baseline: int
+    skip_baseline: int,
+    switch_baseline: int,
+    custom_text_baseline: str | None,
 ) -> Callable[[], bool]:
     return lambda: (
         get_skip_category_state()[0] > skip_baseline
         or get_switch_category_state()[0] > switch_baseline
+        or get_custom_text_interrupt_token() != custom_text_baseline
     )
 
 
-def _clear_expired_runtime_control_requests() -> tuple[int, int]:
+def _clear_expired_runtime_control_requests(
+    now: datetime | None = None,
+) -> tuple[int, int, str | None]:
     while consume_switch_category_request() is not None:
         pass
 
     while consume_skip_category_request() is not None:
         pass
 
-    return _get_interrupt_baselines()
+    return _get_interrupt_baselines(now=now)
 
 
 def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
@@ -247,35 +314,78 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
 
     active_slot_key = None
     active_category = None
+    active_rotation_category = None
 
     while True:
         now = datetime.now()
         slot_key = get_current_slot_key(now)
+        custom_override = get_active_custom_text_override(now=now)
         category_override = None
         skip_handled_count: int
         switch_handled_count: int
+        custom_text_baseline: str | None
+
+        if custom_override is not None:
+            if slot_key != active_slot_key:
+                (
+                    skip_handled_count,
+                    switch_handled_count,
+                    custom_text_baseline,
+                ) = _clear_expired_runtime_control_requests(now=now)
+            else:
+                _, skip_handled_count = get_skip_category_state()
+                _, switch_handled_count, _ = get_switch_category_state()
+                custom_text_baseline = get_custom_text_interrupt_token(now=now)
+
+            payload = build_runtime_payload(now, custom_override=custom_override)
+            print_payload(payload)
+            display.display_payload(
+                payload,
+                duration_seconds=max(
+                    1,
+                    get_custom_text_remaining_seconds(custom_override, now=now),
+                ),
+                should_interrupt=_build_interrupt_checker(
+                    skip_handled_count,
+                    switch_handled_count,
+                    custom_text_baseline,
+                ),
+            )
+            active_slot_key = slot_key
+            active_category = payload["category"]
+            continue
 
         if slot_key != active_slot_key:
-            skip_handled_count, switch_handled_count = (
-                _clear_expired_runtime_control_requests()
-            )
+            (
+                skip_handled_count,
+                switch_handled_count,
+                custom_text_baseline,
+            ) = _clear_expired_runtime_control_requests(now=now)
         else:
             if active_category is None:
                 time.sleep(1)
                 continue
 
+            should_render_current_slot = active_category == "custom_text"
             switch_result = consume_switch_category_request()
             if switch_result is not None:
                 switch_handled_count, category_override = switch_result
                 _, skip_handled_count = get_skip_category_state()
             else:
-                skip_handled_count = consume_skip_category_request()
-                if skip_handled_count is None:
-                    time.sleep(1)
-                    continue
+                consumed_skip_count = consume_skip_category_request()
+                if consumed_skip_count is None:
+                    _, skip_handled_count = get_skip_category_state()
+                    _, switch_handled_count, _ = get_switch_category_state()
+                    if not should_render_current_slot:
+                        time.sleep(1)
+                        continue
+                else:
+                    skip_handled_count = consumed_skip_count
+                    _, switch_handled_count, _ = get_switch_category_state()
+                    base_category = active_rotation_category or get_current_category(now)
+                    category_override = get_next_category(base_category)
 
-                _, switch_handled_count, _ = get_switch_category_state()
-                category_override = get_next_category(active_category)
+            custom_text_baseline = get_custom_text_interrupt_token(now=now)
 
         payload = build_runtime_payload(now, category_override=category_override)
         print_payload(payload)
@@ -286,10 +396,13 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
             should_interrupt=_build_interrupt_checker(
                 skip_handled_count,
                 switch_handled_count,
+                custom_text_baseline,
             ),
         )
         active_slot_key = slot_key
         active_category = payload["category"]
+        if payload["category"] in DISPLAY_SEQUENCE:
+            active_rotation_category = payload["category"]
 
 
 def main() -> None:

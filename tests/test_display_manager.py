@@ -130,3 +130,30 @@ def test_compose_pokemon_frame_keeps_each_panel_in_its_region(monkeypatch) -> No
     )
     assert right_only[:, panel_width * 2 :].any()
     assert not right_only[:, : panel_width * 2].any()
+
+
+def test_render_custom_text_payload_uses_requested_palette_and_content() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    payload = {
+        "category": "custom_text",
+        "data": {
+            "text": "Matrix maintenance at 3 PM",
+            "style": {
+                "bold": True,
+                "italic": False,
+                "underline": True,
+                "font_family": "mono",
+                "font_size": 18,
+                "text_color": "orange",
+                "background_color": "blue",
+                "alignment": "center",
+            },
+        },
+    }
+
+    frame = display.render_payload(payload)
+    pixels = np.array(frame)
+    background = np.array(display_manager.CUSTOM_TEXT_COLORS["blue"], dtype=np.uint8)
+
+    assert tuple(frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    assert np.any(np.any(pixels != background, axis=-1))

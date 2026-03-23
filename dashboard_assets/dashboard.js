@@ -6,6 +6,8 @@ const skipApiPath =
     document.documentElement.dataset.skipApiPath || "/api/skip-category";
 const switchApiPath =
     document.documentElement.dataset.switchApiPath || "/api/switch-category";
+const customTextApi =
+    document.documentElement.dataset.customTextApi || "/api/custom-text";
 const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
@@ -18,20 +20,30 @@ const lockSwitchApi =
     document.documentElement.dataset.lockSwitchApi || "/api/lock-switch";
 const unlockSwitchApi =
     document.documentElement.dataset.unlockSwitchApi || "/api/unlock-switch";
+const lockCustomTextApi =
+    document.documentElement.dataset.lockCustomTextApi || "/api/lock-custom-text";
+const unlockCustomTextApi =
+    document.documentElement.dataset.unlockCustomTextApi || "/api/unlock-custom-text";
 const pollIntervalMs = Number(document.documentElement.dataset.pollIntervalMs || 2000);
 const controlDefinitions = {
     skip_category: { action: "skip_category", label: "Skip Category" },
     switch_category: { action: "switch_category", label: "Switch Category" },
+    custom_text: { action: "custom_text", label: "Custom Text" },
 };
 const categoryFieldLabels = {
     joke: { primary: "Setup", secondary: "Punchline" },
     weather: { primary: "Location", secondary: "Details" },
     science: { primary: "Title", secondary: "Description" },
     pokemon: { primary: "Name", secondary: "Stats" },
+    custom_text: { primary: "Text", secondary: "Style" },
 };
 const defaultCategoryFieldLabels = {
     primary: "Content",
     secondary: "Details",
+};
+const durationRange = {
+    min: 0.1,
+    max: 5,
 };
 
 const elements = {
@@ -56,6 +68,19 @@ const elements = {
     pokemonImageFallback: document.getElementById("pokemon-image-fallback"),
     pokemonName: document.getElementById("pokemon-name"),
     pokemonMeta: document.getElementById("pokemon-meta"),
+    customTextForm: document.getElementById("custom-text-form"),
+    customTextInput: document.getElementById("custom-text-input"),
+    customTextDuration: document.getElementById("custom-text-duration"),
+    customTextFontFamily: document.getElementById("custom-text-font-family"),
+    customTextFontSize: document.getElementById("custom-text-font-size"),
+    customTextNote: document.getElementById("custom-text-note"),
+    customTextSubmitButton: document.getElementById("custom-text-submit-button"),
+    customTextStatus: document.getElementById("custom-text-status"),
+    toolbarToggleButtons: Array.from(
+        document.querySelectorAll("[data-toggle-style]"),
+    ),
+    alignmentButtons: Array.from(document.querySelectorAll("[data-alignment]")),
+    colorButtons: Array.from(document.querySelectorAll("[data-color-name]")),
     adminControlButton: document.getElementById("admin-control-button"),
     adminLoginModal: document.getElementById("admin-login-modal"),
     adminControlsModal: document.getElementById("admin-controls-modal"),
@@ -72,13 +97,27 @@ const elements = {
     adminSessionBadge: document.getElementById("admin-session-badge"),
     adminSkipLockState: document.getElementById("admin-skip-lock-state"),
     adminSwitchLockState: document.getElementById("admin-switch-lock-state"),
+    adminCustomTextLockState: document.getElementById(
+        "admin-custom-text-lock-state",
+    ),
     toggleSkipLockButton: document.getElementById("toggle-skip-lock-button"),
     toggleSwitchLockButton: document.getElementById("toggle-switch-lock-button"),
+    toggleCustomTextLockButton: document.getElementById(
+        "toggle-custom-text-lock-button",
+    ),
     adminLogoutButton: document.getElementById("admin-logout-button"),
     adminActionStatus: document.getElementById("admin-action-status"),
 };
 
 let latestControlPayload = createGuestControlPayload(true);
+const customTextStyleState = {
+    bold: false,
+    italic: false,
+    underline: false,
+    alignment: "center",
+    textColor: "white",
+    backgroundColor: "black",
+};
 
 function displayText(value) {
     if (value === null || value === undefined || value === "") {
@@ -123,6 +162,11 @@ function createGuestControlPayload(configured = true) {
                     available: true,
                     status: "ready",
                     requested_category: null,
+                    active_override: false,
+                    override_expires_at: "",
+                    override_remaining_seconds: 0,
+                    override_text: "",
+                    override: null,
                 },
             ]),
         ),
@@ -374,7 +418,11 @@ function getControlLockMessage(control) {
         : "Switch locked by admin.";
 }
 
-function buildControlNote(control, auth) {
+function getCustomTextLockMessage() {
+    return "Custom Text is locked by admin.";
+}
+
+function buildControlNote(control) {
     if (!control) {
         return "Control state unavailable.";
     }
@@ -488,12 +536,12 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     );
 }
 
-function applyPublicControlState(control, button, noteElement, auth) {
+function applyPublicControlState(control, button, noteElement) {
     if (!control || !button || !noteElement) {
         return;
     }
 
-    noteElement.textContent = buildControlNote(control, auth);
+    noteElement.textContent = buildControlNote(control);
     button.disabled = !control.available;
 }
 
@@ -511,6 +559,207 @@ function applyAdminLockState(control, button, labelElement) {
     button.disabled = false;
 }
 
+function syncCustomTextStyleButtons() {
+    elements.toolbarToggleButtons.forEach((button) => {
+        const styleKey = button.dataset.toggleStyle;
+        const active = Boolean(customTextStyleState[styleKey]);
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+    });
+
+    elements.alignmentButtons.forEach((button) => {
+        const active = button.dataset.alignment === customTextStyleState.alignment;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+    });
+
+    elements.colorButtons.forEach((button) => {
+        const target = button.dataset.colorTarget;
+        const colorName = button.dataset.colorName;
+        const active =
+            (target === "text" &&
+                colorName === customTextStyleState.textColor) ||
+            (target === "background" &&
+                colorName === customTextStyleState.backgroundColor);
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+    });
+}
+
+function setCustomTextInputsEnabled(enabled) {
+    const controls = [
+        elements.customTextInput,
+        elements.customTextDuration,
+        elements.customTextFontFamily,
+        elements.customTextFontSize,
+        elements.customTextSubmitButton,
+        ...elements.toolbarToggleButtons,
+        ...elements.alignmentButtons,
+        ...elements.colorButtons,
+    ];
+
+    controls.forEach((control) => {
+        if (control) {
+            control.disabled = !enabled;
+        }
+    });
+}
+
+function buildCustomTextNote(control) {
+    if (!control) {
+        return "Custom Text state unavailable.";
+    }
+
+    const noteParts = [];
+    if (control.locked && !control.admin_override) {
+        return getCustomTextLockMessage();
+    }
+
+    if (control.locked && control.admin_override) {
+        noteParts.push(`${getCustomTextLockMessage()} Admin override active.`);
+    }
+
+    if (control.cooldown_remaining_seconds > 0) {
+        noteParts.push(
+            `Cooldown active: ${control.cooldown_remaining_seconds}s remaining.`,
+        );
+    }
+
+    if (control.active_override) {
+        if (control.override_expires_at) {
+            noteParts.push(`Override active until ${control.override_expires_at}.`);
+        } else {
+            noteParts.push("Override is active on the matrix.");
+        }
+    }
+
+    if (noteParts.length > 0) {
+        return noteParts.join(" ");
+    }
+
+    return "Ready to send a temporary matrix override.";
+}
+
+function applyCustomTextControlState(control) {
+    const nextControl =
+        control || createGuestControlPayload().controls.custom_text;
+    if (elements.customTextNote) {
+        elements.customTextNote.textContent = buildCustomTextNote(nextControl);
+    }
+    if (elements.customTextSubmitButton) {
+        elements.customTextSubmitButton.textContent = "Display Text";
+    }
+    setCustomTextInputsEnabled(Boolean(nextControl.available));
+}
+
+function formatDurationValue(value) {
+    const numeric = Number(value);
+    const clamped = Number.isFinite(numeric)
+        ? Math.min(durationRange.max, Math.max(durationRange.min, numeric))
+        : durationRange.max;
+    return clamped % 1 === 0 ? String(clamped) : clamped.toFixed(1);
+}
+
+function toggleCustomTextStyle(styleKey) {
+    if (!(styleKey in customTextStyleState)) {
+        return;
+    }
+
+    customTextStyleState[styleKey] = !customTextStyleState[styleKey];
+    syncCustomTextStyleButtons();
+}
+
+function setCustomTextAlignment(alignment) {
+    customTextStyleState.alignment = alignment;
+    syncCustomTextStyleButtons();
+}
+
+function setCustomTextColor(target, colorName) {
+    if (target === "text") {
+        customTextStyleState.textColor = colorName;
+    } else if (target === "background") {
+        customTextStyleState.backgroundColor = colorName;
+    }
+    syncCustomTextStyleButtons();
+}
+
+async function submitCustomText(event) {
+    event.preventDefault();
+    if (!elements.customTextInput || !elements.customTextDuration) {
+        return;
+    }
+
+    const text = elements.customTextInput.value.trim();
+    if (!text) {
+        setMessage(elements.customTextStatus, "Message text is required.", "error");
+        elements.customTextInput.focus();
+        return;
+    }
+
+    const durationMinutes = Number(elements.customTextDuration.value);
+    if (
+        !Number.isFinite(durationMinutes) ||
+        durationMinutes < durationRange.min ||
+        durationMinutes > durationRange.max
+    ) {
+        setMessage(
+            elements.customTextStatus,
+            `Duration must be between ${durationRange.min} and ${durationRange.max} minutes.`,
+            "error",
+        );
+        elements.customTextDuration.focus();
+        return;
+    }
+
+    setCustomTextInputsEnabled(false);
+    setMessage(
+        elements.customTextStatus,
+        "Sending temporary override to the matrix...",
+        "pending",
+    );
+
+    try {
+        const result = await fetchJson(customTextApi, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                text,
+                duration_minutes: durationMinutes,
+                style: {
+                    bold: customTextStyleState.bold,
+                    italic: customTextStyleState.italic,
+                    underline: customTextStyleState.underline,
+                    font_family: elements.customTextFontFamily?.value || "sans",
+                    font_size: Number(elements.customTextFontSize?.value || 16),
+                    text_color: customTextStyleState.textColor,
+                    background_color: customTextStyleState.backgroundColor,
+                    alignment: customTextStyleState.alignment,
+                },
+            }),
+        });
+        const expiresAt =
+            result.override?.expires_at ||
+            result.override_expires_at ||
+            result.requested_at;
+        setMessage(
+            elements.customTextStatus,
+            expiresAt
+                ? `Temporary override active until ${expiresAt}.`
+                : "Temporary override is active on the matrix.",
+            "success",
+        );
+    } catch (error) {
+        setMessage(
+            elements.customTextStatus,
+            describeResultError(error, "Custom text request failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard().catch(() => null);
+        applyCustomTextControlState(latestControlPayload?.controls?.custom_text);
+    }
+}
+
 function applyControlPayload(payload) {
     const nextPayload =
         payload || createGuestControlPayload(latestControlPayload?.auth?.configured);
@@ -522,6 +771,7 @@ function applyControlPayload(payload) {
     const isAdmin = Boolean(auth.authenticated);
     const skipControl = controls.skip_category;
     const switchControl = controls.switch_category;
+    const customTextControl = controls.custom_text;
     const publicLockedCount = [skipControl, switchControl].filter(
         (control) => Boolean(control?.locked && !control?.admin_override),
     ).length;
@@ -533,14 +783,13 @@ function applyControlPayload(payload) {
         skipControl,
         elements.skipCategoryButton,
         elements.skipCategoryNote,
-        auth,
     );
     applyPublicControlState(
         switchControl,
         elements.switchCategoryButton,
         elements.switchCategoryNote,
-        auth,
     );
+    applyCustomTextControlState(customTextControl);
 
     if (elements.switchCategorySelect) {
         elements.switchCategorySelect.disabled = !switchControl?.available;
@@ -551,9 +800,9 @@ function applyControlPayload(payload) {
             ? "Locked"
             : publicLockedCount === 1
                 ? "Partial Lock"
-            : adminOverride
-                ? "Admin Override"
-                : "Active";
+                : adminOverride
+                    ? "Admin Override"
+                    : "Active";
     }
 
     syncPublicActionStatus(auth, controls, previousPayload);
@@ -569,6 +818,7 @@ function applyControlPayload(payload) {
         elements.adminSessionBadge.textContent = "Unavailable";
         elements.toggleSkipLockButton.disabled = true;
         elements.toggleSwitchLockButton.disabled = true;
+        elements.toggleCustomTextLockButton.disabled = true;
         elements.adminLogoutButton.disabled = true;
         setMessage(
             elements.adminLoginStatus,
@@ -587,13 +837,13 @@ function applyControlPayload(payload) {
     if (isAdmin) {
         elements.adminPanel.hidden = false;
         elements.adminSessionBadge.textContent = `${displayText(auth.username)} active`;
-        const lockedControls = [skipControl, switchControl]
+        const lockedControls = [skipControl, switchControl, customTextControl]
             .filter((control) => Boolean(control?.locked))
             .map((control) => control.label);
         const lockSummary =
             lockedControls.length > 0
                 ? `${lockedControls.join(" and ")} locked for public use.`
-                : "Skip and switch controls are available to the public.";
+                : "Skip, switch, and custom text controls are available to the public.";
         elements.adminControlsSummary.textContent = auth.expires_at
             ? `Admin session active until ${auth.expires_at}. ${lockSummary}`
             : `Admin session active. ${lockSummary}`;
@@ -626,8 +876,14 @@ function applyControlPayload(payload) {
         elements.toggleSwitchLockButton,
         elements.adminSwitchLockState,
     );
+    applyAdminLockState(
+        customTextControl,
+        elements.toggleCustomTextLockButton,
+        elements.adminCustomTextLockState,
+    );
     elements.toggleSkipLockButton.disabled = !isAdmin;
     elements.toggleSwitchLockButton.disabled = !isAdmin;
+    elements.toggleCustomTextLockButton.disabled = !isAdmin;
     elements.adminLogoutButton.disabled = !isAdmin;
 }
 
@@ -836,10 +1092,22 @@ async function toggleControlLock(action) {
         return;
     }
 
+    const apiByAction = {
+        skip_category: { lock: lockSkipApi, unlock: unlockSkipApi },
+        switch_category: { lock: lockSwitchApi, unlock: unlockSwitchApi },
+        custom_text: { lock: lockCustomTextApi, unlock: unlockCustomTextApi },
+    };
+    const endpoints = apiByAction[action];
+    if (!endpoints) {
+        setMessage(
+            elements.adminActionStatus,
+            "Unsupported control lock action.",
+            "error",
+        );
+        return;
+    }
+
     const nextLocked = !control.locked;
-    const isSkipAction = action === "skip_category";
-    const lockApi = isSkipAction ? lockSkipApi : lockSwitchApi;
-    const unlockApi = isSkipAction ? unlockSkipApi : unlockSwitchApi;
     setMessage(
         elements.adminActionStatus,
         `${nextLocked ? "Locking" : "Unlocking"} ${control.label}...`,
@@ -847,7 +1115,7 @@ async function toggleControlLock(action) {
     );
 
     try {
-        const result = await fetchJson(nextLocked ? lockApi : unlockApi, {
+        const result = await fetchJson(nextLocked ? endpoints.lock : endpoints.unlock, {
             method: "POST",
         });
         setMessage(
@@ -917,6 +1185,39 @@ if (elements.pokemonImage) {
     });
 }
 
+if (elements.customTextDuration) {
+    elements.customTextDuration.addEventListener("blur", () => {
+        elements.customTextDuration.value = formatDurationValue(
+            elements.customTextDuration.value || durationRange.max,
+        );
+    });
+}
+
+elements.toolbarToggleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        toggleCustomTextStyle(button.dataset.toggleStyle);
+    });
+});
+
+elements.alignmentButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        setCustomTextAlignment(button.dataset.alignment);
+    });
+});
+
+elements.colorButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        setCustomTextColor(
+            button.dataset.colorTarget,
+            button.dataset.colorName,
+        );
+    });
+});
+
+if (elements.customTextForm) {
+    elements.customTextForm.addEventListener("submit", submitCustomText);
+}
+
 if (elements.skipCategoryButton) {
     elements.skipCategoryButton.addEventListener("click", skipCategory);
 }
@@ -949,6 +1250,13 @@ if (elements.toggleSwitchLockButton) {
     );
 }
 
+if (elements.toggleCustomTextLockButton) {
+    elements.toggleCustomTextLockButton.addEventListener("click", () =>
+        toggleControlLock("custom_text"),
+    );
+}
+
+syncCustomTextStyleButtons();
 bindModalInteractions();
 applyControlPayload(latestControlPayload);
 refreshDashboard().catch(() => {});
