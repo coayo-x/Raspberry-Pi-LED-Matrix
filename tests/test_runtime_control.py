@@ -1,7 +1,11 @@
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
+import custom_text
+from custom_text import request_custom_text_override
 from runtime_control import (
     consume_skip_category_request,
     consume_switch_category_request,
@@ -12,6 +16,13 @@ from runtime_control import (
     request_switch_category,
     set_control_lock,
 )
+
+
+def _install_bad_words(monkeypatch, base_dir: Path) -> Path:
+    path = base_dir / f"badwords-{uuid4().hex}.txt"
+    path.write_text("obscene\nblocked phrase\n", encoding="utf-8")
+    monkeypatch.setattr(custom_text, "BAD_WORDS_PATH", path)
+    return path
 
 
 def test_skip_category_requests_are_counted_and_consumed(isolated_db_path) -> None:
@@ -167,3 +178,38 @@ def test_runtime_control_state_reports_independent_locks(
     assert public_state["switch_category"]["available"] is True
     assert admin_state["skip_category"]["admin_override"] is True
     assert admin_state["switch_category"]["admin_override"] is False
+
+
+def test_runtime_controls_are_blocked_while_custom_text_is_active(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    request_custom_text_override(
+        "Temporary override",
+        db_path=str(isolated_db_path),
+        now=datetime(2026, 3, 15, 13, 40, 0),
+    )
+
+    public_skip = request_skip_category(
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:40:01",
+    )
+    public_switch = request_switch_category(
+        "weather",
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:40:02",
+    )
+    admin_skip = request_skip_category(
+        str(isolated_db_path),
+        requested_at="2026-03-15T13:40:03",
+        is_admin=True,
+    )
+
+    assert public_skip["accepted"] is False
+    assert public_skip["error"] == "Cannot change category while custom text is active"
+    assert public_switch["accepted"] is False
+    assert public_switch["error"] == "Cannot change category while custom text is active"
+    assert admin_skip["accepted"] is False
+    assert admin_skip["error"] == "Cannot change category while custom text is active"
+    assert get_skip_category_state(str(isolated_db_path)) == (0, 0)
+    assert get_switch_category_state(str(isolated_db_path)) == (0, 0, None)

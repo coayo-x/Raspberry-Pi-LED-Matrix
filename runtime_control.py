@@ -6,6 +6,7 @@ from config import (
     SKIP_CATEGORY_COOLDOWN_SECONDS,
     SWITCH_CATEGORY_COOLDOWN_SECONDS,
 )
+from custom_text import get_active_custom_text_override
 from db_manager import connect
 from rotation_engine import DISPLAY_SEQUENCE
 
@@ -44,6 +45,7 @@ CONTROL_ACTIONS = {
         "value_key": SWITCH_CATEGORY_VALUE_KEY,
     },
 }
+CUSTOM_TEXT_ACTIVE_ERROR_MESSAGE = "Cannot change category while custom text is active"
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -197,6 +199,10 @@ def _request_action(
     requested_category = (
         _normalize_category(category) if definition["value_key"] is not None else None
     )
+    custom_text_active = (
+        normalized_action in {"skip_category", "switch_category"}
+        and get_active_custom_text_override(db_path=db_path, now=current) is not None
+    )
 
     conn = connect(db_path)
     try:
@@ -204,6 +210,16 @@ def _request_action(
         current_state = _build_action_state(
             conn, normalized_action, current=current, is_admin=is_admin
         )
+        if custom_text_active:
+            conn.rollback()
+            return {
+                **current_state,
+                "accepted": False,
+                "requested": False,
+                "rate_limited": False,
+                "error": CUSTOM_TEXT_ACTIVE_ERROR_MESSAGE,
+            }
+
         if current_state["locked"] and not is_admin:
             conn.rollback()
             return {
