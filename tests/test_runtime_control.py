@@ -1,8 +1,13 @@
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
+import custom_text
+from custom_text import request_custom_text_override
 from runtime_control import (
+    CATEGORY_CHANGE_BLOCKED_MESSAGE,
     consume_skip_category_request,
     consume_switch_category_request,
     get_runtime_control_state,
@@ -12,6 +17,17 @@ from runtime_control import (
     request_switch_category,
     set_control_lock,
 )
+
+
+def _install_bad_words(
+    monkeypatch,
+    base_dir: Path,
+    contents: str = "obscene\nblocked phrase\n",
+) -> Path:
+    path = base_dir / f"badwords-{uuid4().hex}.txt"
+    path.write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(custom_text, "BAD_WORDS_PATH", path)
+    return path
 
 
 def test_skip_category_requests_are_counted_and_consumed(isolated_db_path) -> None:
@@ -167,3 +183,83 @@ def test_runtime_control_state_reports_independent_locks(
     assert public_state["switch_category"]["available"] is True
     assert admin_state["skip_category"]["admin_override"] is True
     assert admin_state["switch_category"]["admin_override"] is False
+
+
+def test_skip_and_switch_requests_are_rejected_while_custom_text_is_active(
+    monkeypatch,
+    isolated_db_path,
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    active_at = datetime(2026, 3, 23, 12, 0, 0)
+    request_custom_text_override(
+        "Matrix maintenance in progress",
+        db_path=str(isolated_db_path),
+        now=active_at,
+    )
+
+    skip_result = request_skip_category(
+        str(isolated_db_path),
+        now=datetime(2026, 3, 23, 12, 0, 1),
+    )
+    switch_result = request_switch_category(
+        "weather",
+        str(isolated_db_path),
+        now=datetime(2026, 3, 23, 12, 0, 1),
+    )
+    public_state = get_runtime_control_state(
+        str(isolated_db_path),
+        now=datetime(2026, 3, 23, 12, 0, 1),
+    )
+    admin_state = get_runtime_control_state(
+        str(isolated_db_path),
+        is_admin=True,
+        now=datetime(2026, 3, 23, 12, 0, 1),
+    )
+
+    assert skip_result["accepted"] is False
+    assert skip_result["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    assert skip_result["blocked_by_custom_text"] is True
+    assert switch_result["accepted"] is False
+    assert switch_result["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    assert switch_result["blocked_by_custom_text"] is True
+    assert get_skip_category_state(str(isolated_db_path)) == (0, 0)
+    assert get_switch_category_state(str(isolated_db_path)) == (0, 0, None)
+
+    assert public_state["skip_category"]["available"] is False
+    assert public_state["skip_category"]["status"] == "custom_text_active"
+    assert (
+        public_state["skip_category"]["blocked_reason"]
+        == CATEGORY_CHANGE_BLOCKED_MESSAGE
+    )
+    assert public_state["switch_category"]["available"] is False
+    assert public_state["switch_category"]["blocked_by_custom_text"] is True
+    assert admin_state["skip_category"]["available"] is False
+    assert admin_state["switch_category"]["available"] is False
+
+
+def test_pending_category_requests_are_discarded_while_custom_text_is_active(
+    monkeypatch,
+    isolated_db_path,
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    current = datetime.now().replace(microsecond=0)
+
+    request_skip_category(
+        str(isolated_db_path),
+        requested_at=current.isoformat(timespec="seconds"),
+    )
+    request_switch_category(
+        "science",
+        str(isolated_db_path),
+        requested_at=current.isoformat(timespec="seconds"),
+    )
+    request_custom_text_override(
+        "Override active",
+        db_path=str(isolated_db_path),
+        now=current,
+    )
+
+    assert consume_skip_category_request(str(isolated_db_path)) is None
+    assert consume_switch_category_request(str(isolated_db_path)) is None
+    assert get_skip_category_state(str(isolated_db_path)) == (1, 1)
+    assert get_switch_category_state(str(isolated_db_path)) == (1, 1, "science")

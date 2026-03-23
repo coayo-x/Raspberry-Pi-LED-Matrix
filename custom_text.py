@@ -274,9 +274,11 @@ def normalize_custom_text_style(style: dict | None) -> dict:
         "text_brightness": _normalize_brightness(
             active_style.get(
                 "text_brightness",
-                legacy_brightness
-                if legacy_brightness not in {None, ""}
-                else DEFAULT_STYLE["text_brightness"],
+                (
+                    legacy_brightness
+                    if legacy_brightness not in {None, ""}
+                    else DEFAULT_STYLE["text_brightness"]
+                ),
             ),
             "text_brightness",
             DEFAULT_STYLE["text_brightness"],
@@ -284,9 +286,11 @@ def normalize_custom_text_style(style: dict | None) -> dict:
         "background_brightness": _normalize_brightness(
             active_style.get(
                 "background_brightness",
-                legacy_brightness
-                if legacy_brightness not in {None, ""}
-                else DEFAULT_STYLE["background_brightness"],
+                (
+                    legacy_brightness
+                    if legacy_brightness not in {None, ""}
+                    else DEFAULT_STYLE["background_brightness"]
+                ),
             ),
             "background_brightness",
             DEFAULT_STYLE["background_brightness"],
@@ -494,15 +498,28 @@ def get_custom_text_override(
         conn.close()
 
 
+def get_active_custom_text_override_from_conn(
+    conn,
+    *,
+    now: datetime | None = None,
+) -> dict | None:
+    current = _now_or_default(now)
+    override = _load_override_from_conn(conn, current=current)
+    if override is None or not override["active"]:
+        return None
+    return override
+
+
 def get_active_custom_text_override(
     db_path: str = DB_PATH,
     *,
     now: datetime | None = None,
 ) -> dict | None:
-    override = get_custom_text_override(db_path=db_path, now=now)
-    if override is None or not override["active"]:
-        return None
-    return override
+    conn = connect(db_path)
+    try:
+        return get_active_custom_text_override_from_conn(conn, now=now)
+    finally:
+        conn.close()
 
 
 def get_custom_text_interrupt_token(

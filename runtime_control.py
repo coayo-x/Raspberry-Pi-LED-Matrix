@@ -6,6 +6,7 @@ from config import (
     SKIP_CATEGORY_COOLDOWN_SECONDS,
     SWITCH_CATEGORY_COOLDOWN_SECONDS,
 )
+from custom_text import get_active_custom_text_override_from_conn
 from db_manager import connect
 from rotation_engine import DISPLAY_SEQUENCE
 
@@ -44,6 +45,8 @@ CONTROL_ACTIONS = {
         "value_key": SWITCH_CATEGORY_VALUE_KEY,
     },
 }
+
+CATEGORY_CHANGE_BLOCKED_MESSAGE = "Cannot change category while custom text is active"
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -152,8 +155,15 @@ def _build_action_state(
     if definition["value_key"] is not None:
         requested_category = _get_meta_text(conn, definition["value_key"])
 
-    is_blocked = cooldown_remaining > 0 or (locked and not is_admin)
-    if locked and not is_admin:
+    custom_text_active = (
+        get_active_custom_text_override_from_conn(conn, now=current) is not None
+    )
+    is_blocked = (
+        custom_text_active or cooldown_remaining > 0 or (locked and not is_admin)
+    )
+    if custom_text_active:
+        status = "custom_text_active"
+    elif locked and not is_admin:
         status = "locked"
     elif cooldown_remaining > 0:
         status = "cooldown"
@@ -177,6 +187,10 @@ def _build_action_state(
         "available": not is_blocked,
         "status": status,
         "requested_category": requested_category,
+        "blocked_by_custom_text": custom_text_active,
+        "blocked_reason": (
+            CATEGORY_CHANGE_BLOCKED_MESSAGE if custom_text_active else ""
+        ),
     }
 
 
@@ -204,6 +218,16 @@ def _request_action(
         current_state = _build_action_state(
             conn, normalized_action, current=current, is_admin=is_admin
         )
+        if current_state["blocked_by_custom_text"]:
+            conn.rollback()
+            return {
+                **current_state,
+                "accepted": False,
+                "requested": False,
+                "rate_limited": False,
+                "error": CATEGORY_CHANGE_BLOCKED_MESSAGE,
+            }
+
         if current_state["locked"] and not is_admin:
             conn.rollback()
             return {
@@ -361,6 +385,14 @@ def consume_skip_category_request(db_path: str = DB_PATH) -> int | None:
             conn.rollback()
             return None
 
+        if (
+            get_active_custom_text_override_from_conn(conn, now=datetime.now())
+            is not None
+        ):
+            _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
+            conn.commit()
+            return None
+
         handled_count += 1
         _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(handled_count))
         conn.commit()
@@ -380,6 +412,14 @@ def consume_switch_category_request(
 
         if handled_count >= request_count:
             conn.rollback()
+            return None
+
+        if (
+            get_active_custom_text_override_from_conn(conn, now=datetime.now())
+            is not None
+        ):
+            _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
+            conn.commit()
             return None
 
         category = _get_meta_text(conn, SWITCH_CATEGORY_VALUE_KEY)

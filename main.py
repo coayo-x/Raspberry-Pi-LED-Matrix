@@ -99,6 +99,11 @@ except Exception:
                 conn.rollback()
                 return None
 
+            if get_active_custom_text_override(db_path=db_path) is not None:
+                _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
+                conn.commit()
+                return None
+
             handled_count += 1
             _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(handled_count))
             conn.commit()
@@ -117,6 +122,11 @@ except Exception:
 
             if handled_count >= request_count:
                 conn.rollback()
+                return None
+
+            if get_active_custom_text_override(db_path=db_path) is not None:
+                _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
+                conn.commit()
                 return None
 
             category = (_get_meta_text(conn, SWITCH_CATEGORY_VALUE_KEY) or "").strip()
@@ -286,10 +296,17 @@ def _build_interrupt_checker(
     skip_baseline: int,
     switch_baseline: int,
     custom_text_baseline: str | None,
+    *,
+    include_category_controls: bool = True,
 ) -> Callable[[], bool]:
     return lambda: (
-        get_skip_category_state()[0] > skip_baseline
-        or get_switch_category_state()[0] > switch_baseline
+        (
+            include_category_controls
+            and (
+                get_skip_category_state()[0] > skip_baseline
+                or get_switch_category_state()[0] > switch_baseline
+            )
+        )
         or get_custom_text_interrupt_token() != custom_text_baseline
     )
 
@@ -326,16 +343,11 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
         custom_text_baseline: str | None
 
         if custom_override is not None:
-            if slot_key != active_slot_key:
-                (
-                    skip_handled_count,
-                    switch_handled_count,
-                    custom_text_baseline,
-                ) = _clear_expired_runtime_control_requests(now=now)
-            else:
-                _, skip_handled_count = get_skip_category_state()
-                _, switch_handled_count, _ = get_switch_category_state()
-                custom_text_baseline = get_custom_text_interrupt_token(now=now)
+            (
+                skip_handled_count,
+                switch_handled_count,
+                custom_text_baseline,
+            ) = _clear_expired_runtime_control_requests(now=now)
 
             payload = build_runtime_payload(now, custom_override=custom_override)
             print_payload(payload)
@@ -349,6 +361,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                     skip_handled_count,
                     switch_handled_count,
                     custom_text_baseline,
+                    include_category_controls=False,
                 ),
             )
             active_slot_key = slot_key
@@ -382,7 +395,9 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                 else:
                     skip_handled_count = consumed_skip_count
                     _, switch_handled_count, _ = get_switch_category_state()
-                    base_category = active_rotation_category or get_current_category(now)
+                    base_category = active_rotation_category or get_current_category(
+                        now
+                    )
                     category_override = get_next_category(base_category)
 
             custom_text_baseline = get_custom_text_interrupt_token(now=now)
