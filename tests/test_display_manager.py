@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 import display_manager
@@ -23,6 +24,22 @@ class FakeMatrix:
 
     def show(self) -> None:
         self.show_calls += 1
+
+
+POKEMON_SAMPLE = {
+    "name": "Bulbasaur",
+    "types": ["Grass", "Poison"],
+    "hp": 45,
+    "attack": 49,
+    "defense": 49,
+    "image_url": "https://example.test/bulbasaur.png",
+}
+
+
+def _non_default_mask(image) -> np.ndarray:
+    pixels = np.array(image)
+    background = np.array(display_manager.DEFAULT_BG, dtype=np.uint8)
+    return np.any(pixels != background, axis=-1)
 
 
 def test_matrix_initialization_uses_multi_panel_geometry(monkeypatch) -> None:
@@ -69,3 +86,47 @@ def test_matrix_initialization_requires_piomatter_backend(monkeypatch) -> None:
         match="Matrix output requested but adafruit_blinka_raspberry_pi5_piomatter is not installed.",
     ):
         display_manager.DisplayManager(use_matrix=True)
+
+
+def test_render_pokemon_base_uses_all_three_panels(monkeypatch) -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    art = display_manager.Image.new("RGBA", (48, 48), (255, 64, 32, 255))
+    monkeypatch.setattr(display, "_pokemon_artwork", lambda data: art)
+
+    frame = display._render_pokemon_base(POKEMON_SAMPLE)
+    mask = _non_default_mask(frame)
+    panel_width = display.panel_width
+
+    assert mask[:, :panel_width].any()
+    assert mask[:, panel_width : panel_width * 2].any()
+    assert mask[:, panel_width * 2 :].any()
+
+
+def test_compose_pokemon_frame_keeps_each_panel_in_its_region(monkeypatch) -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    art = display_manager.Image.new("RGBA", (48, 48), (255, 64, 32, 255))
+    monkeypatch.setattr(display, "_pokemon_artwork", lambda data: art)
+
+    name_panel = display._render_pokemon_center_title(POKEMON_SAMPLE)
+    stat_panel = display._pokemon_stat_frames(POKEMON_SAMPLE)[0]
+    image_panel = display._render_pokemon_image_frame(POKEMON_SAMPLE)
+    panel_width = display.panel_width
+
+    left_only = _non_default_mask(
+        display._compose_pokemon_frame(name_panel=name_panel)
+    )
+    assert left_only[:, :panel_width].any()
+    assert not left_only[:, panel_width:].any()
+
+    middle_only = _non_default_mask(
+        display._compose_pokemon_frame(stat_panel=stat_panel)
+    )
+    assert middle_only[:, panel_width : panel_width * 2].any()
+    assert not middle_only[:, :panel_width].any()
+    assert not middle_only[:, panel_width * 2 :].any()
+
+    right_only = _non_default_mask(
+        display._compose_pokemon_frame(image_panel=image_panel)
+    )
+    assert right_only[:, panel_width * 2 :].any()
+    assert not right_only[:, : panel_width * 2].any()
