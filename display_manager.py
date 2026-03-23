@@ -866,7 +866,13 @@ class DisplayManager:
         should_interrupt: Optional[Callable[[], bool]] = None,
     ) -> bool:
         data = payload["data"]
-        end_time = time.time() + max(1, duration_seconds)
+        total_duration = max(1.0, float(duration_seconds))
+        start_time = time.time()
+        end_time = start_time + total_duration
+        intro_end_time = min(
+            end_time,
+            start_time + min(1.2, max(0.35, total_duration * 0.18)),
+        )
 
         intro = self._render_pokemon_center_title(data)
         if self._transition_to(
@@ -877,7 +883,7 @@ class DisplayManager:
             should_interrupt=should_interrupt,
         ):
             return True
-        intro_hold = min(1.8, max(0.0, end_time - time.time() - 0.4))
+        intro_hold = max(0.0, intro_end_time - time.time())
         if intro_hold > 0 and self._sleep_with_interrupt(intro_hold, should_interrupt):
             return True
         if time.time() >= end_time or self._is_interrupted(should_interrupt):
@@ -885,14 +891,8 @@ class DisplayManager:
 
         image_frame = self._render_pokemon_image_frame(data)
         stat_frames = self._pokemon_stat_frames(data)
-
-        remaining = max(0.0, end_time - time.time())
-        image_hold = 0.0
-        if remaining > 0.9:
-            image_hold = min(2.0, max(0.8, remaining * 0.25))
-            image_hold = min(image_hold, max(0.0, remaining - 0.6))
-
-        stats_end_time = end_time - image_hold
+        remaining_after_intro = max(0.0, end_time - time.time())
+        stats_end_time = time.time() + (remaining_after_intro * 0.65)
         stat_index = 0
         while stat_frames and time.time() < stats_end_time:
             if self._is_interrupted(should_interrupt):
