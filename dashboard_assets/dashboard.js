@@ -437,6 +437,14 @@ function getCustomTextLockMessage() {
     return "Custom text is currently locked by admin.";
 }
 
+function getCustomTextRuntimeBlockMessage() {
+    return "Cannot change category while custom text is active";
+}
+
+function isBlockedByActiveCustomText(customTextControl) {
+    return Boolean(customTextControl?.active_override);
+}
+
 function getCustomTextLockBannerMessage(control) {
     if (!control?.locked) {
         return "";
@@ -449,9 +457,13 @@ function getCustomTextLockBannerMessage(control) {
     return getCustomTextLockMessage();
 }
 
-function buildControlNote(control) {
+function buildControlNote(control, customTextControl) {
     if (!control) {
         return "Control state unavailable.";
+    }
+
+    if (isBlockedByActiveCustomText(customTextControl)) {
+        return getCustomTextRuntimeBlockMessage();
     }
 
     if (control.locked && !control.admin_override) {
@@ -481,13 +493,16 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     const previousAuth = previousPayload?.auth;
     const previousSkip = previousPayload?.controls?.skip_category;
     const previousSwitch = previousPayload?.controls?.switch_category;
+    const previousCustomText = previousPayload?.controls?.custom_text;
     const nextSkip = controls?.skip_category;
     const nextSwitch = controls?.switch_category;
+    const nextCustomText = controls?.custom_text;
     const lockStateChanged =
         previousSkip?.locked !== nextSkip?.locked ||
         previousSkip?.admin_override !== nextSkip?.admin_override ||
         previousSwitch?.locked !== nextSwitch?.locked ||
-        previousSwitch?.admin_override !== nextSwitch?.admin_override;
+        previousSwitch?.admin_override !== nextSwitch?.admin_override ||
+        previousCustomText?.active_override !== nextCustomText?.active_override;
     const authStateChanged =
         previousAuth?.configured !== auth?.configured ||
         previousAuth?.authenticated !== auth?.authenticated;
@@ -504,6 +519,16 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     const switchLocked = Boolean(nextSwitch?.locked && !nextSwitch?.admin_override);
     const skipOverride = Boolean(nextSkip?.admin_override);
     const switchOverride = Boolean(nextSwitch?.admin_override);
+    const customTextBlocked = isBlockedByActiveCustomText(nextCustomText);
+
+    if (customTextBlocked) {
+        setMessage(
+            elements.actionStatus,
+            getCustomTextRuntimeBlockMessage(),
+            "error",
+        );
+        return;
+    }
 
     if (skipLocked && switchLocked) {
         setMessage(
@@ -563,13 +588,14 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     );
 }
 
-function applyPublicControlState(control, button, noteElement) {
+function applyPublicControlState(control, button, noteElement, customTextControl) {
     if (!control || !button || !noteElement) {
         return;
     }
 
-    noteElement.textContent = buildControlNote(control);
-    button.disabled = !control.available;
+    noteElement.textContent = buildControlNote(control, customTextControl);
+    button.disabled =
+        !control.available || isBlockedByActiveCustomText(customTextControl);
 }
 
 function applyAdminLockState(control, button, labelElement) {
@@ -890,16 +916,20 @@ function applyControlPayload(payload) {
         skipControl,
         elements.skipCategoryButton,
         elements.skipCategoryNote,
+        customTextControl,
     );
     applyPublicControlState(
         switchControl,
         elements.switchCategoryButton,
         elements.switchCategoryNote,
+        customTextControl,
     );
     applyCustomTextControlState(customTextControl);
 
     if (elements.switchCategorySelect) {
-        elements.switchCategorySelect.disabled = !switchControl?.available;
+        elements.switchCategorySelect.disabled =
+            !switchControl?.available ||
+            isBlockedByActiveCustomText(customTextControl);
     }
 
     if (elements.publicControlMode) {
@@ -1041,6 +1071,18 @@ async function skipCategory() {
         return;
     }
 
+    if (
+        isBlockedByActiveCustomText(latestControlPayload?.controls?.custom_text)
+    ) {
+        setMessage(
+            elements.actionStatus,
+            getCustomTextRuntimeBlockMessage(),
+            "error",
+        );
+        await refreshDashboard();
+        return;
+    }
+
     elements.skipCategoryButton.disabled = true;
     setMessage(elements.actionStatus, "Requesting category skip...", "pending");
 
@@ -1073,6 +1115,18 @@ async function skipCategory() {
 
 async function switchCategory() {
     if (!elements.switchCategoryButton || !elements.switchCategorySelect) {
+        return;
+    }
+
+    if (
+        isBlockedByActiveCustomText(latestControlPayload?.controls?.custom_text)
+    ) {
+        setMessage(
+            elements.actionStatus,
+            getCustomTextRuntimeBlockMessage(),
+            "error",
+        );
+        await refreshDashboard();
         return;
     }
 

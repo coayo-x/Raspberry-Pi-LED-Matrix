@@ -645,6 +645,53 @@ def test_dashboard_custom_text_submission_updates_control_state(
     )
 
 
+def test_dashboard_blocks_skip_and_switch_while_custom_text_is_active(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        custom_status, custom_body = _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "Temporary override", "duration_minutes": 5, "style": {}},
+        )
+        public_skip_status, public_skip_body = _post_json_expect_error(
+            f"{base_url}/api/skip-category"
+        )
+        public_switch_status, public_switch_body = _post_json_expect_error(
+            f"{base_url}/api/switch-category",
+            {"category": "weather"},
+        )
+        _login(base_url, opener)
+        admin_skip_status, admin_skip_body = _post_json_expect_error(
+            f"{base_url}/api/skip-category",
+            opener=opener,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert custom_status == 200
+    assert custom_body["accepted"] is True
+    assert public_skip_status == 409
+    assert public_skip_body["error"] == "Cannot change category while custom text is active"
+    assert public_switch_status == 409
+    assert public_switch_body["error"] == "Cannot change category while custom text is active"
+    assert admin_skip_status == 409
+    assert admin_skip_body["error"] == "Cannot change category while custom text is active"
+    assert get_skip_category_state(str(isolated_db_path)) == (0, 0)
+    assert get_switch_category_state(str(isolated_db_path)) == (0, 0, None)
+
+
 def test_dashboard_custom_text_rejects_blocked_words(
     monkeypatch, isolated_db_path
 ) -> None:
