@@ -73,6 +73,7 @@ const elements = {
     customTextDuration: document.getElementById("custom-text-duration"),
     customTextFontFamily: document.getElementById("custom-text-font-family"),
     customTextFontSize: document.getElementById("custom-text-font-size"),
+    customTextLockBanner: document.getElementById("custom-text-lock-banner"),
     customTextNote: document.getElementById("custom-text-note"),
     customTextSubmitButton: document.getElementById("custom-text-submit-button"),
     customTextStatus: document.getElementById("custom-text-status"),
@@ -419,7 +420,19 @@ function getControlLockMessage(control) {
 }
 
 function getCustomTextLockMessage() {
-    return "Custom Text is locked by admin.";
+    return "Custom text is currently locked by admin.";
+}
+
+function getCustomTextLockBannerMessage(control) {
+    if (!control?.locked) {
+        return "";
+    }
+
+    if (control.admin_override) {
+        return "Custom text is locked for public use. Admin override is active.";
+    }
+
+    return getCustomTextLockMessage();
 }
 
 function buildControlNote(control) {
@@ -643,6 +656,13 @@ function buildCustomTextNote(control) {
 function applyCustomTextControlState(control) {
     const nextControl =
         control || createGuestControlPayload().controls.custom_text;
+    const isPublicLocked = Boolean(nextControl.locked && !nextControl.admin_override);
+
+    if (elements.customTextLockBanner) {
+        elements.customTextLockBanner.hidden = !nextControl.locked;
+        elements.customTextLockBanner.textContent =
+            getCustomTextLockBannerMessage(nextControl);
+    }
     if (elements.customTextNote) {
         elements.customTextNote.textContent = buildCustomTextNote(nextControl);
     }
@@ -650,6 +670,30 @@ function applyCustomTextControlState(control) {
         elements.customTextSubmitButton.textContent = "Display Text";
     }
     setCustomTextInputsEnabled(Boolean(nextControl.available));
+
+    if (isPublicLocked) {
+        setMessage(elements.customTextStatus, getCustomTextLockMessage(), "error");
+        return;
+    }
+
+    if (
+        elements.customTextStatus &&
+        elements.customTextStatus.textContent === getCustomTextLockMessage()
+    ) {
+        if (nextControl.active_override && nextControl.override_expires_at) {
+            setMessage(
+                elements.customTextStatus,
+                `Temporary override active until ${nextControl.override_expires_at}.`,
+                "success",
+            );
+        } else {
+            setMessage(
+                elements.customTextStatus,
+                "Ready to send a temporary matrix override.",
+                "idle",
+            );
+        }
+    }
 }
 
 function formatDurationValue(value) {
@@ -686,6 +730,13 @@ function setCustomTextColor(target, colorName) {
 async function submitCustomText(event) {
     event.preventDefault();
     if (!elements.customTextInput || !elements.customTextDuration) {
+        return;
+    }
+
+    const control = latestControlPayload?.controls?.custom_text;
+    if (control?.locked && !control?.admin_override) {
+        setMessage(elements.customTextStatus, getCustomTextLockMessage(), "error");
+        applyCustomTextControlState(control);
         return;
     }
 

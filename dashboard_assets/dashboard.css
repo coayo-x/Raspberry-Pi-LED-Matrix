@@ -283,6 +283,17 @@ select {
     font-size: 0.92rem;
 }
 
+.custom-text-lock-banner {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 176, 154, 0.3);
+    background: linear-gradient(180deg, rgba(255, 176, 154, 0.18), rgba(171, 61, 38, 0.12));
+    color: var(--danger);
+    font-weight: 700;
+    line-height: 1.4;
+}
+
 .control-block {
     padding: 12px;
     border-radius: 16px;

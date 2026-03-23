@@ -137,6 +137,7 @@ def test_dashboard_root_is_public_without_authentication(
     assert "Current matrix payload" in page
     assert 'id="admin-control-button"' in page
     assert 'id="custom-text-form"' in page
+    assert 'id="custom-text-lock-banner"' in page
     assert "/api/current-display-state" in page
     assert "/api/custom-text" in page
     assert "Restricted Access" not in page
@@ -749,6 +750,7 @@ def test_dashboard_custom_text_lock_requires_admin_and_allows_admin_override(
     assert lock_body["control"]["locked"] is True
     assert public_status == 423
     assert public_body["locked"] is True
+    assert public_body["error"] == "Custom text is currently locked by admin."
     assert admin_status == 200
     assert admin_body["accepted"] is True
     assert admin_body["admin_override"] is True
