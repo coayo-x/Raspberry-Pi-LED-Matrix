@@ -108,7 +108,11 @@ class DisplayManager:
             geometry_kwargs["rotation"] = orientation
 
         geometry = piomatter.Geometry(**geometry_kwargs)
-        pinout = piomatter.Pinout.AdafruitMatrixHatBGR
+        pinout = getattr(piomatter.Pinout, "AdafruitMatrixHatRGB", None)
+        if pinout is None:
+            pinout = getattr(piomatter.Pinout, "AdafruitMatrixHat", None)
+        if pinout is None:
+            pinout = piomatter.Pinout.AdafruitMatrixHatBGR
         colorspace_name = (
             "RGB888Packed"
             if hasattr(piomatter.Colorspace, "RGB888Packed")
@@ -244,8 +248,12 @@ class DisplayManager:
     def _push_prepared(self, image: Image.Image) -> None:
         if self.use_matrix and self.matrix is not None and self.framebuffer is not None:
             channel_count = self.framebuffer.shape[2]
-            mode = "RGB" if channel_count == 3 else "RGBA"
-            arr = np.array(image.convert(mode), dtype=np.uint8)
+            rgb_arr = np.array(image.convert("RGB"), dtype=np.uint8)
+            if channel_count == 3:
+                arr = rgb_arr
+            else:
+                alpha = np.full((self.height, self.width, 1), 255, dtype=np.uint8)
+                arr = np.concatenate((rgb_arr, alpha), axis=2)
             self.framebuffer[:] = np.flipud(np.fliplr(arr))
             self.matrix.show()
 
@@ -609,15 +617,25 @@ class DisplayManager:
         name_lines, name_font = self._fit_pokemon_name_lines(
             str(data.get("name", "Unknown")),
             self.panel_width - (PANEL_PADDING * 2),
-            font_candidates=[self.medium_font, self.font, self.small_font],
+            font_candidates=[
+                self.large_font,
+                self.medium_font,
+                self.font,
+                self.small_font,
+            ],
             max_height_px=name_area_height,
         )
         name_line_height = self._get_line_height(name_font)
-        total_height = title_block_height + title_gap + (len(name_lines) * name_line_height)
+        total_height = (
+            title_block_height + title_gap + (len(name_lines) * name_line_height)
+        )
         y = max(0, (self.height - total_height) // 2)
 
         for title_line in title_lines:
-            title_x = max(0, (self.panel_width - self._text_width(title_line, self.small_font)) // 2)
+            title_x = max(
+                0,
+                (self.panel_width - self._text_width(title_line, self.small_font)) // 2,
+            )
             self._draw_line(
                 draw,
                 title_x,
@@ -632,6 +650,56 @@ class DisplayManager:
         for line in name_lines:
             line_width = self._text_width(line, name_font)
             line_x = max(0, (self.panel_width - line_width) // 2)
+            self._draw_line(
+                draw,
+                line_x,
+                y,
+                line,
+                fill=POKEMON_NAME,
+                font=name_font,
+            )
+            y += name_line_height
+        return img
+
+    def _render_pokemon_intro_card(self, data: dict) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        title_line = "Today's Pokémon is:"
+        title_gap = 2
+        title_font = self.small_font
+        title_height = self.small_line_height
+        name_area_height = max(1, self.height - title_height - title_gap)
+
+        name_lines, name_font = self._fit_pokemon_name_lines(
+            str(data.get("name", "Unknown")),
+            self.width - (PANEL_PADDING * 2),
+            font_candidates=[
+                self.hero_font,
+                self.large_font,
+                self.medium_font,
+                self.font,
+                self.small_font,
+            ],
+            max_height_px=name_area_height,
+        )
+        name_line_height = self._get_line_height(name_font)
+        total_height = title_height + title_gap + (len(name_lines) * name_line_height)
+        y = max(0, (self.height - total_height) // 2)
+
+        title_x = max(0, (self.width - self._text_width(title_line, title_font)) // 2)
+        self._draw_line(
+            draw,
+            title_x,
+            y,
+            title_line,
+            fill=TEXT_ACCENT,
+            font=title_font,
+        )
+        y += title_height + title_gap
+
+        for line in name_lines:
+            line_width = self._text_width(line, name_font)
+            line_x = max(0, (self.width - line_width) // 2)
             self._draw_line(
                 draw,
                 line_x,
@@ -946,6 +1014,25 @@ class DisplayManager:
                 return True
         return False
 
+    def _pokemon_intro_phase_durations(self, total_duration: float) -> dict[str, float]:
+        phase_targets = {
+            "fade_out_previous": 0.35,
+            "intro_fade_in": 0.40,
+            "intro_hold": 1.00,
+            "intro_fade_out": 0.40,
+            "content_fade_in": 0.35,
+        }
+        reserved_content_time = min(0.75, max(0.25, total_duration * 0.25))
+        available_intro_time = max(0.0, total_duration - reserved_content_time)
+        target_total = sum(phase_targets.values())
+        scale = (
+            min(1.0, available_intro_time / target_total) if target_total > 0 else 0.0
+        )
+        return {
+            phase_name: phase_duration * scale
+            for phase_name, phase_duration in phase_targets.items()
+        }
+
     def _animate_pokemon(
         self,
         payload: dict,
@@ -955,39 +1042,91 @@ class DisplayManager:
     ) -> bool:
         data = payload["data"]
         total_duration = max(1.0, float(duration_seconds))
-        start_time = time.time()
-        end_time = start_time + total_duration
-        intro_end_time = min(
-            end_time,
-            start_time + min(1.2, max(0.35, total_duration * 0.18)),
-        )
+        end_time = time.time() + total_duration
+        phase_durations = self._pokemon_intro_phase_durations(total_duration)
 
         name_panel = self._render_pokemon_center_title(data)
         image_panel = self._render_pokemon_image_frame(data)
         stat_frames = self._pokemon_stat_frames(data)
-        intro = self._compose_pokemon_frame(
+        intro = self._render_pokemon_intro_card(data)
+        content_frame = self._compose_pokemon_frame(
             name_panel=name_panel,
             stat_panel=stat_frames[0] if stat_frames else None,
             image_panel=image_panel,
         )
-        if self._transition_to(
-            intro,
-            preview_name=f"{safe_slot}_pokemon_intro.png",
-            steps=6,
-            delay=0.03,
-            should_interrupt=should_interrupt,
-        ):
-            return True
-        intro_hold = max(0.0, intro_end_time - time.time())
+
+        def remaining_time() -> float:
+            return max(0.0, end_time - time.time())
+
+        def phase_time(name: str) -> float:
+            return min(phase_durations[name], remaining_time())
+
+        fade_out_previous = phase_time("fade_out_previous")
+        if fade_out_previous > 0 and self.last_frame is not None:
+            if self._transition_to(
+                self._new_canvas(),
+                steps=6,
+                delay=fade_out_previous / 6,
+                should_interrupt=should_interrupt,
+            ):
+                return True
+
+        intro_fade_in = phase_time("intro_fade_in")
+        if intro_fade_in > 0:
+            if self._fade_sequence(
+                intro,
+                steps=6,
+                fade_in=True,
+                delay=intro_fade_in / 6,
+                should_interrupt=should_interrupt,
+                end_time=time.time() + intro_fade_in,
+            ):
+                return True
+            if self.last_frame is not None:
+                self._save_prepared(
+                    self.last_frame,
+                    preview_name=f"{safe_slot}_pokemon_intro.png",
+                )
+
+        intro_hold = phase_time("intro_hold")
         if intro_hold > 0 and self._sleep_with_interrupt(intro_hold, should_interrupt):
             return True
+
+        intro_fade_out = phase_time("intro_fade_out")
+        if intro_fade_out > 0:
+            if self._fade_sequence(
+                intro,
+                steps=6,
+                fade_in=False,
+                delay=intro_fade_out / 6,
+                should_interrupt=should_interrupt,
+                end_time=time.time() + intro_fade_out,
+            ):
+                return True
+
         if time.time() >= end_time or self._is_interrupted(should_interrupt):
             return self._is_interrupted(should_interrupt)
 
-        remaining_after_intro = max(0.0, end_time - time.time())
-        stats_end_time = time.time() + (remaining_after_intro * 0.65)
-        stat_index = 0
-        final_frame = intro
+        content_fade_in = phase_time("content_fade_in")
+        if content_fade_in > 0:
+            if self._transition_to(
+                content_frame,
+                preview_name=f"{safe_slot}_pokemon_image.png",
+                steps=6,
+                delay=content_fade_in / 6,
+                should_interrupt=should_interrupt,
+            ):
+                return True
+        else:
+            self._show_frame(
+                content_frame,
+                preview_name=f"{safe_slot}_pokemon_image.png",
+            )
+
+        remaining_after_transition = remaining_time()
+        stats_end_time = time.time() + (remaining_after_transition * 0.65)
+        stat_index = 1 if len(stat_frames) > 1 else 0
+        final_frame = content_frame
         while stat_frames and time.time() < stats_end_time:
             if self._is_interrupted(should_interrupt):
                 return True
