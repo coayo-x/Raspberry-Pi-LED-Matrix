@@ -63,7 +63,7 @@ CUSTOM_TEXT_COLORS = {
 PANEL_PADDING = 4
 WEATHER_HEADER_HEIGHT = 18
 WEATHER_TICKER_Y = 21
-WEATHER_TICKER_FRAME_DELAY = 0.08
+WEATHER_TICKER_FRAME_DELAY = 0.09
 
 GLOBAL_ROTATE_180 = True
 
@@ -101,6 +101,9 @@ class DisplayManager:
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
+        self.weather_base_frame: Optional[Image.Image] = None
+        self.weather_base_frame_key: tuple | None = None
+        self.weather_last_frame_key: tuple | None = None
 
         if self.use_matrix_requested:
             self._initialize_matrix()
@@ -995,7 +998,7 @@ class DisplayManager:
     def render_weather(self, payload: dict) -> Image.Image:
         ticker = self._build_weather_ticker(payload["data"])
         frame_time = datetime.now()
-        base_frame = self._render_weather_static_frame(payload, frame_time=frame_time)
+        _, base_frame = self._get_weather_base_frame(payload, frame_time=frame_time)
         return self._weather_ticker_frame(
             payload,
             ticker,
@@ -1617,12 +1620,23 @@ class DisplayManager:
 
     def _weather_time_text(self, *, frame_time: datetime | None = None) -> str:
         current = frame_time or datetime.now()
-        time_text = current.strftime("%I:%M:%S %p")
+        time_text = current.strftime("%I:%M %p")
         return time_text.lstrip("0") or time_text
 
-    def _weather_header_key(self, *, frame_time: datetime | None = None) -> str:
-        current = frame_time or datetime.now()
-        return current.strftime("%Y-%m-%d %H:%M:%S")
+    def _weather_header_key(
+        self,
+        payload: dict | None = None,
+        *,
+        frame_time: datetime | None = None,
+    ) -> tuple:
+        data = (payload or {}).get("data") or {}
+        return (
+            str((payload or {}).get("slot_key", "")),
+            str(data.get("location", "")),
+            str(data.get("condition", "Unknown")),
+            self._weather_date_text(payload, frame_time=frame_time),
+            self._weather_time_text(frame_time=frame_time),
+        )
 
     def _build_weather_ticker_segments(
         self, data: dict
@@ -1697,6 +1711,33 @@ class DisplayManager:
         self._draw_weather_header(draw, payload, offset_px=0, frame_time=frame_time)
         return img
 
+    def _get_weather_base_frame(
+        self,
+        payload: dict,
+        *,
+        frame_time: datetime | None = None,
+    ) -> tuple[tuple, Image.Image]:
+        cache_key = self._weather_header_key(payload, frame_time=frame_time)
+        if self.weather_base_frame is None or self.weather_base_frame_key != cache_key:
+            self.weather_base_frame = self._render_weather_static_frame(
+                payload,
+                frame_time=frame_time,
+            )
+            self.weather_base_frame_key = cache_key
+        return cache_key, self.weather_base_frame
+
+    def _show_weather_frame(
+        self,
+        frame: Image.Image,
+        frame_key: tuple,
+        *,
+        preview_name: Optional[str] = None,
+    ) -> None:
+        if frame_key == self.weather_last_frame_key:
+            return
+        self._show_frame(frame, preview_name=preview_name)
+        self.weather_last_frame_key = frame_key
+
     def _weather_ticker_frame(
         self,
         payload: dict,
@@ -1739,8 +1780,12 @@ class DisplayManager:
         loop_width = max(1, self._segments_width(ticker_segments, font=self.font))
         offset_px = 0
         frame_time = datetime.now()
-        header_key = self._weather_header_key(frame_time=frame_time)
-        base_frame = self._render_weather_static_frame(payload, frame_time=frame_time)
+        self.weather_last_frame_key = None
+        base_frame_key, base_frame = self._get_weather_base_frame(
+            payload,
+            frame_time=frame_time,
+        )
+        first_frame_key = (base_frame_key, offset_px)
 
         first = self._weather_ticker_frame(
             payload,
@@ -1753,11 +1798,12 @@ class DisplayManager:
         if self._transition_to(
             first,
             preview_name=f"{safe_slot}_weather.png",
-            steps=6,
-            delay=0.03,
-            should_interrupt=should_interrupt,
-        ):
+                steps=6,
+                delay=0.03,
+                should_interrupt=should_interrupt,
+            ):
             return True
+        self.weather_last_frame_key = first_frame_key
 
         while time.time() < end_time:
             if self._is_interrupted(should_interrupt):
@@ -1773,13 +1819,13 @@ class DisplayManager:
 
             offset_px = (offset_px + 1) % loop_width
             frame_time = datetime.now()
-            next_header_key = self._weather_header_key(frame_time=frame_time)
-            if next_header_key != header_key:
-                base_frame = self._render_weather_static_frame(
-                    payload,
-                    frame_time=frame_time,
-                )
-                header_key = next_header_key
+            base_frame_key, base_frame = self._get_weather_base_frame(
+                payload,
+                frame_time=frame_time,
+            )
+            frame_key = (base_frame_key, offset_px)
+            if frame_key == self.weather_last_frame_key:
+                continue
 
             frame = self._weather_ticker_frame(
                 payload,
@@ -1789,7 +1835,11 @@ class DisplayManager:
                 base_frame=base_frame,
                 ticker_segments=ticker_segments,
             )
-            self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
+            self._show_weather_frame(
+                frame,
+                frame_key,
+                preview_name=f"{safe_slot}_weather.png",
+            )
         return False
 
     def display_payload(

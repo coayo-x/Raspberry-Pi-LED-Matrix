@@ -287,4 +287,56 @@ def test_weather_header_uses_live_clock_instead_of_payload_timestamp(
     monkeypatch.setattr(display_manager, "datetime", FakeDateTime)
 
     assert display._weather_date_text(payload) == "Mar 23, 2026"
-    assert display._weather_time_text() == "2:05:06 PM"
+    assert display._weather_time_text() == "2:05 PM"
+
+
+def test_weather_base_frame_cache_reuses_static_header_within_same_minute() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    payload = {
+        "slot_key": "2026-03-23:168",
+        "data": {
+            "location": "Erie, PA",
+            "condition": "Cloudy",
+            "temperature_f": 37,
+            "wind_mph": 11,
+        },
+    }
+
+    first_key, first_frame = display._get_weather_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 5, 6),
+    )
+    second_key, second_frame = display._get_weather_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 5, 55),
+    )
+    third_key, third_frame = display._get_weather_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 6, 0),
+    )
+
+    assert first_key == second_key
+    assert first_frame is second_frame
+    assert third_key != first_key
+    assert third_frame is not first_frame
+
+
+def test_show_weather_frame_skips_redundant_pushes(monkeypatch) -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    frame = display_manager.Image.new(
+        "RGBA",
+        (display_manager.WIDTH, display_manager.HEIGHT),
+        (255, 64, 32, 255),
+    )
+    pushed_frames: list[str | None] = []
+
+    def fake_show_frame(image, preview_name=None) -> None:
+        pushed_frames.append(preview_name)
+
+    monkeypatch.setattr(display, "_show_frame", fake_show_frame)
+
+    display._show_weather_frame(frame, ("header-a", 0), preview_name="weather.png")
+    display._show_weather_frame(frame, ("header-a", 0), preview_name="weather.png")
+    display._show_weather_frame(frame, ("header-a", 1), preview_name="weather.png")
+
+    assert pushed_frames == ["weather.png", "weather.png"]
