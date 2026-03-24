@@ -1,3 +1,4 @@
+from datetime import datetime as real_datetime
 from types import SimpleNamespace
 
 import numpy as np
@@ -112,9 +113,7 @@ def test_compose_pokemon_frame_keeps_each_panel_in_its_region(monkeypatch) -> No
     image_panel = display._render_pokemon_image_frame(POKEMON_SAMPLE)
     panel_width = display.panel_width
 
-    left_only = _non_default_mask(
-        display._compose_pokemon_frame(name_panel=name_panel)
-    )
+    left_only = _non_default_mask(display._compose_pokemon_frame(name_panel=name_panel))
     assert left_only[:, :panel_width].any()
     assert not left_only[:, panel_width:].any()
 
@@ -161,7 +160,9 @@ def test_render_custom_text_payload_uses_requested_palette_and_content() -> None
     assert np.any(np.any(pixels != background, axis=-1))
 
 
-def test_render_custom_text_brightness_controls_text_and_background_independently() -> None:
+def test_render_custom_text_brightness_controls_text_and_background_independently() -> (
+    None
+):
     display = display_manager.DisplayManager(use_matrix=False)
     base_style = {
         "font_family": "sans",
@@ -240,11 +241,19 @@ def test_render_custom_text_brightness_controls_text_and_background_independentl
     text_mask = np.any(bright_pixels != full_background_only_pixels, axis=-1)
 
     assert text_mask.any()
-    assert tuple(bright_frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
-    assert tuple(text_dim_frame.getpixel((0, 0))) == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    assert (
+        tuple(bright_frame.getpixel((0, 0)))
+        == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    )
+    assert (
+        tuple(text_dim_frame.getpixel((0, 0)))
+        == display_manager.CUSTOM_TEXT_COLORS["blue"]
+    )
     assert tuple(background_dim_frame.getpixel((0, 0))) == (4, 53, 102, 255)
     assert np.array_equal(text_dim_pixels[~text_mask], bright_pixels[~text_mask])
-    assert int(text_dim_pixels[text_mask, :3].sum()) < int(bright_pixels[text_mask, :3].sum())
+    assert int(text_dim_pixels[text_mask, :3].sum()) < int(
+        bright_pixels[text_mask, :3].sum()
+    )
     assert np.array_equal(
         background_dim_pixels[~text_mask],
         dim_background_only_pixels[~text_mask],
@@ -254,3 +263,28 @@ def test_render_custom_text_brightness_controls_text_and_background_independentl
     )
     assert np.array_equal(text_dim_pixels[..., 3], bright_pixels[..., 3])
     assert np.array_equal(background_dim_pixels[..., 3], bright_pixels[..., 3])
+
+
+def test_weather_header_uses_live_clock_instead_of_payload_timestamp(
+    monkeypatch,
+) -> None:
+    class FakeDateTime:
+        @classmethod
+        def now(cls):
+            return real_datetime(2026, 3, 23, 14, 5, 6)
+
+    display = display_manager.DisplayManager(use_matrix=False)
+    payload = {
+        "time": "1999-12-31 23:59:59",
+        "data": {
+            "location": "Erie, PA",
+            "condition": "Cloudy",
+            "temperature_f": 37,
+            "wind_mph": 11,
+        },
+    }
+
+    monkeypatch.setattr(display_manager, "datetime", FakeDateTime)
+
+    assert display._weather_date_text(payload) == "Mar 23, 2026"
+    assert display._weather_time_text() == "2:05:06 PM"

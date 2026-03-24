@@ -140,6 +140,7 @@ def test_dashboard_root_is_public_without_authentication(
     assert 'id="custom-text-form"' in page
     assert 'id="custom-text-stop-button"' in page
     assert 'id="custom-text-lock-banner"' in page
+    assert "https://github.com/coayo-x/Raspberry-Pi-LED-Matrix/" in page
     assert "/api/current-display-state" in page
     assert "/api/custom-text" in page
     assert "Restricted Access" not in page
