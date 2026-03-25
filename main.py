@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
-from config import DB_PATH
+from config import DASHBOARD_HOST, DASHBOARD_PORT, DB_PATH
 from custom_text import (
     get_active_custom_text_override,
     get_custom_text_interrupt_token,
@@ -12,6 +12,7 @@ from custom_text import (
 from current_display_state import save_current_display_state
 from db_manager import connect, init_db
 from display_manager import DisplayManager
+from qr_generator import generate_qr_if_missing
 from rotation_engine import (
     DISPLAY_SEQUENCE,
     get_current_category,
@@ -143,6 +144,16 @@ except Exception:
             conn.close()
 
 
+QR_IMAGE_PATH = "qr_cache.png"
+
+
+def _build_qr_url() -> str:
+    host = DASHBOARD_HOST.strip() or "localhost"
+    if host in {"0.0.0.0", "::"}:
+        host = "localhost"
+    return f"http://{host}:{DASHBOARD_PORT}"
+
+
 def build_runtime_payload(
     now: datetime | None = None,
     category_override: str | None = None,
@@ -215,6 +226,11 @@ def build_content_for_now(
     elif category == "science":
         payload["data"] = get_current_science_fact(now=now)
 
+    elif category == "qr":
+        payload["data"] = {
+            "image_path": QR_IMAGE_PATH,
+        }
+
     else:
         raise RuntimeError(f"Unknown category: {category}")
 
@@ -251,6 +267,9 @@ def print_payload(payload: dict) -> None:
 
     elif category == "science":
         print(f"Science Fact: {data['text']}")
+
+    elif category == "qr":
+        print(f"QR Image Path: {data['image_path']}")
 
     elif category == "custom_text":
         style = data.get("style") or {}
@@ -429,6 +448,7 @@ def main() -> None:
         use_matrix=use_matrix,
         save_previews=save_previews,
     )
+    generate_qr_if_missing(_build_qr_url())
 
     if "--once" in args:
         run_once(display)

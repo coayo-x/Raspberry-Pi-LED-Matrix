@@ -74,6 +74,12 @@ def _normalize_dashboard_fields(category: str, data: dict) -> tuple[str, str]:
             f"Atomic {atomic_number}",
         )
 
+    if category == "qr":
+        return (
+            "QR Code",
+            str(data.get("image_path", "qr_cache.png")),
+        )
+
     if category == "custom_text":
         style = data.get("style") or {}
         style_flags = [

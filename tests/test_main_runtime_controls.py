@@ -1,4 +1,5 @@
 from datetime import datetime as real_datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -170,6 +171,60 @@ def test_build_content_for_now_prioritizes_active_custom_text_override(
     assert payload["category"] == "custom_text"
     assert payload["data"]["text"] == "Temporary maintenance notice"
     assert payload["data"]["duration_minutes"] == 5
+
+
+def test_build_content_for_now_returns_qr_payload_shape(monkeypatch) -> None:
+    now = real_datetime(2026, 3, 23, 12, 20, 0)
+
+    monkeypatch.setattr(main, "get_active_custom_text_override", lambda now=None: None)
+    monkeypatch.setattr(main, "get_current_slot_key", lambda now=None: "2026-03-23:148")
+
+    payload = main.build_content_for_now(now=now, category_override="qr")
+
+    assert payload == {
+        "slot_key": "2026-03-23:148",
+        "time": "2026-03-23 12:20:00",
+        "category": "qr",
+        "data": {
+            "image_path": "qr_cache.png",
+        },
+    }
+
+
+def test_main_generates_qr_cache_once_before_single_run(monkeypatch) -> None:
+    calls: list = []
+    fake_display = object()
+
+    monkeypatch.setattr(
+        main, "sys", SimpleNamespace(argv=["main.py", "--simulate", "--once"])
+    )
+    monkeypatch.setattr(
+        main,
+        "DisplayManager",
+        lambda **kwargs: calls.append(("display", kwargs)) or fake_display,
+    )
+    monkeypatch.setattr(main, "_build_qr_url", lambda: "http://localhost:8080")
+    monkeypatch.setattr(
+        main,
+        "generate_qr_if_missing",
+        lambda url: calls.append(("qr", url)) or "qr_cache.png",
+    )
+    monkeypatch.setattr(
+        main,
+        "run_once",
+        lambda display: calls.append(("run_once", display)),
+    )
+    monkeypatch.setattr(
+        main,
+        "run_forever",
+        lambda display: pytest.fail("run_forever should not be called in --once mode"),
+    )
+
+    main.main()
+
+    assert calls[0] == ("display", {"use_matrix": False, "save_previews": False})
+    assert calls[1] == ("qr", "http://localhost:8080")
+    assert calls[2] == ("run_once", fake_display)
 
 
 def test_run_forever_custom_text_discards_category_requests_without_interrupting(

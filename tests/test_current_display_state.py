@@ -52,6 +52,18 @@ def test_normalize_current_display_state_maps_non_joke_categories() -> None:
         updated_at="2026-03-15T09:15:01",
     )
 
+    qr_state = normalize_current_display_state(
+        {
+            "time": "2026-03-15 09:20:00",
+            "slot_key": "2026-03-15:112",
+            "category": "qr",
+            "data": {
+                "image_path": "qr_cache.png",
+            },
+        },
+        updated_at="2026-03-15T09:20:01",
+    )
+
     assert pokemon_state["setup"] == "Bulbasaur"
     assert pokemon_state["punchline"] == "Grass / Poison | HP 45 | ATK 49 | DEF 49"
     assert pokemon_state["data"]["image_url"] == "https://example.test/bulbasaur.png"
@@ -61,6 +73,9 @@ def test_normalize_current_display_state_maps_non_joke_categories() -> None:
 
     assert science_state["setup"] == "Helium (He)"
     assert science_state["punchline"] == "Atomic 2"
+
+    assert qr_state["setup"] == "QR Code"
+    assert qr_state["punchline"] == "qr_cache.png"
 
 
 def test_save_and_load_current_display_state_uses_isolated_database(

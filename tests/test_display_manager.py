@@ -1,5 +1,7 @@
 from datetime import datetime as real_datetime
+from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import numpy as np
 import pytest
@@ -263,6 +265,48 @@ def test_render_custom_text_brightness_controls_text_and_background_independentl
     )
     assert np.array_equal(text_dim_pixels[..., 3], bright_pixels[..., 3])
     assert np.array_equal(background_dim_pixels[..., 3], bright_pixels[..., 3])
+
+
+def test_render_qr_uses_cached_image_when_present() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    image_path = (
+        Path(__file__).resolve().parents[1] / "tmp" / f"qr-cache-{uuid4().hex}.png"
+    )
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        display_manager.Image.new("RGBA", (32, 32), (255, 255, 255, 255)).save(
+            image_path
+        )
+
+        frame = display.render_payload(
+            {
+                "category": "qr",
+                "data": {
+                    "image_path": str(image_path),
+                },
+            }
+        )
+
+        assert frame.size == (display.width, display.height)
+        assert tuple(frame.getpixel((0, 0))) == (255, 255, 255, 255)
+    finally:
+        if image_path.exists():
+            image_path.unlink()
+
+
+def test_render_qr_falls_back_to_text_when_cache_is_missing() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+
+    frame = display.render_payload(
+        {
+            "category": "qr",
+            "data": {
+                "image_path": "missing-qr-cache.png",
+            },
+        }
+    )
+
+    assert _non_default_mask(frame).any()
 
 
 def test_weather_header_uses_live_clock_instead_of_payload_timestamp(

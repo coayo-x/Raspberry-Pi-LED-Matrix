@@ -5,6 +5,7 @@ adafruit-circuitpython-rgb-display
 requests
 python-dotenv
 bcrypt
+qrcode
 
 ruff
 black

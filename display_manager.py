@@ -1092,6 +1092,25 @@ class DisplayManager:
         )
         return img
 
+    def render_qr(self, payload: dict) -> Image.Image:
+        data = payload.get("data") or {}
+        image_path = Path(str(data.get("image_path", "")).strip())
+        if image_path.is_file():
+            try:
+                with Image.open(image_path) as image:
+                    return image.convert("RGBA").resize(
+                        (self.width, self.height), Image.NEAREST
+                    )
+            except Exception:
+                pass
+
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        self._draw_text_centered(
+            draw, ["NO QR"], fill=TEXT_PRIMARY, font=self.medium_font
+        )
+        return img
+
     def _draw_custom_text_line(
         self,
         draw: ImageDraw.ImageDraw,
@@ -1244,6 +1263,8 @@ class DisplayManager:
             return self.render_joke_pages(payload)[0]
         if category == "science":
             return self.render_science(payload)
+        if category == "qr":
+            return self.render_qr(payload)
         if category == "custom_text":
             return self.render_custom_text_pages(payload)[0]
 
@@ -1858,6 +1879,15 @@ class DisplayManager:
                 safe_slot,
                 should_interrupt=should_interrupt,
             )
+            return
+
+        if category == "qr":
+            self._show_frame(
+                self.render_qr(payload),
+                preview_name=f"{safe_slot}_{category}.png",
+            )
+            if total_duration > 0:
+                self._sleep_with_interrupt(total_duration, should_interrupt)
             return
 
         image = self.render_payload(payload)
