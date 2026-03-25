@@ -288,3 +288,113 @@ def test_weather_header_uses_live_clock_instead_of_payload_timestamp(
 
     assert display._weather_date_text(payload) == "Mar 23, 2026"
     assert display._weather_time_text() == "2:05:06 PM"
+
+
+def test_weather_prepared_base_frame_cache_reuses_buffers_within_same_second() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    payload = {
+        "slot_key": "2026-03-23:168",
+        "data": {
+            "location": "Erie, PA",
+            "condition": "Cloudy",
+            "temperature_f": 37,
+            "wind_mph": 11,
+        },
+    }
+
+    first_key, first_frame = display._get_weather_prepared_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 5, 6),
+    )
+    first_working = display.weather_prepared_working_frame
+
+    second_key, second_frame = display._get_weather_prepared_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 5, 6),
+    )
+    second_working = display.weather_prepared_working_frame
+    third_key, third_frame = display._get_weather_prepared_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 5, 7),
+    )
+
+    assert first_key == second_key
+    assert first_frame is second_frame
+    assert second_working is first_working
+
+    assert third_key != first_key
+    assert third_frame is not first_frame
+    assert display.weather_prepared_working_frame is not first_working
+
+
+def test_compose_prepared_weather_frame_reuses_single_working_buffer() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    payload = {
+        "slot_key": "2026-03-23:168",
+        "data": {
+            "location": "Erie, PA",
+            "condition": "Cloudy",
+            "temperature_f": 37,
+            "wind_mph": 11,
+        },
+    }
+
+    display._get_weather_prepared_base_frame(
+        payload,
+        frame_time=real_datetime(2026, 3, 23, 14, 5, 6),
+    )
+    ticker_strip, loop_width = display._render_weather_ticker_strip(
+        display._build_weather_ticker_segments(payload["data"])
+    )
+
+    first_frame = display._compose_prepared_weather_frame(
+        ticker_strip,
+        logical_offset_px=0,
+        loop_width=loop_width,
+    )
+    second_frame = display._compose_prepared_weather_frame(
+        ticker_strip,
+        logical_offset_px=1,
+        loop_width=loop_width,
+    )
+
+    assert first_frame is second_frame
+    assert first_frame is display.weather_prepared_working_frame
+    assert first_frame is not display.weather_prepared_base_frame
+
+
+def test_show_prepared_weather_frame_skips_redundant_pushes(monkeypatch) -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    frame = display_manager.Image.new(
+        "RGBA",
+        (display_manager.WIDTH, display_manager.HEIGHT),
+        (255, 64, 32, 255),
+    )
+    pushed_frames: list[str | None] = []
+
+    def fake_push_prepared_weather_frame(image) -> None:
+        pushed_frames.append("pushed")
+
+    monkeypatch.setattr(
+        display,
+        "_push_prepared_weather_frame",
+        fake_push_prepared_weather_frame,
+    )
+
+    display._show_prepared_weather_frame(
+        frame,
+        ("header-a", 0),
+        preview_name="weather.png",
+    )
+    display._show_prepared_weather_frame(
+        frame,
+        ("header-a", 0),
+        preview_name="weather.png",
+    )
+    display._show_prepared_weather_frame(
+        frame,
+        ("header-a", 1),
+        preview_name="weather.png",
+    )
+
+    assert pushed_frames == ["pushed", "pushed"]

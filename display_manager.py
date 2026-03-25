@@ -101,6 +101,11 @@ class DisplayManager:
         self.matrix = None
         self.framebuffer = None
         self.last_frame: Optional[Image.Image] = None
+        self.weather_base_frame_key: tuple | None = None
+        self.weather_prepared_base_frame: Optional[Image.Image] = None
+        self.weather_prepared_ticker_background: Optional[Image.Image] = None
+        self.weather_prepared_working_frame: Optional[Image.Image] = None
+        self.weather_last_frame_key: tuple | None = None
 
         if self.use_matrix_requested:
             self._initialize_matrix()
@@ -394,6 +399,31 @@ class DisplayManager:
         self._save_prepared(prepared, preview_name)
         self.last_frame = prepared
 
+    def _push_prepared_weather_frame(self, image: Image.Image) -> None:
+        if self.use_matrix and self.matrix is not None and self.framebuffer is not None:
+            prepared_arr = np.asarray(image)
+            flipped_rgb = prepared_arr[::-1, ::-1, :3]
+            if self.framebuffer.shape[2] == 3:
+                self.framebuffer[:] = flipped_rgb
+            else:
+                self.framebuffer[:, :, :3] = flipped_rgb
+                self.framebuffer[:, :, 3] = 255
+            self.matrix.show()
+
+    def _show_prepared_weather_frame(
+        self,
+        frame: Image.Image,
+        frame_key: tuple,
+        *,
+        preview_name: Optional[str] = None,
+    ) -> None:
+        if frame_key == self.weather_last_frame_key:
+            return
+        self._push_prepared_weather_frame(frame)
+        self._save_prepared(frame, preview_name)
+        self.last_frame = frame
+        self.weather_last_frame_key = frame_key
+
     def _is_interrupted(
         self, should_interrupt: Optional[Callable[[], bool]] = None
     ) -> bool:
@@ -416,6 +446,22 @@ class DisplayManager:
             time.sleep(min(interval, max(0.0, end_time - time.time())))
 
         return self._is_interrupted(should_interrupt)
+
+    def _sleep_until(
+        self,
+        target_time: float,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+        interval: float = 0.01,
+    ) -> bool:
+        while True:
+            if self._is_interrupted(should_interrupt):
+                return True
+
+            remaining = target_time - time.perf_counter()
+            if remaining <= 0:
+                return False
+
+            time.sleep(min(interval, remaining))
 
     def _transition_to(
         self,
@@ -446,6 +492,37 @@ class DisplayManager:
                     return True
 
         self._push_prepared(target)
+        self._save_prepared(target, preview_name)
+        self.last_frame = target
+        return False
+
+    def _transition_to_prepared(
+        self,
+        target: Image.Image,
+        preview_name: Optional[str] = None,
+        steps: int = 6,
+        delay: float = 0.035,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+    ) -> bool:
+        if self.last_frame is None:
+            for i in range(1, steps + 1):
+                cut = int(self.width * i / steps)
+                frame = Image.new("RGBA", (self.width, self.height), DEFAULT_BG)
+                frame.paste(target.crop((0, 0, cut, self.height)), (0, 0))
+                self._push_prepared_weather_frame(frame)
+                if self._sleep_with_interrupt(delay, should_interrupt):
+                    self.last_frame = frame
+                    return True
+        else:
+            for i in range(1, steps + 1):
+                alpha = i / steps
+                frame = Image.blend(self.last_frame, target, alpha)
+                self._push_prepared_weather_frame(frame)
+                if self._sleep_with_interrupt(delay, should_interrupt):
+                    self.last_frame = frame
+                    return True
+
+        self._push_prepared_weather_frame(target)
         self._save_prepared(target, preview_name)
         self.last_frame = target
         return False
@@ -1624,6 +1701,12 @@ class DisplayManager:
         current = frame_time or datetime.now()
         return current.strftime("%Y-%m-%d %H:%M:%S")
 
+    def _weather_prepared_ticker_box(self) -> tuple[int, int, int, int]:
+        ticker_height = max(1, self.height - WEATHER_TICKER_Y)
+        if GLOBAL_ROTATE_180:
+            return (0, 0, self.width, ticker_height)
+        return (0, WEATHER_TICKER_Y, self.width, self.height)
+
     def _build_weather_ticker_segments(
         self, data: dict
     ) -> list[tuple[str, tuple[int, int, int, int]]]:
@@ -1697,6 +1780,102 @@ class DisplayManager:
         self._draw_weather_header(draw, payload, offset_px=0, frame_time=frame_time)
         return img
 
+    def _get_weather_prepared_base_frame(
+        self,
+        payload: dict,
+        *,
+        frame_time: datetime | None = None,
+    ) -> tuple[tuple, Image.Image]:
+        data = payload["data"]
+        cache_key = (
+            str(payload.get("slot_key", "")),
+            str(data.get("location", "")),
+            str(data.get("condition", "Unknown")),
+            self._weather_header_key(frame_time=frame_time),
+        )
+        if (
+            self.weather_prepared_base_frame is None
+            or self.weather_base_frame_key != cache_key
+        ):
+            prepared_base = self._prepare_image(
+                self._render_weather_static_frame(payload, frame_time=frame_time)
+            )
+            self.weather_prepared_base_frame = prepared_base
+            self.weather_prepared_working_frame = prepared_base.copy()
+            self.weather_prepared_ticker_background = prepared_base.crop(
+                self._weather_prepared_ticker_box()
+            )
+            self.weather_base_frame_key = cache_key
+        return cache_key, self.weather_prepared_base_frame
+
+    def _render_weather_ticker_strip(
+        self,
+        segments: list[tuple[str, tuple[int, int, int, int]]],
+    ) -> tuple[Image.Image, int]:
+        loop_width = max(1, self._segments_width(segments, font=self.font))
+        ticker_box = self._weather_prepared_ticker_box()
+        ticker_height = max(1, ticker_box[3] - ticker_box[1])
+
+        logical_loop = Image.new("RGBA", (loop_width, ticker_height), (0, 0, 0, 0))
+        loop_draw = ImageDraw.Draw(logical_loop)
+        self._draw_text_segments(loop_draw, 0, 0, segments, font=self.font)
+
+        prepared_loop = (
+            logical_loop.rotate(180, expand=False) if GLOBAL_ROTATE_180 else logical_loop
+        )
+        prepared_strip = Image.new(
+            "RGBA",
+            (loop_width + self.width, ticker_height),
+            (0, 0, 0, 0),
+        )
+        for x in range(0, prepared_strip.width, loop_width):
+            prepared_strip.paste(prepared_loop, (x, 0), prepared_loop)
+
+        return prepared_strip, loop_width
+
+    def _weather_prepared_crop_offset(
+        self, logical_offset_px: int, loop_width: int
+    ) -> int:
+        if loop_width <= 0:
+            return 0
+        if GLOBAL_ROTATE_180:
+            return (-self.width - logical_offset_px) % loop_width
+        return logical_offset_px % loop_width
+
+    def _compose_prepared_weather_frame(
+        self,
+        ticker_strip: Image.Image,
+        *,
+        logical_offset_px: int,
+        loop_width: int,
+    ) -> Image.Image:
+        if (
+            self.weather_prepared_working_frame is None
+            or self.weather_prepared_ticker_background is None
+        ):
+            raise RuntimeError("Weather base frame is not initialized.")
+
+        ticker_box = self._weather_prepared_ticker_box()
+        crop_left = self._weather_prepared_crop_offset(logical_offset_px, loop_width)
+        crop_box = (
+            crop_left,
+            0,
+            crop_left + self.width,
+            ticker_box[3] - ticker_box[1],
+        )
+        ticker_window = ticker_strip.crop(crop_box)
+
+        self.weather_prepared_working_frame.paste(
+            self.weather_prepared_ticker_background,
+            (ticker_box[0], ticker_box[1]),
+        )
+        self.weather_prepared_working_frame.paste(
+            ticker_window,
+            (ticker_box[0], ticker_box[1]),
+            ticker_window,
+        )
+        return self.weather_prepared_working_frame
+
     def _weather_ticker_frame(
         self,
         payload: dict,
@@ -1732,25 +1911,24 @@ class DisplayManager:
         safe_slot: str,
         should_interrupt: Optional[Callable[[], bool]] = None,
     ) -> bool:
-        ticker = self._build_weather_ticker(payload["data"])
         ticker_segments = self._build_weather_ticker_segments(payload["data"])
-
-        end_time = time.time() + max(1, duration_seconds)
-        loop_width = max(1, self._segments_width(ticker_segments, font=self.font))
+        ticker_strip, loop_width = self._render_weather_ticker_strip(ticker_segments)
+        end_time = time.perf_counter() + max(1.0, float(duration_seconds))
         offset_px = 0
         frame_time = datetime.now()
-        header_key = self._weather_header_key(frame_time=frame_time)
-        base_frame = self._render_weather_static_frame(payload, frame_time=frame_time)
-
-        first = self._weather_ticker_frame(
+        self.weather_last_frame_key = None
+        base_frame_key, _ = self._get_weather_prepared_base_frame(
             payload,
-            ticker,
-            offset_px,
             frame_time=frame_time,
-            base_frame=base_frame,
-            ticker_segments=ticker_segments,
         )
-        if self._transition_to(
+        first_frame_key = (base_frame_key, offset_px)
+        first = self._compose_prepared_weather_frame(
+            ticker_strip,
+            logical_offset_px=offset_px,
+            loop_width=loop_width,
+        )
+
+        if self._transition_to_prepared(
             first,
             preview_name=f"{safe_slot}_weather.png",
             steps=6,
@@ -1758,38 +1936,41 @@ class DisplayManager:
             should_interrupt=should_interrupt,
         ):
             return True
+        self.weather_last_frame_key = first_frame_key
+        frame_start_time = time.perf_counter()
+        frame_index = 1
 
-        while time.time() < end_time:
+        while time.perf_counter() < end_time:
             if self._is_interrupted(should_interrupt):
                 return True
 
-            if self._sleep_with_interrupt(
-                WEATHER_TICKER_FRAME_DELAY,
-                should_interrupt,
-            ):
+            next_frame_time = min(
+                end_time,
+                frame_start_time + (frame_index * WEATHER_TICKER_FRAME_DELAY),
+            )
+            if self._sleep_until(next_frame_time, should_interrupt):
                 return True
-            if time.time() >= end_time:
+            if time.perf_counter() >= end_time:
                 break
 
-            offset_px = (offset_px + 1) % loop_width
+            offset_px = frame_index % loop_width
             frame_time = datetime.now()
-            next_header_key = self._weather_header_key(frame_time=frame_time)
-            if next_header_key != header_key:
-                base_frame = self._render_weather_static_frame(
-                    payload,
-                    frame_time=frame_time,
-                )
-                header_key = next_header_key
-
-            frame = self._weather_ticker_frame(
+            base_frame_key, _ = self._get_weather_prepared_base_frame(
                 payload,
-                ticker,
-                offset_px,
                 frame_time=frame_time,
-                base_frame=base_frame,
-                ticker_segments=ticker_segments,
             )
-            self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
+            frame_key = (base_frame_key, offset_px)
+            frame = self._compose_prepared_weather_frame(
+                ticker_strip,
+                logical_offset_px=offset_px,
+                loop_width=loop_width,
+            )
+            self._show_prepared_weather_frame(
+                frame,
+                frame_key,
+                preview_name=f"{safe_slot}_weather.png",
+            )
+            frame_index += 1
         return False
 
     def display_payload(
