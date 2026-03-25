@@ -288,3 +288,91 @@ def test_weather_header_uses_live_clock_instead_of_payload_timestamp(
 
     assert display._weather_date_text(payload) == "Mar 23, 2026"
     assert display._weather_time_text() == "2:05:06 PM"
+
+
+def test_weather_ticker_uses_deadline_based_frame_timing(monkeypatch) -> None:
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def time(self) -> float:
+            return self.now
+
+        def perf_counter(self) -> float:
+            return self.now
+
+        def sleep(self, duration: float) -> None:
+            self.now += max(0.0, duration)
+
+    class ProbeDisplay(display_manager.DisplayManager):
+        def __init__(self) -> None:
+            super().__init__(use_matrix=False)
+            self.frame_times: list[float] = []
+
+        def _transition_to(
+            self,
+            target_image,
+            preview_name=None,
+            steps=6,
+            delay=0.035,
+            should_interrupt=None,
+        ) -> bool:
+            self.frame_times.append(clock.perf_counter())
+            self.last_frame = self._prepare_image(target_image)
+            return False
+
+        def _show_frame(self, image, preview_name=None) -> None:
+            self.frame_times.append(clock.perf_counter())
+            self.last_frame = self._prepare_image(image)
+
+        def _weather_ticker_frame(
+            self,
+            payload: dict,
+            ticker: str,
+            offset_px: int,
+            *,
+            frame_time=None,
+            base_frame=None,
+            ticker_segments=None,
+        ):
+            clock.now += 0.03
+            return super()._weather_ticker_frame(
+                payload,
+                ticker,
+                offset_px,
+                frame_time=frame_time,
+                base_frame=base_frame,
+                ticker_segments=ticker_segments,
+            )
+
+    clock = FakeClock()
+    monkeypatch.setattr(display_manager.time, "time", clock.time)
+    monkeypatch.setattr(display_manager.time, "perf_counter", clock.perf_counter)
+    monkeypatch.setattr(display_manager.time, "sleep", clock.sleep)
+
+    payload = {
+        "slot_key": "2026-03-23:168",
+        "data": {
+            "location": "Erie, PA",
+            "condition": "Cloudy",
+            "temperature_f": 37,
+            "wind_mph": 11,
+        },
+    }
+
+    display = ProbeDisplay()
+    display._animate_weather_ticker(
+        payload,
+        duration_seconds=1,
+        safe_slot="2026-03-23-168",
+    )
+
+    intervals = [
+        round(current - previous, 2)
+        for previous, current in zip(display.frame_times, display.frame_times[1:])
+    ]
+
+    assert len(intervals) >= 2
+    assert intervals[1:] == [display_manager.WEATHER_TICKER_FRAME_DELAY] * (
+        len(intervals) - 1
+    )
