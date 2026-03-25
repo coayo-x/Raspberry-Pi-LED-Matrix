@@ -417,6 +417,22 @@ class DisplayManager:
 
         return self._is_interrupted(should_interrupt)
 
+    def _sleep_until(
+        self,
+        target_time: float,
+        should_interrupt: Optional[Callable[[], bool]] = None,
+        interval: float = 0.01,
+    ) -> bool:
+        while True:
+            if self._is_interrupted(should_interrupt):
+                return True
+
+            remaining = target_time - time.perf_counter()
+            if remaining <= 0:
+                return False
+
+            time.sleep(min(interval, remaining))
+
     def _transition_to(
         self,
         target_image: Image.Image,
@@ -1734,8 +1750,7 @@ class DisplayManager:
     ) -> bool:
         ticker = self._build_weather_ticker(payload["data"])
         ticker_segments = self._build_weather_ticker_segments(payload["data"])
-
-        end_time = time.time() + max(1, duration_seconds)
+        end_time = time.perf_counter() + max(1.0, float(duration_seconds))
         loop_width = max(1, self._segments_width(ticker_segments, font=self.font))
         offset_px = 0
         frame_time = datetime.now()
@@ -1759,19 +1774,23 @@ class DisplayManager:
         ):
             return True
 
-        while time.time() < end_time:
+        frame_start_time = time.perf_counter()
+        frame_index = 1
+
+        while time.perf_counter() < end_time:
             if self._is_interrupted(should_interrupt):
                 return True
 
-            if self._sleep_with_interrupt(
-                WEATHER_TICKER_FRAME_DELAY,
-                should_interrupt,
-            ):
+            next_frame_time = min(
+                end_time,
+                frame_start_time + (frame_index * WEATHER_TICKER_FRAME_DELAY),
+            )
+            if self._sleep_until(next_frame_time, should_interrupt):
                 return True
-            if time.time() >= end_time:
+            if time.perf_counter() >= end_time:
                 break
 
-            offset_px = (offset_px + 1) % loop_width
+            offset_px = frame_index % loop_width
             frame_time = datetime.now()
             next_header_key = self._weather_header_key(frame_time=frame_time)
             if next_header_key != header_key:
@@ -1790,6 +1809,7 @@ class DisplayManager:
                 ticker_segments=ticker_segments,
             )
             self._show_frame(frame, preview_name=f"{safe_slot}_weather.png")
+            frame_index += 1
         return False
 
     def display_payload(
