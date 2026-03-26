@@ -11,6 +11,9 @@ const customTextApi =
 const stopCustomTextApi =
     document.documentElement.dataset.stopCustomTextApi ||
     "/api/admin/custom-text/stop";
+const adminCustomTextForceApi =
+    document.documentElement.dataset.adminCustomTextForceApi ||
+    "/admin/custom-text/force";
 const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
@@ -118,10 +121,16 @@ const elements = {
     adminCustomTextLockState: document.getElementById(
         "admin-custom-text-lock-state",
     ),
+    adminCustomTextForceState: document.getElementById(
+        "admin-custom-text-force-state",
+    ),
     toggleSkipLockButton: document.getElementById("toggle-skip-lock-button"),
     toggleSwitchLockButton: document.getElementById("toggle-switch-lock-button"),
     toggleCustomTextLockButton: document.getElementById(
         "toggle-custom-text-lock-button",
+    ),
+    toggleCustomTextForceButton: document.getElementById(
+        "toggle-custom-text-force-button",
     ),
     adminLogoutButton: document.getElementById("admin-logout-button"),
     adminActionStatus: document.getElementById("admin-action-status"),
@@ -188,6 +197,7 @@ function createGuestControlPayload(configured = true) {
                     override_remaining_seconds: 0,
                     override_text: "",
                     override: null,
+                    force_enabled: false,
                     blocked_by_custom_text: false,
                     blocked_reason: "",
                 },
@@ -673,6 +683,22 @@ function applyAdminLockState(control, button, labelElement) {
     button.disabled = false;
 }
 
+function applyAdminForceState(control, button, labelElement) {
+    if (!button || !labelElement) {
+        return;
+    }
+
+    const forceEnabled = Boolean(control?.force_enabled);
+    const hasOverride = Boolean(control?.override);
+    labelElement.textContent = forceEnabled
+        ? hasOverride
+            ? "Enabled. Custom text stays on screen until disabled."
+            : "Enabled. Waiting for custom text content."
+        : "Disabled. Custom text follows its normal timer.";
+    button.textContent = forceEnabled ? "Disable Force" : "Enable Force";
+    button.disabled = false;
+}
+
 function syncCustomTextStyleButtons() {
     elements.toolbarToggleButtons.forEach((button) => {
         const styleKey = button.dataset.toggleStyle;
@@ -775,7 +801,13 @@ function buildCustomTextNote(control) {
         );
     }
 
-    if (control.active_override) {
+    if (control.force_enabled) {
+        noteParts.push(
+            control.override
+                ? "Force mode enabled. Custom text stays on screen until disabled."
+                : "Force mode enabled, but no custom text is saved. Normal rotation continues.",
+        );
+    } else if (control.active_override) {
         if (control.override_expires_at) {
             noteParts.push(`Override active until ${control.override_expires_at}.`);
         } else {
@@ -795,6 +827,7 @@ function applyCustomTextControlState(control) {
         control || createGuestControlPayload().controls.custom_text;
     const isPublicLocked = Boolean(nextControl.locked && !nextControl.admin_override);
     const isAdmin = Boolean(latestControlPayload?.auth?.authenticated);
+    const hasDisplayableOverride = Boolean(nextControl.override);
 
     if (elements.customTextLockBanner) {
         elements.customTextLockBanner.hidden = !nextControl.locked;
@@ -810,7 +843,7 @@ function applyCustomTextControlState(control) {
     if (elements.customTextStopButton) {
         elements.customTextStopButton.hidden = !isAdmin;
         elements.customTextStopButton.disabled =
-            !isAdmin || !nextControl.active_override;
+            !isAdmin || !hasDisplayableOverride;
         elements.customTextStopButton.textContent = "Stop Custom Text";
     }
     setCustomTextInputsEnabled(Boolean(nextControl.available));
@@ -824,7 +857,19 @@ function applyCustomTextControlState(control) {
         elements.customTextStatus &&
         elements.customTextStatus.textContent === getCustomTextLockMessage()
     ) {
-        if (nextControl.active_override && nextControl.override_expires_at) {
+        if (nextControl.force_enabled && hasDisplayableOverride) {
+            setMessage(
+                elements.customTextStatus,
+                "Force mode enabled. Custom text stays on screen until disabled.",
+                "success",
+            );
+        } else if (nextControl.force_enabled) {
+            setMessage(
+                elements.customTextStatus,
+                "Force mode enabled, but no custom text is saved yet.",
+                "idle",
+            );
+        } else if (nextControl.active_override && nextControl.override_expires_at) {
             setMessage(
                 elements.customTextStatus,
                 `Temporary override active until ${nextControl.override_expires_at}.`,
@@ -944,9 +989,11 @@ async function submitCustomText(event) {
             result.requested_at;
         setMessage(
             elements.customTextStatus,
-            expiresAt
-                ? `Temporary override active until ${expiresAt}.`
-                : "Temporary override is active on the matrix.",
+            result.force_enabled
+                ? "Force mode enabled. Custom text stays on screen until disabled."
+                : expiresAt
+                    ? `Temporary override active until ${expiresAt}.`
+                    : "Temporary override is active on the matrix.",
             "success",
         );
     } catch (error) {
@@ -973,8 +1020,8 @@ async function stopCustomText() {
         return;
     }
 
-    if (!control?.active_override) {
-        setMessage(elements.customTextStatus, "No active custom text.", "error");
+    if (!control?.override) {
+        setMessage(elements.customTextStatus, "No custom text to stop.", "error");
         applyCustomTextControlState(control);
         return;
     }
@@ -1011,6 +1058,56 @@ async function stopCustomText() {
     } finally {
         await refreshDashboard().catch(() => null);
         applyCustomTextControlState(latestControlPayload?.controls?.custom_text);
+    }
+}
+
+async function toggleCustomTextForce() {
+    const control = latestControlPayload?.controls?.custom_text;
+    if (!control) {
+        setMessage(
+            elements.adminActionStatus,
+            "Custom text state is not loaded yet.",
+            "error",
+        );
+        return;
+    }
+
+    const nextEnabled = !control.force_enabled;
+    if (elements.toggleCustomTextForceButton) {
+        elements.toggleCustomTextForceButton.disabled = true;
+    }
+    setMessage(
+        elements.adminActionStatus,
+        `${nextEnabled ? "Enabling" : "Disabling"} Force Custom Text...`,
+        "pending",
+    );
+
+    try {
+        const result = await fetchJson(adminCustomTextForceApi, {
+            method: "POST",
+        });
+        setMessage(
+            elements.adminActionStatus,
+            `Force Custom Text ${result.enabled ? "enabled" : "disabled"}.`,
+            "success",
+        );
+    } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.adminActionStatus,
+                "Force mode update failed",
+            )
+        ) {
+            return;
+        }
+        setMessage(
+            elements.adminActionStatus,
+            describeResultError(error, "Force mode update failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard().catch(() => null);
     }
 }
 
@@ -1053,15 +1150,19 @@ function applyControlPayload(payload) {
     }
 
     if (elements.publicControlMode) {
-        elements.publicControlMode.textContent = customTextBlocking
-            ? "Custom Text Active"
-            : publicLockedCount === 2
-                ? "Locked"
-                : publicLockedCount === 1
-                    ? "Partial Lock"
-                    : adminOverride
-                        ? "Admin Override"
-                        : "Active";
+        const publicModeLabel =
+            customTextControl?.force_enabled && customTextControl?.override
+                ? "Force Mode"
+                : customTextBlocking
+                    ? "Custom Text Active"
+                    : publicLockedCount === 2
+                        ? "Locked"
+                        : publicLockedCount === 1
+                            ? "Partial Lock"
+                            : adminOverride
+                                ? "Admin Override"
+                                : "Active";
+        elements.publicControlMode.textContent = publicModeLabel;
     }
 
     syncPublicActionStatus(auth, controls, previousPayload);
@@ -1078,6 +1179,7 @@ function applyControlPayload(payload) {
         elements.toggleSkipLockButton.disabled = true;
         elements.toggleSwitchLockButton.disabled = true;
         elements.toggleCustomTextLockButton.disabled = true;
+        elements.toggleCustomTextForceButton.disabled = true;
         elements.adminLogoutButton.disabled = true;
         setMessage(
             elements.adminLoginStatus,
@@ -1103,9 +1205,14 @@ function applyControlPayload(payload) {
             lockedControls.length > 0
                 ? `${lockedControls.join(" and ")} locked for public use.`
                 : "Skip, switch, and custom text controls are available to the public.";
+        const forceSummary = customTextControl?.force_enabled
+            ? customTextControl?.override
+                ? " Force mode is enabled for custom text."
+                : " Force mode is enabled and waiting for custom text content."
+            : "";
         elements.adminControlsSummary.textContent = auth.expires_at
-            ? `Admin session active until ${auth.expires_at}. ${lockSummary}`
-            : `Admin session active. ${lockSummary}`;
+            ? `Admin session active until ${auth.expires_at}. ${lockSummary}${forceSummary}`
+            : `Admin session active. ${lockSummary}${forceSummary}`;
         setMessage(
             elements.adminLoginStatus,
             `Signed in as ${displayText(auth.username)}.`,
@@ -1140,9 +1247,15 @@ function applyControlPayload(payload) {
         elements.toggleCustomTextLockButton,
         elements.adminCustomTextLockState,
     );
+    applyAdminForceState(
+        customTextControl,
+        elements.toggleCustomTextForceButton,
+        elements.adminCustomTextForceState,
+    );
     elements.toggleSkipLockButton.disabled = !isAdmin;
     elements.toggleSwitchLockButton.disabled = !isAdmin;
     elements.toggleCustomTextLockButton.disabled = !isAdmin;
+    elements.toggleCustomTextForceButton.disabled = !isAdmin;
     elements.adminLogoutButton.disabled = !isAdmin;
 }
 
@@ -1540,6 +1653,13 @@ if (elements.toggleSwitchLockButton) {
 if (elements.toggleCustomTextLockButton) {
     elements.toggleCustomTextLockButton.addEventListener("click", () =>
         toggleControlLock("custom_text"),
+    );
+}
+
+if (elements.toggleCustomTextForceButton) {
+    elements.toggleCustomTextForceButton.addEventListener(
+        "click",
+        toggleCustomTextForce,
     );
 }
 

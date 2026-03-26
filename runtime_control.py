@@ -6,7 +6,10 @@ from config import (
     SKIP_CATEGORY_COOLDOWN_SECONDS,
     SWITCH_CATEGORY_COOLDOWN_SECONDS,
 )
-from custom_text import get_active_custom_text_override_from_conn
+from custom_text import (
+    get_active_custom_text_override_from_conn,
+    get_custom_text_override_from_conn,
+)
 from db_manager import connect
 from rotation_engine import DISPLAY_SEQUENCE
 
@@ -22,6 +25,7 @@ SWITCH_CATEGORY_LAST_REQUESTED_AT_KEY = "switch_category_last_requested_at"
 SWITCH_CATEGORY_LAST_ACCEPTED_AT_KEY = "switch_category_last_accepted_at"
 SWITCH_CATEGORY_VALUE_KEY = "switch_category_value"
 SWITCH_CATEGORY_LOCKED_KEY = "switch_category_locked"
+CUSTOM_TEXT_FORCE_KEY = "custom_text_force"
 
 CONTROL_ACTIONS = {
     "skip_category": {
@@ -100,6 +104,17 @@ def _set_meta(conn, key: str, value: str) -> None:
     )
 
 
+def _get_forced_custom_text_override_from_conn(
+    conn,
+    *,
+    now: datetime | None = None,
+) -> dict | None:
+    if not _get_meta_bool(conn, CUSTOM_TEXT_FORCE_KEY):
+        return None
+
+    return get_custom_text_override_from_conn(conn, now=now)
+
+
 def _normalize_category(category: str) -> str:
     normalized = str(category).strip().lower()
     if normalized not in DISPLAY_SEQUENCE:
@@ -158,10 +173,16 @@ def _build_action_state(
     custom_text_active = (
         get_active_custom_text_override_from_conn(conn, now=current) is not None
     )
-    is_blocked = (
-        custom_text_active or cooldown_remaining > 0 or (locked and not is_admin)
+    forced_custom_text_active = (
+        _get_forced_custom_text_override_from_conn(conn, now=current) is not None
     )
-    if custom_text_active:
+    is_blocked = (
+        custom_text_active
+        or forced_custom_text_active
+        or cooldown_remaining > 0
+        or (locked and not is_admin)
+    )
+    if custom_text_active or forced_custom_text_active:
         status = "custom_text_active"
     elif locked and not is_admin:
         status = "locked"
@@ -187,9 +208,11 @@ def _build_action_state(
         "available": not is_blocked,
         "status": status,
         "requested_category": requested_category,
-        "blocked_by_custom_text": custom_text_active,
+        "blocked_by_custom_text": custom_text_active or forced_custom_text_active,
         "blocked_reason": (
-            CATEGORY_CHANGE_BLOCKED_MESSAGE if custom_text_active else ""
+            CATEGORY_CHANGE_BLOCKED_MESSAGE
+            if custom_text_active or forced_custom_text_active
+            else ""
         ),
     }
 
@@ -317,6 +340,40 @@ def get_runtime_control_state(
         conn.close()
 
 
+def is_custom_text_force_enabled(db_path: str = DB_PATH) -> bool:
+    conn = connect(db_path)
+    try:
+        return _get_meta_bool(conn, CUSTOM_TEXT_FORCE_KEY)
+    finally:
+        conn.close()
+
+
+def set_custom_text_force(
+    enabled: bool,
+    db_path: str = DB_PATH,
+) -> bool:
+    conn = connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _set_meta(conn, CUSTOM_TEXT_FORCE_KEY, "1" if enabled else "0")
+        conn.commit()
+        return _get_meta_bool(conn, CUSTOM_TEXT_FORCE_KEY)
+    finally:
+        conn.close()
+
+
+def toggle_custom_text_force(db_path: str = DB_PATH) -> bool:
+    conn = connect(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        enabled = not _get_meta_bool(conn, CUSTOM_TEXT_FORCE_KEY)
+        _set_meta(conn, CUSTOM_TEXT_FORCE_KEY, "1" if enabled else "0")
+        conn.commit()
+        return enabled
+    finally:
+        conn.close()
+
+
 def set_control_lock(
     action: str,
     locked: bool,
@@ -385,10 +442,12 @@ def consume_skip_category_request(db_path: str = DB_PATH) -> int | None:
             conn.rollback()
             return None
 
-        if (
-            get_active_custom_text_override_from_conn(conn, now=datetime.now())
-            is not None
-        ):
+        if get_active_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
+            _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
+            conn.commit()
+            return None
+
+        if _get_forced_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
             _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
             conn.commit()
             return None
@@ -414,10 +473,12 @@ def consume_switch_category_request(
             conn.rollback()
             return None
 
-        if (
-            get_active_custom_text_override_from_conn(conn, now=datetime.now())
-            is not None
-        ):
+        if get_active_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
+            _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
+            conn.commit()
+            return None
+
+        if _get_forced_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
             _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
             conn.commit()
             return None

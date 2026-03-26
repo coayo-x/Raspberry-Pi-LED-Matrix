@@ -498,6 +498,15 @@ def get_custom_text_override(
         conn.close()
 
 
+def get_custom_text_override_from_conn(
+    conn,
+    *,
+    now: datetime | None = None,
+) -> dict | None:
+    current = _now_or_default(now)
+    return _load_override_from_conn(conn, current=current)
+
+
 def get_active_custom_text_override_from_conn(
     conn,
     *,
