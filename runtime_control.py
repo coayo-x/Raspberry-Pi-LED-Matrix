@@ -12,6 +12,10 @@ from custom_text import (
 )
 from db_manager import connect
 from rotation_engine import DISPLAY_SEQUENCE
+from snake_control import (
+    SNAKE_ACTIVE_BLOCKED_MESSAGE,
+    is_snake_mode_enabled_from_conn,
+)
 
 SKIP_CATEGORY_REQUEST_KEY = "skip_category_request_count"
 SKIP_CATEGORY_HANDLED_KEY = "skip_category_handled_count"
@@ -176,13 +180,17 @@ def _build_action_state(
     forced_custom_text_active = (
         _get_forced_custom_text_override_from_conn(conn, now=current) is not None
     )
+    snake_game_active = is_snake_mode_enabled_from_conn(conn)
     is_blocked = (
-        custom_text_active
+        snake_game_active
+        or custom_text_active
         or forced_custom_text_active
         or cooldown_remaining > 0
         or (locked and not is_admin)
     )
-    if custom_text_active or forced_custom_text_active:
+    if snake_game_active:
+        status = "snake_game_active"
+    elif custom_text_active or forced_custom_text_active:
         status = "custom_text_active"
     elif locked and not is_admin:
         status = "locked"
@@ -209,7 +217,17 @@ def _build_action_state(
         "status": status,
         "requested_category": requested_category,
         "blocked_by_custom_text": custom_text_active or forced_custom_text_active,
+        "blocked_by_snake": snake_game_active,
         "blocked_reason": (
+            SNAKE_ACTIVE_BLOCKED_MESSAGE
+            if snake_game_active
+            else (
+                CATEGORY_CHANGE_BLOCKED_MESSAGE
+                if custom_text_active or forced_custom_text_active
+                else ""
+            )
+        ),
+        "custom_text_blocked_reason": (
             CATEGORY_CHANGE_BLOCKED_MESSAGE
             if custom_text_active or forced_custom_text_active
             else ""
@@ -241,6 +259,16 @@ def _request_action(
         current_state = _build_action_state(
             conn, normalized_action, current=current, is_admin=is_admin
         )
+        if current_state["blocked_by_snake"]:
+            conn.rollback()
+            return {
+                **current_state,
+                "accepted": False,
+                "requested": False,
+                "rate_limited": False,
+                "error": SNAKE_ACTIVE_BLOCKED_MESSAGE,
+            }
+
         if current_state["blocked_by_custom_text"]:
             conn.rollback()
             return {
@@ -442,12 +470,23 @@ def consume_skip_category_request(db_path: str = DB_PATH) -> int | None:
             conn.rollback()
             return None
 
-        if get_active_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
+        if (
+            get_active_custom_text_override_from_conn(conn, now=datetime.now())
+            is not None
+        ):
             _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
             conn.commit()
             return None
 
-        if _get_forced_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
+        if (
+            _get_forced_custom_text_override_from_conn(conn, now=datetime.now())
+            is not None
+        ):
+            _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
+            conn.commit()
+            return None
+
+        if is_snake_mode_enabled_from_conn(conn):
             _set_meta(conn, SKIP_CATEGORY_HANDLED_KEY, str(request_count))
             conn.commit()
             return None
@@ -473,12 +512,23 @@ def consume_switch_category_request(
             conn.rollback()
             return None
 
-        if get_active_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
+        if (
+            get_active_custom_text_override_from_conn(conn, now=datetime.now())
+            is not None
+        ):
             _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
             conn.commit()
             return None
 
-        if _get_forced_custom_text_override_from_conn(conn, now=datetime.now()) is not None:
+        if (
+            _get_forced_custom_text_override_from_conn(conn, now=datetime.now())
+            is not None
+        ):
+            _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
+            conn.commit()
+            return None
+
+        if is_snake_mode_enabled_from_conn(conn):
             _set_meta(conn, SWITCH_CATEGORY_HANDLED_KEY, str(request_count))
             conn.commit()
             return None

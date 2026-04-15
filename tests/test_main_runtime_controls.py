@@ -129,6 +129,49 @@ def test_run_once_uses_short_duration_for_single_render(monkeypatch) -> None:
     assert captured["should_interrupt"] is None
 
 
+def test_run_once_renders_snake_waiting_screen_when_mode_is_active(
+    monkeypatch,
+) -> None:
+    payload = {
+        "slot_key": "2026-03-26:144",
+        "time": "2026-03-26 12:00:00",
+        "category": "snake_game",
+        "data": {
+            "state": "waiting",
+            "score": 0,
+            "summary": "Press any button to start",
+        },
+    }
+    captured: dict = {}
+
+    class FakeOneShotDisplay:
+        pass
+
+    def fake_render_snake_waiting_once(display):
+        captured["display"] = display
+        return payload
+
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "is_snake_mode_enabled", lambda: True)
+    monkeypatch.setattr(
+        main,
+        "render_snake_waiting_once",
+        fake_render_snake_waiting_once,
+    )
+    monkeypatch.setattr(main, "print_payload", lambda active_payload: None)
+    monkeypatch.setattr(
+        main,
+        "build_runtime_payload",
+        lambda now=None: pytest.fail("normal payload should not render"),
+    )
+
+    display = FakeOneShotDisplay()
+    result = main.run_once(display, now=real_datetime(2026, 3, 26, 12, 0, 0))
+
+    assert result == payload
+    assert captured["display"] is display
+
+
 def test_build_content_for_now_prioritizes_active_custom_text_override(
     monkeypatch,
 ) -> None:
@@ -282,3 +325,60 @@ def test_run_forever_custom_text_discards_category_requests_without_interrupting
 
     assert skip_state["handled_count"] == skip_state["request_count"]
     assert switch_state["handled_count"] == switch_state["request_count"]
+
+
+def test_run_forever_enters_snake_mode_before_normal_rotation(
+    monkeypatch,
+) -> None:
+    calls: dict[str, int] = {"snake": 0}
+
+    def fake_run_snake_mode(display):
+        calls["snake"] += 1
+        raise StopRuntimeLoop
+
+    monkeypatch.setattr(main, "datetime", FakeDateTime)
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "is_snake_mode_enabled", lambda: True)
+    monkeypatch.setattr(main, "run_snake_mode", fake_run_snake_mode)
+    monkeypatch.setattr(
+        main,
+        "build_runtime_payload",
+        lambda *args, **kwargs: pytest.fail("normal rotation should stay paused"),
+    )
+
+    with pytest.raises(StopRuntimeLoop):
+        main.run_forever(object(), boot_delay=0)
+
+    assert calls["snake"] == 1
+
+
+def test_interrupt_checker_fires_when_snake_mode_changes(
+    monkeypatch,
+) -> None:
+    snake_state = {"enabled": False}
+
+    monkeypatch.setattr(main, "get_skip_category_state", lambda: (0, 0))
+    monkeypatch.setattr(main, "get_switch_category_state", lambda: (0, 0, None))
+    monkeypatch.setattr(main, "is_custom_text_force_enabled", lambda: False)
+    monkeypatch.setattr(
+        main,
+        "_get_custom_text_interrupt_token_value",
+        lambda include_inactive=False: None,
+    )
+    monkeypatch.setattr(
+        main,
+        "is_snake_mode_enabled",
+        lambda: snake_state["enabled"],
+    )
+
+    checker = main._build_interrupt_checker(
+        skip_baseline=0,
+        switch_baseline=0,
+        force_baseline=False,
+        custom_text_baseline=None,
+        snake_baseline=False,
+    )
+
+    assert checker() is False
+    snake_state["enabled"] = True
+    assert checker() is True

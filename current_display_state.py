@@ -103,6 +103,15 @@ def _normalize_dashboard_fields(category: str, data: dict) -> tuple[str, str]:
             style_summary,
         )
 
+    if category == "snake_game":
+        state = str(data.get("state") or "idle").replace("_", " ").title()
+        score = _stringify(data.get("score", 0))
+        summary = str(data.get("summary") or state)
+        return (
+            "Snake Game Mode",
+            _join_parts(summary, f"Score {score}"),
+        )
+
     return ("", "")
 
 

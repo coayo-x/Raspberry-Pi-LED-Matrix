@@ -14,6 +14,11 @@ const stopCustomTextApi =
 const adminCustomTextForceApi =
     document.documentElement.dataset.adminCustomTextForceApi ||
     "/admin/custom-text/force";
+const adminSnakeModeApi =
+    document.documentElement.dataset.adminSnakeModeApi || "/api/admin/snake-mode";
+const adminSnakeInputApi =
+    document.documentElement.dataset.adminSnakeInputApi ||
+    "/api/admin/snake-mode/input";
 const adminLoginApi =
     document.documentElement.dataset.adminLoginApi || "/api/admin/login";
 const adminLogoutApi =
@@ -35,6 +40,7 @@ const controlDefinitions = {
     skip_category: { action: "skip_category", label: "Skip Category" },
     switch_category: { action: "switch_category", label: "Switch Category" },
     custom_text: { action: "custom_text", label: "Custom Text" },
+    snake_game: { action: "snake_game", label: "Snake Game Mode" },
 };
 const categoryFieldLabels = {
     joke: { primary: "Setup", secondary: "Punchline" },
@@ -42,6 +48,7 @@ const categoryFieldLabels = {
     science: { primary: "Title", secondary: "Description" },
     pokemon: { primary: "Name", secondary: "Stats" },
     custom_text: { primary: "Text", secondary: "Style" },
+    snake_game: { primary: "Mode", secondary: "State" },
 };
 const defaultCategoryFieldLabels = {
     primary: "Content",
@@ -124,6 +131,7 @@ const elements = {
     adminCustomTextForceState: document.getElementById(
         "admin-custom-text-force-state",
     ),
+    adminSnakeModeState: document.getElementById("admin-snake-mode-state"),
     toggleSkipLockButton: document.getElementById("toggle-skip-lock-button"),
     toggleSwitchLockButton: document.getElementById("toggle-switch-lock-button"),
     toggleCustomTextLockButton: document.getElementById(
@@ -132,6 +140,9 @@ const elements = {
     toggleCustomTextForceButton: document.getElementById(
         "toggle-custom-text-force-button",
     ),
+    toggleSnakeModeButton: document.getElementById("toggle-snake-mode-button"),
+    snakeControlPanel: document.getElementById("snake-control-panel"),
+    snakeButtons: Array.from(document.querySelectorAll("[data-snake-direction]")),
     adminLogoutButton: document.getElementById("admin-logout-button"),
     adminActionStatus: document.getElementById("admin-action-status"),
 };
@@ -199,6 +210,7 @@ function createGuestControlPayload(configured = true) {
                     override: null,
                     force_enabled: false,
                     blocked_by_custom_text: false,
+                    blocked_by_snake: false,
                     blocked_reason: "",
                 },
             ]),
@@ -537,6 +549,13 @@ function buildControlNote(control) {
         return getCategoryChangeBlockedMessage(control);
     }
 
+    if (control.blocked_by_snake) {
+        return (
+            control.blocked_reason ||
+            "Cannot change display content while snake game mode is active"
+        );
+    }
+
     if (control.locked && !control.admin_override) {
         return getControlLockMessage(control);
     }
@@ -569,9 +588,11 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     const lockStateChanged =
         previousSkip?.locked !== nextSkip?.locked ||
         previousSkip?.blocked_by_custom_text !== nextSkip?.blocked_by_custom_text ||
+        previousSkip?.blocked_by_snake !== nextSkip?.blocked_by_snake ||
         previousSkip?.admin_override !== nextSkip?.admin_override ||
         previousSwitch?.locked !== nextSwitch?.locked ||
         previousSwitch?.blocked_by_custom_text !== nextSwitch?.blocked_by_custom_text ||
+        previousSwitch?.blocked_by_snake !== nextSwitch?.blocked_by_snake ||
         previousSwitch?.admin_override !== nextSwitch?.admin_override;
     const authStateChanged =
         previousAuth?.configured !== auth?.configured ||
@@ -589,6 +610,9 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
     const switchLocked = Boolean(nextSwitch?.locked && !nextSwitch?.admin_override);
     const customTextBlocking = Boolean(
         nextSkip?.blocked_by_custom_text || nextSwitch?.blocked_by_custom_text,
+    );
+    const snakeBlocking = Boolean(
+        nextSkip?.blocked_by_snake || nextSwitch?.blocked_by_snake,
     );
     const skipOverride = Boolean(nextSkip?.admin_override);
     const switchOverride = Boolean(nextSwitch?.admin_override);
@@ -697,6 +721,75 @@ function applyAdminForceState(control, button, labelElement) {
         : "Disabled. Custom text follows its normal timer.";
     button.textContent = forceEnabled ? "Disable Force" : "Enable Force";
     button.disabled = false;
+}
+
+function applyAdminSnakeState(control, button, labelElement) {
+    if (!button || !labelElement) {
+        return;
+    }
+
+    if (snakeBlocking) {
+        setMessage(
+            elements.actionStatus,
+            getCategoryChangeBlockedMessage(nextSkip || nextSwitch),
+            "error",
+        );
+        return;
+    }
+
+    const enabled = Boolean(control?.enabled);
+    const status = String(control?.status || (enabled ? "waiting" : "idle"));
+    const score = Number(control?.score || 0);
+    labelElement.textContent = enabled
+        ? status === "playing"
+            ? `Active. Score ${score}.`
+            : status === "game_over"
+                ? `Game over. Score ${score}.`
+                : "Active. Waiting for the first control input."
+        : "Disabled. Normal rotation controls the matrix.";
+    button.textContent = enabled ? "Stop Snake" : "Enable Snake";
+    button.disabled = false;
+
+    if (elements.snakeControlPanel) {
+        elements.snakeControlPanel.hidden =
+            !enabled || !latestControlPayload?.auth?.authenticated;
+    }
+    elements.snakeButtons.forEach((snakeButton) => {
+        snakeButton.disabled =
+            !enabled || !latestControlPayload?.auth?.authenticated;
+    });
+}
+
+function getSnakeDirectionForKey(key) {
+    const normalized = String(key || "").toLowerCase();
+    return {
+        arrowup: "up",
+        w: "up",
+        arrowdown: "down",
+        s: "down",
+        arrowleft: "left",
+        a: "left",
+        arrowright: "right",
+        d: "right",
+    }[normalized];
+}
+
+function isTextEntryTarget(target) {
+    const tagName = target?.tagName?.toLowerCase();
+    return (
+        target?.isContentEditable ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select"
+    );
+}
+
+function canSendSnakeInputFromKeyboard(event) {
+    return Boolean(
+        latestControlPayload?.auth?.authenticated &&
+            latestControlPayload?.controls?.snake_game?.enabled &&
+            !isTextEntryTarget(event.target),
+    );
 }
 
 function syncCustomTextStyleButtons() {
@@ -1111,6 +1204,111 @@ async function toggleCustomTextForce() {
     }
 }
 
+async function toggleSnakeMode() {
+    const control = latestControlPayload?.controls?.snake_game;
+    if (!latestControlPayload?.auth?.authenticated) {
+        setMessage(
+            elements.adminActionStatus,
+            "Dashboard authentication is required.",
+            "error",
+        );
+        openLoginModal();
+        return;
+    }
+
+    const nextEnabled = !control?.enabled;
+    if (elements.toggleSnakeModeButton) {
+        elements.toggleSnakeModeButton.disabled = true;
+    }
+    setMessage(
+        elements.adminActionStatus,
+        `${nextEnabled ? "Enabling" : "Stopping"} Snake Game Mode...`,
+        "pending",
+    );
+
+    try {
+        const result = await fetchJson(adminSnakeModeApi, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: nextEnabled }),
+        });
+        setMessage(
+            elements.adminActionStatus,
+            result.enabled
+                ? "Snake Game Mode enabled. Press any control to start."
+                : "Snake Game Mode stopped. Normal rotation will resume.",
+            "success",
+        );
+    } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.adminActionStatus,
+                "Snake mode update failed",
+            )
+        ) {
+            return;
+        }
+        setMessage(
+            elements.adminActionStatus,
+            describeResultError(error, "Snake mode update failed"),
+            "error",
+        );
+    } finally {
+        await refreshDashboard().catch(() => null);
+    }
+}
+
+async function sendSnakeInput(direction) {
+    if (!direction) {
+        return;
+    }
+
+    if (!latestControlPayload?.auth?.authenticated) {
+        setMessage(
+            elements.adminActionStatus,
+            "Dashboard authentication is required.",
+            "error",
+        );
+        openLoginModal();
+        return;
+    }
+
+    if (!latestControlPayload?.controls?.snake_game?.enabled) {
+        setMessage(
+            elements.adminActionStatus,
+            "Enable Snake Game Mode before sending controls.",
+            "error",
+        );
+        return;
+    }
+
+    try {
+        await fetchJson(adminSnakeInputApi, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ direction }),
+        });
+    } catch (error) {
+        if (
+            handleUnauthorizedAdminAction(
+                error,
+                elements.adminActionStatus,
+                "Snake control failed",
+            )
+        ) {
+            return;
+        }
+        setMessage(
+            elements.adminActionStatus,
+            describeResultError(error, "Snake control failed"),
+            "error",
+        );
+    } finally {
+        refreshControlState().catch(() => null);
+    }
+}
+
 function applyControlPayload(payload) {
     const nextPayload =
         payload || createGuestControlPayload(latestControlPayload?.auth?.configured);
@@ -1123,6 +1321,7 @@ function applyControlPayload(payload) {
     const skipControl = controls.skip_category;
     const switchControl = controls.switch_category;
     const customTextControl = controls.custom_text;
+    const snakeControl = controls.snake_game;
     const customTextBlocking = Boolean(
         skipControl?.blocked_by_custom_text || switchControl?.blocked_by_custom_text,
     );
@@ -1151,7 +1350,9 @@ function applyControlPayload(payload) {
 
     if (elements.publicControlMode) {
         const publicModeLabel =
-            customTextControl?.force_enabled && customTextControl?.override
+            snakeControl?.enabled
+                ? "Snake Mode"
+                : customTextControl?.force_enabled && customTextControl?.override
                 ? "Force Mode"
                 : customTextBlocking
                     ? "Custom Text Active"
@@ -1180,6 +1381,10 @@ function applyControlPayload(payload) {
         elements.toggleSwitchLockButton.disabled = true;
         elements.toggleCustomTextLockButton.disabled = true;
         elements.toggleCustomTextForceButton.disabled = true;
+        elements.toggleSnakeModeButton.disabled = true;
+        elements.snakeButtons.forEach((button) => {
+            button.disabled = true;
+        });
         elements.adminLogoutButton.disabled = true;
         setMessage(
             elements.adminLoginStatus,
@@ -1210,9 +1415,12 @@ function applyControlPayload(payload) {
                 ? " Force mode is enabled for custom text."
                 : " Force mode is enabled and waiting for custom text content."
             : "";
+        const snakeSummary = snakeControl?.enabled
+            ? " Snake Game Mode is active."
+            : "";
         elements.adminControlsSummary.textContent = auth.expires_at
-            ? `Admin session active until ${auth.expires_at}. ${lockSummary}${forceSummary}`
-            : `Admin session active. ${lockSummary}${forceSummary}`;
+            ? `Admin session active until ${auth.expires_at}. ${lockSummary}${forceSummary}${snakeSummary}`
+            : `Admin session active. ${lockSummary}${forceSummary}${snakeSummary}`;
         setMessage(
             elements.adminLoginStatus,
             `Signed in as ${displayText(auth.username)}.`,
@@ -1252,10 +1460,19 @@ function applyControlPayload(payload) {
         elements.toggleCustomTextForceButton,
         elements.adminCustomTextForceState,
     );
+    applyAdminSnakeState(
+        snakeControl,
+        elements.toggleSnakeModeButton,
+        elements.adminSnakeModeState,
+    );
     elements.toggleSkipLockButton.disabled = !isAdmin;
     elements.toggleSwitchLockButton.disabled = !isAdmin;
     elements.toggleCustomTextLockButton.disabled = !isAdmin;
     elements.toggleCustomTextForceButton.disabled = !isAdmin;
+    elements.toggleSnakeModeButton.disabled = !isAdmin;
+    elements.snakeButtons.forEach((button) => {
+        button.disabled = !isAdmin || !snakeControl?.enabled;
+    });
     elements.adminLogoutButton.disabled = !isAdmin;
 }
 
@@ -1536,6 +1753,11 @@ function bindModalInteractions() {
 
     document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") {
+            const snakeDirection = getSnakeDirectionForKey(event.key);
+            if (snakeDirection && canSendSnakeInputFromKeyboard(event)) {
+                event.preventDefault();
+                sendSnakeInput(snakeDirection);
+            }
             return;
         }
 
@@ -1662,6 +1884,16 @@ if (elements.toggleCustomTextForceButton) {
         toggleCustomTextForce,
     );
 }
+
+if (elements.toggleSnakeModeButton) {
+    elements.toggleSnakeModeButton.addEventListener("click", toggleSnakeMode);
+}
+
+elements.snakeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        sendSnakeInput(button.dataset.snakeDirection);
+    });
+});
 
 syncCustomTextBrightnessValues();
 syncCustomTextStyleButtons();
