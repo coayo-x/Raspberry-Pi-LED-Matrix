@@ -24,9 +24,11 @@ from custom_text import (
 from current_display_state import load_current_display_state
 from runtime_control import (
     get_runtime_control_state,
+    is_custom_text_force_enabled,
     request_skip_category,
     request_switch_category,
     set_control_lock,
+    toggle_custom_text_force,
 )
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
@@ -44,6 +46,7 @@ SKIP_CATEGORY_API_PATH = "/api/skip-category"
 SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 CUSTOM_TEXT_API_PATH = "/api/custom-text"
 STOP_CUSTOM_TEXT_API_PATH = "/api/admin/custom-text/stop"
+CUSTOM_TEXT_FORCE_API_PATH = "/admin/custom-text/force"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
@@ -457,6 +460,9 @@ def create_dashboard_server(
                         db_path=db_path,
                         is_admin=admin_status["authenticated"],
                     )
+                    result["force_enabled"] = is_custom_text_force_enabled(
+                        db_path=db_path
+                    )
                 except ValueError as error:
                     self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
                     return
@@ -473,7 +479,28 @@ def create_dashboard_server(
                     db_path=db_path,
                     is_admin=admin_status["authenticated"],
                 )
+                result["force_enabled"] = is_custom_text_force_enabled(db_path=db_path)
                 self._send_json(HTTPStatus.OK, result)
+                return
+
+            if route == CUSTOM_TEXT_FORCE_API_PATH:
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+
+                enabled = toggle_custom_text_force(db_path=db_path)
+                control = get_custom_text_control_state(
+                    db_path=db_path,
+                    is_admin=admin_status["authenticated"],
+                )
+                control["force_enabled"] = enabled
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "enabled": enabled,
+                        "control": control,
+                    },
+                )
                 return
 
             if route == ADMIN_LOGOUT_API_PATH:
@@ -802,6 +829,9 @@ def create_dashboard_server(
                 db_path=db_path,
                 is_admin=auth_state["authenticated"],
             )
+            controls["custom_text"]["force_enabled"] = is_custom_text_force_enabled(
+                db_path=db_path
+            )
             return {
                 "auth": auth_state,
                 "controls": controls,
@@ -829,6 +859,7 @@ def _render_html() -> bytes:
         "__SWITCH_API__": SWITCH_CATEGORY_API_PATH,
         "__CUSTOM_TEXT_API__": CUSTOM_TEXT_API_PATH,
         "__STOP_CUSTOM_TEXT_API__": STOP_CUSTOM_TEXT_API_PATH,
+        "__ADMIN_CUSTOM_TEXT_FORCE_API__": CUSTOM_TEXT_FORCE_API_PATH,
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,

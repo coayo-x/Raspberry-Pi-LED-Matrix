@@ -7,6 +7,7 @@ from config import DB_PATH
 from custom_text import (
     get_active_custom_text_override,
     get_custom_text_interrupt_token,
+    get_custom_text_override,
     get_custom_text_remaining_seconds,
 )
 from current_display_state import save_current_display_state
@@ -29,6 +30,7 @@ try:
     from runtime_control import (
         consume_skip_category_request,
         consume_switch_category_request,
+        is_custom_text_force_enabled,
         get_skip_category_state,
         get_switch_category_state,
     )
@@ -141,6 +143,9 @@ except Exception:
             return handled_count, category
         finally:
             conn.close()
+
+    def is_custom_text_force_enabled(db_path: str = DB_PATH) -> bool:
+        return False
 
 
 def build_runtime_payload(
@@ -277,7 +282,18 @@ def print_payload(payload: dict) -> None:
 
 def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     init_db()
-    payload = build_runtime_payload(now)
+    current = now or datetime.now()
+    force_enabled = is_custom_text_force_enabled()
+    forced_custom_override = (
+        get_custom_text_override(now=current) if force_enabled else None
+    )
+    if forced_custom_override is None:
+        payload = build_runtime_payload(current)
+    else:
+        payload = build_runtime_payload(
+            current,
+            custom_override=forced_custom_override,
+        )
     print_payload(payload)
     display.display_payload(payload, duration_seconds=1)
     return payload
@@ -292,12 +308,26 @@ def _get_interrupt_baselines(
     return skip_handled_count, switch_handled_count, custom_interrupt_token
 
 
+def _get_custom_text_interrupt_token_value(
+    *,
+    now: datetime | None = None,
+    include_inactive: bool = False,
+) -> str | None:
+    if include_inactive:
+        override = get_custom_text_override(now=now)
+        return override["request_id"] if override is not None else None
+
+    return get_custom_text_interrupt_token(now=now)
+
+
 def _build_interrupt_checker(
     skip_baseline: int,
     switch_baseline: int,
     custom_text_baseline: str | None,
     *,
     include_category_controls: bool = True,
+    force_baseline: bool | None = None,
+    include_inactive_custom_text: bool = False,
 ) -> Callable[[], bool]:
     return lambda: (
         (
@@ -307,7 +337,14 @@ def _build_interrupt_checker(
                 or get_switch_category_state()[0] > switch_baseline
             )
         )
-        or get_custom_text_interrupt_token() != custom_text_baseline
+        or (
+            force_baseline is not None
+            and is_custom_text_force_enabled() != force_baseline
+        )
+        or _get_custom_text_interrupt_token_value(
+            include_inactive=include_inactive_custom_text
+        )
+        != custom_text_baseline
     )
 
 
@@ -336,11 +373,48 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
     while True:
         now = datetime.now()
         slot_key = get_current_slot_key(now)
-        custom_override = get_active_custom_text_override(now=now)
+        force_enabled = is_custom_text_force_enabled()
+        forced_custom_override = (
+            get_custom_text_override(now=now) if force_enabled else None
+        )
+        custom_override = (
+            None
+            if forced_custom_override is not None
+            else get_active_custom_text_override(now=now)
+        )
         category_override = None
         skip_handled_count: int
         switch_handled_count: int
         custom_text_baseline: str | None
+
+        if forced_custom_override is not None:
+            (
+                skip_handled_count,
+                switch_handled_count,
+                _,
+            ) = _clear_expired_runtime_control_requests(now=now)
+            custom_text_baseline = _get_custom_text_interrupt_token_value(
+                now=now,
+                include_inactive=True,
+            )
+
+            payload = build_runtime_payload(now, custom_override=forced_custom_override)
+            print_payload(payload)
+            display.display_payload(
+                payload,
+                duration_seconds=max(1, seconds_until_next_slot(now)),
+                should_interrupt=_build_interrupt_checker(
+                    skip_handled_count,
+                    switch_handled_count,
+                    custom_text_baseline,
+                    include_category_controls=False,
+                    force_baseline=True,
+                    include_inactive_custom_text=True,
+                ),
+            )
+            active_slot_key = slot_key
+            active_category = payload["category"]
+            continue
 
         if custom_override is not None:
             (
@@ -362,6 +436,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                     switch_handled_count,
                     custom_text_baseline,
                     include_category_controls=False,
+                    force_baseline=force_enabled,
                 ),
             )
             active_slot_key = slot_key
@@ -412,6 +487,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                 skip_handled_count,
                 switch_handled_count,
                 custom_text_baseline,
+                force_baseline=force_enabled,
             ),
         )
         active_slot_key = slot_key
