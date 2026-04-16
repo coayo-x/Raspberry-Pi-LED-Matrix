@@ -626,6 +626,15 @@ function syncPublicActionStatus(auth, controls, previousPayload) {
         return;
     }
 
+    if (snakeBlocking) {
+        setMessage(
+            elements.actionStatus,
+            getCategoryChangeBlockedMessage(nextSkip || nextSwitch),
+            "error",
+        );
+        return;
+    }
+
     if (skipLocked && switchLocked) {
         setMessage(
             elements.actionStatus,
@@ -725,15 +734,6 @@ function applyAdminForceState(control, button, labelElement) {
 
 function applyAdminSnakeState(control, button, labelElement) {
     if (!button || !labelElement) {
-        return;
-    }
-
-    if (snakeBlocking) {
-        setMessage(
-            elements.actionStatus,
-            getCategoryChangeBlockedMessage(nextSkip || nextSwitch),
-            "error",
-        );
         return;
     }
 

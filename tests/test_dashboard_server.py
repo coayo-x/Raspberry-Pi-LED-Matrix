@@ -876,6 +876,7 @@ def test_dashboard_snake_mode_requires_admin_and_writes_control_input(
             {"enabled": False},
             opener=opener,
         )
+        stopped_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
     finally:
         server.shutdown()
         server.server_close()
@@ -903,6 +904,10 @@ def test_dashboard_snake_mode_requires_admin_and_writes_control_input(
     assert stop_body["accepted"] is True
     assert stop_body["enabled"] is False
     assert stop_body["status"] == "idle"
+    assert stopped_state["controls"]["snake_game"]["enabled"] is False
+    assert stopped_state["controls"]["snake_game"]["status"] == "idle"
+    assert stopped_state["controls"]["skip_category"]["available"] is True
+    assert stopped_state["controls"]["switch_category"]["available"] is True
 
 
 def test_dashboard_blocks_skip_and_switch_while_custom_text_override_is_active(
