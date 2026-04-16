@@ -8,6 +8,8 @@
     data-custom-text-api="__CUSTOM_TEXT_API__"
     data-stop-custom-text-api="__STOP_CUSTOM_TEXT_API__"
     data-admin-custom-text-force-api="__ADMIN_CUSTOM_TEXT_FORCE_API__"
+    data-admin-snake-mode-api="__ADMIN_SNAKE_MODE_API__"
+    data-admin-snake-input-api="__ADMIN_SNAKE_INPUT_API__"
     data-admin-login-api="__ADMIN_LOGIN_API__"
     data-admin-logout-api="__ADMIN_LOGOUT_API__"
     data-admin-control-lock-api="__ADMIN_CONTROL_LOCK_API__"
@@ -386,6 +388,24 @@
                             <p class="lock-state" id="admin-custom-text-force-state">Loading...</p>
                         </div>
                         <button class="admin-button admin-lock-button" id="toggle-custom-text-force-button" type="button">Enable Force</button>
+                    </div>
+
+                    <div class="lock-row">
+                        <div class="lock-copy">
+                            <p class="lock-title">Snake Game Mode</p>
+                            <p class="lock-state" id="admin-snake-mode-state">Loading...</p>
+                        </div>
+                        <button class="admin-button admin-lock-button" id="toggle-snake-mode-button" type="button">Enable Snake</button>
+                    </div>
+
+                    <div class="snake-control-panel" id="snake-control-panel" hidden>
+                        <p class="admin-subcard-copy">Use arrow keys, WASD, or the buttons below while Snake is active.</p>
+                        <div class="snake-pad" aria-label="Snake controls">
+                            <button class="admin-button snake-button snake-up" type="button" data-snake-direction="up">Up</button>
+                            <button class="admin-button snake-button snake-left" type="button" data-snake-direction="left">Left</button>
+                            <button class="admin-button snake-button snake-down" type="button" data-snake-direction="down">Down</button>
+                            <button class="admin-button snake-button snake-right" type="button" data-snake-direction="right">Right</button>
+                        </div>
                     </div>
                 </article>
 

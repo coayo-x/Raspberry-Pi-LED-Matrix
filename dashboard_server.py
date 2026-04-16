@@ -30,6 +30,11 @@ from runtime_control import (
     set_control_lock,
     toggle_custom_text_force,
 )
+from snake_control import (
+    get_snake_control_state,
+    request_snake_input,
+    set_snake_mode_enabled,
+)
 
 ASSETS_DIR = Path(__file__).with_name("dashboard_assets")
 STATIC_ROUTES = {
@@ -50,6 +55,8 @@ CUSTOM_TEXT_FORCE_API_PATH = "/admin/custom-text/force"
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
+ADMIN_SNAKE_MODE_API_PATH = "/api/admin/snake-mode"
+ADMIN_SNAKE_INPUT_API_PATH = "/api/admin/snake-mode/input"
 LOCK_SKIP_API_PATH = "/api/lock-skip"
 UNLOCK_SKIP_API_PATH = "/api/unlock-skip"
 LOCK_SWITCH_API_PATH = "/api/lock-switch"
@@ -328,9 +335,11 @@ def _render_login_html(configured: bool) -> bytes:
         .replace("__BUTTON_ATTRS__", "" if configured else "disabled")
         .replace(
             "__INITIAL_STATUS__",
-            "Dashboard authentication is ready."
-            if configured
-            else "Dashboard credentials are not configured on this host.",
+            (
+                "Dashboard authentication is ready."
+                if configured
+                else "Dashboard credentials are not configured on this host."
+            ),
         )
         .encode("utf-8")
     )
@@ -503,6 +512,52 @@ def create_dashboard_server(
                 )
                 return
 
+            if route == ADMIN_SNAKE_MODE_API_PATH:
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+
+                try:
+                    payload = self._read_json_body()
+                    enabled = self._require_bool_field(payload, "enabled")
+                except ValueError as error:
+                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+
+                result = set_snake_mode_enabled(
+                    enabled,
+                    db_path=db_path,
+                    is_admin=admin_status["authenticated"],
+                )
+                self._send_json(
+                    self._control_status_code(result),
+                    result,
+                )
+                return
+
+            if route == ADMIN_SNAKE_INPUT_API_PATH:
+                admin_status = self._require_authenticated_api()
+                if admin_status is None:
+                    return
+
+                try:
+                    payload = self._read_json_body()
+                    direction = self._require_text_field(payload, "direction")
+                    result = request_snake_input(
+                        direction,
+                        db_path=db_path,
+                        is_admin=admin_status["authenticated"],
+                    )
+                except ValueError as error:
+                    self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
+                    return
+
+                self._send_json(
+                    self._control_status_code(result),
+                    result,
+                )
+                return
+
             if route == ADMIN_LOGOUT_API_PATH:
                 if self._require_authenticated_api() is None:
                     return
@@ -661,7 +716,9 @@ def create_dashboard_server(
                     if action == "custom_text":
                         control_state = set_custom_text_lock(locked, db_path=db_path)
                     else:
-                        control_state = set_control_lock(action, locked, db_path=db_path)
+                        control_state = set_control_lock(
+                            action, locked, db_path=db_path
+                        )
                 except ValueError as error:
                     self._send_json_error(HTTPStatus.BAD_REQUEST, str(error))
                     return
@@ -804,9 +861,7 @@ def create_dashboard_server(
 
             message = "Dashboard authentication is required."
             if not admin_status["configured"]:
-                message = (
-                    "Dashboard authentication is not configured on this host."
-                )
+                message = "Dashboard authentication is not configured on this host."
 
             self._send_json_error(
                 HTTPStatus.UNAUTHORIZED,
@@ -819,7 +874,9 @@ def create_dashboard_server(
             )
             return None
 
-        def _build_control_state_payload(self, admin_status: dict | None = None) -> dict:
+        def _build_control_state_payload(
+            self, admin_status: dict | None = None
+        ) -> dict:
             auth_state = admin_status or self._get_admin_status()
             controls = get_runtime_control_state(
                 db_path=db_path,
@@ -831,6 +888,10 @@ def create_dashboard_server(
             )
             controls["custom_text"]["force_enabled"] = is_custom_text_force_enabled(
                 db_path=db_path
+            )
+            controls["snake_game"] = get_snake_control_state(
+                db_path=db_path,
+                is_admin=auth_state["authenticated"],
             )
             return {
                 "auth": auth_state,
@@ -860,6 +921,8 @@ def _render_html() -> bytes:
         "__CUSTOM_TEXT_API__": CUSTOM_TEXT_API_PATH,
         "__STOP_CUSTOM_TEXT_API__": STOP_CUSTOM_TEXT_API_PATH,
         "__ADMIN_CUSTOM_TEXT_FORCE_API__": CUSTOM_TEXT_FORCE_API_PATH,
+        "__ADMIN_SNAKE_MODE_API__": ADMIN_SNAKE_MODE_API_PATH,
+        "__ADMIN_SNAKE_INPUT_API__": ADMIN_SNAKE_INPUT_API_PATH,
         "__ADMIN_LOGIN_API__": ADMIN_LOGIN_API_PATH,
         "__ADMIN_LOGOUT_API__": ADMIN_LOGOUT_API_PATH,
         "__ADMIN_CONTROL_LOCK_API__": ADMIN_CONTROL_LOCK_API_PATH,

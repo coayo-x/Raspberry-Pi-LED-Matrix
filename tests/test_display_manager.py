@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import display_manager
+from snake_game import SnakeGame
 
 
 class FakeGeometry:
@@ -376,3 +377,23 @@ def test_weather_ticker_uses_deadline_based_frame_timing(monkeypatch) -> None:
     assert intervals[1:] == [display_manager.WEATHER_TICKER_FRAME_DELAY] * (
         len(intervals) - 1
     )
+
+
+def test_render_snake_game_uses_full_matrix_width() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    game = SnakeGame(width=display.width, height=display.height)
+    game.phase = "playing"
+    game.snake = [
+        (1, 2),
+        (display.width // game.cell_size // 2, 2),
+        ((display.width // game.cell_size) - 2, 2),
+    ]
+    game.food = ((display.width // game.cell_size) - 1, 3)
+
+    frame = display.render_snake_game(game.snapshot())
+    mask = _non_default_mask(frame)
+    panel_width = display.panel_width
+
+    assert mask[:, :panel_width].any()
+    assert mask[:, panel_width : panel_width * 2].any()
+    assert mask[:, panel_width * 2 :].any()

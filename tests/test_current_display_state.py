@@ -119,3 +119,22 @@ def test_normalize_current_display_state_maps_custom_text_style_summary() -> Non
         custom_text_state["punchline"]
         == "mono 18px | Center | Bold/Underline | orange on black | 5m"
     )
+
+
+def test_normalize_current_display_state_maps_snake_game_summary() -> None:
+    snake_state = normalize_current_display_state(
+        {
+            "time": "2026-03-26 12:00:00",
+            "slot_key": "2026-03-26:144",
+            "category": "snake_game",
+            "data": {
+                "state": "waiting",
+                "score": 0,
+                "summary": "Press any button to start",
+            },
+        },
+        updated_at="2026-03-26T12:00:01",
+    )
+
+    assert snake_state["setup"] == "Snake Game Mode"
+    assert snake_state["punchline"] == "Press any button to start | Score 0"

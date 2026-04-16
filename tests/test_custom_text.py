@@ -16,6 +16,7 @@ from custom_text import (
     set_custom_text_lock,
     stop_custom_text_override,
 )
+from snake_control import SNAKE_ACTIVE_BLOCKED_MESSAGE, set_snake_mode_enabled
 
 
 def _install_bad_words(
@@ -143,9 +144,34 @@ def test_custom_text_lock_blocks_public_requests_but_allows_admin_override(
     assert admin_state["admin_override"] is True
 
 
-def test_custom_text_rate_limits_rapid_repeats(
-    monkeypatch, isolated_db_path
+def test_custom_text_request_is_blocked_while_snake_mode_is_active(
+    monkeypatch,
+    isolated_db_path,
 ) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
+
+    result = request_custom_text_override(
+        "Admin maintenance notice",
+        db_path=str(isolated_db_path),
+        is_admin=True,
+        now=datetime(2026, 3, 26, 12, 0, 0),
+    )
+    state = get_custom_text_control_state(
+        str(isolated_db_path),
+        is_admin=True,
+        now=datetime(2026, 3, 26, 12, 0, 0),
+    )
+
+    assert result["accepted"] is False
+    assert result["blocked_by_snake"] is True
+    assert result["error"] == SNAKE_ACTIVE_BLOCKED_MESSAGE
+    assert state["available"] is False
+    assert state["status"] == "snake_game_active"
+    assert state["blocked_reason"] == SNAKE_ACTIVE_BLOCKED_MESSAGE
+
+
+def test_custom_text_rate_limits_rapid_repeats(monkeypatch, isolated_db_path) -> None:
     _install_bad_words(monkeypatch, isolated_db_path.parent)
 
     accepted = request_custom_text_override(
@@ -260,9 +286,7 @@ def test_custom_text_rejects_blocked_words_case_insensitively(
     ]
 
 
-def test_custom_text_rejects_invalid_brightness(
-    monkeypatch, isolated_db_path
-) -> None:
+def test_custom_text_rejects_invalid_brightness(monkeypatch, isolated_db_path) -> None:
     _install_bad_words(monkeypatch, isolated_db_path.parent)
 
     with pytest.raises(

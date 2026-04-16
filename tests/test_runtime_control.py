@@ -17,6 +17,7 @@ from runtime_control import (
     request_switch_category,
     set_control_lock,
 )
+from snake_control import SNAKE_ACTIVE_BLOCKED_MESSAGE, set_snake_mode_enabled
 
 
 def _install_bad_words(
@@ -258,6 +259,44 @@ def test_pending_category_requests_are_discarded_while_custom_text_is_active(
         db_path=str(isolated_db_path),
         now=current,
     )
+
+    assert consume_skip_category_request(str(isolated_db_path)) is None
+    assert consume_switch_category_request(str(isolated_db_path)) is None
+    assert get_skip_category_state(str(isolated_db_path)) == (1, 1)
+    assert get_switch_category_state(str(isolated_db_path)) == (1, 1, "science")
+
+
+def test_skip_and_switch_requests_are_rejected_while_snake_mode_is_active(
+    isolated_db_path,
+) -> None:
+    set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
+
+    skip_result = request_skip_category(str(isolated_db_path))
+    switch_result = request_switch_category("weather", str(isolated_db_path))
+    state = get_runtime_control_state(str(isolated_db_path), is_admin=True)
+
+    assert skip_result["accepted"] is False
+    assert skip_result["blocked_by_snake"] is True
+    assert skip_result["error"] == SNAKE_ACTIVE_BLOCKED_MESSAGE
+    assert switch_result["accepted"] is False
+    assert switch_result["blocked_by_snake"] is True
+    assert state["skip_category"]["available"] is False
+    assert state["switch_category"]["status"] == "snake_game_active"
+
+
+def test_pending_category_requests_are_discarded_while_snake_mode_is_active(
+    isolated_db_path,
+) -> None:
+    request_skip_category(
+        str(isolated_db_path),
+        requested_at="2026-03-26T12:30:00",
+    )
+    request_switch_category(
+        "science",
+        str(isolated_db_path),
+        requested_at="2026-03-26T12:30:11",
+    )
+    set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
 
     assert consume_skip_category_request(str(isolated_db_path)) is None
     assert consume_switch_category_request(str(isolated_db_path)) is None

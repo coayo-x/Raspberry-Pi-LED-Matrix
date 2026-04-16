@@ -23,6 +23,8 @@ from rotation_engine import (
     get_today_pokemon_id,
     seconds_until_next_slot,
 )
+from snake_control import is_snake_mode_enabled
+from snake_game import render_snake_waiting_once, run_snake_mode
 from apis.pokemon import get_pokemon_data, get_pokemon_fallback
 from apis.weather import get_weather_data, get_weather_fallback
 
@@ -279,9 +281,18 @@ def print_payload(payload: dict) -> None:
             f"Duration: {data.get('duration_minutes', '--')}m | Expires: {data.get('expires_at', '')}"
         )
 
+    elif category == "snake_game":
+        print(f"Snake Game: {data.get('summary', data.get('state', 'active'))}")
+        print(f"Score: {data.get('score', 0)}")
+
 
 def run_once(display: DisplayManager, now: datetime | None = None) -> dict:
     init_db()
+    if is_snake_mode_enabled():
+        payload = render_snake_waiting_once(display)
+        print_payload(payload)
+        return payload
+
     current = now or datetime.now()
     force_enabled = is_custom_text_force_enabled()
     forced_custom_override = (
@@ -328,6 +339,7 @@ def _build_interrupt_checker(
     include_category_controls: bool = True,
     force_baseline: bool | None = None,
     include_inactive_custom_text: bool = False,
+    snake_baseline: bool | None = None,
 ) -> Callable[[], bool]:
     return lambda: (
         (
@@ -345,6 +357,7 @@ def _build_interrupt_checker(
             include_inactive=include_inactive_custom_text
         )
         != custom_text_baseline
+        or (snake_baseline is not None and is_snake_mode_enabled() != snake_baseline)
     )
 
 
@@ -373,6 +386,15 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
     while True:
         now = datetime.now()
         slot_key = get_current_slot_key(now)
+        snake_enabled = is_snake_mode_enabled()
+        if snake_enabled:
+            _clear_expired_runtime_control_requests(now=now)
+            run_snake_mode(display)
+            active_slot_key = None
+            active_category = None
+            active_rotation_category = None
+            continue
+
         force_enabled = is_custom_text_force_enabled()
         forced_custom_override = (
             get_custom_text_override(now=now) if force_enabled else None
@@ -410,6 +432,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                     include_category_controls=False,
                     force_baseline=True,
                     include_inactive_custom_text=True,
+                    snake_baseline=snake_enabled,
                 ),
             )
             active_slot_key = slot_key
@@ -437,6 +460,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                     custom_text_baseline,
                     include_category_controls=False,
                     force_baseline=force_enabled,
+                    snake_baseline=snake_enabled,
                 ),
             )
             active_slot_key = slot_key
@@ -488,6 +512,7 @@ def run_forever(display: DisplayManager, boot_delay: int = 10) -> None:
                 switch_handled_count,
                 custom_text_baseline,
                 force_baseline=force_enabled,
+                snake_baseline=snake_enabled,
             ),
         )
         active_slot_key = slot_key

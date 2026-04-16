@@ -18,6 +18,7 @@ from runtime_control import (
     get_switch_category_state,
     set_control_lock,
 )
+from snake_control import consume_snake_input
 
 
 def _build_opener() -> urllib.request.OpenerDirector:
@@ -140,6 +141,8 @@ def test_dashboard_root_is_public_without_authentication(
     assert 'id="custom-text-form"' in page
     assert 'id="custom-text-stop-button"' in page
     assert 'id="custom-text-lock-banner"' in page
+    assert 'id="toggle-snake-mode-button"' in page
+    assert 'data-admin-snake-mode-api="/api/admin/snake-mode"' in page
     assert "https://github.com/coayo-x/Raspberry-Pi-LED-Matrix/" in page
     assert "/api/current-display-state" in page
     assert "/api/custom-text" in page
@@ -831,6 +834,80 @@ def test_dashboard_custom_text_lock_requires_admin_and_allows_admin_override(
     assert admin_body["admin_override"] is True
     assert unlock_status == 200
     assert unlock_body["control"]["locked"] is False
+
+
+def test_dashboard_snake_mode_requires_admin_and_writes_control_input(
+    monkeypatch,
+    isolated_db_path,
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        public_enable_status, public_enable_body = _post_json_expect_error(
+            f"{base_url}/api/admin/snake-mode",
+            {"enabled": True},
+        )
+        public_input_status, public_input_body = _post_json_expect_error(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "up"},
+        )
+        _login(base_url, opener)
+        enable_status, enable_body = _post_json(
+            f"{base_url}/api/admin/snake-mode",
+            {"enabled": True},
+            opener=opener,
+        )
+        active_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+        input_status, input_body = _post_json(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "ArrowLeft"},
+            opener=opener,
+        )
+        consumed_input = consume_snake_input(str(isolated_db_path))
+        stop_status, stop_body = _post_json(
+            f"{base_url}/api/admin/snake-mode",
+            {"enabled": False},
+            opener=opener,
+        )
+        stopped_state = _fetch_json(f"{base_url}/api/control-state", opener=opener)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert public_enable_status == 401
+    assert public_enable_body["configured"] is True
+    assert public_input_status == 401
+    assert public_input_body["configured"] is True
+
+    assert enable_status == 200
+    assert enable_body["accepted"] is True
+    assert enable_body["enabled"] is True
+    assert enable_body["status"] == "waiting"
+    assert active_state["controls"]["snake_game"]["enabled"] is True
+    assert active_state["controls"]["snake_game"]["available"] is True
+    assert active_state["controls"]["skip_category"]["available"] is False
+    assert active_state["controls"]["switch_category"]["status"] == "snake_game_active"
+
+    assert input_status == 200
+    assert input_body["accepted"] is True
+    assert input_body["direction"] == "left"
+    assert consumed_input == (1, "left")
+    assert stop_status == 200
+    assert stop_body["accepted"] is True
+    assert stop_body["enabled"] is False
+    assert stop_body["status"] == "idle"
+    assert stopped_state["controls"]["snake_game"]["enabled"] is False
+    assert stopped_state["controls"]["snake_game"]["status"] == "idle"
+    assert stopped_state["controls"]["skip_category"]["available"] is True
+    assert stopped_state["controls"]["switch_category"]["available"] is True
 
 
 def test_dashboard_blocks_skip_and_switch_while_custom_text_override_is_active(

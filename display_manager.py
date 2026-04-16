@@ -59,6 +59,10 @@ CUSTOM_TEXT_COLORS = {
     "orange": (255, 159, 10, 255),
     "purple": (191, 90, 242, 255),
 }
+SNAKE_BODY = (52, 199, 89, 255)
+SNAKE_HEAD = (255, 214, 10, 255)
+SNAKE_FOOD = (255, 59, 48, 255)
+SNAKE_TEXT = (245, 247, 250, 255)
 
 PANEL_PADDING = 4
 WEATHER_HEADER_HEIGHT = 18
@@ -393,6 +397,11 @@ class DisplayManager:
         self._push_prepared(prepared)
         self._save_prepared(prepared, preview_name)
         self.last_frame = prepared
+
+    def show_image(
+        self, image: Image.Image, preview_name: Optional[str] = None
+    ) -> None:
+        self._show_frame(image, preview_name=preview_name)
 
     def _is_interrupted(
         self, should_interrupt: Optional[Callable[[], bool]] = None
@@ -1090,6 +1099,51 @@ class DisplayManager:
         self._draw_text_centered(
             draw, [name, symbol, atomic_line], fill=TEXT_PRIMARY, font=self.small_font
         )
+        return img
+
+    def render_snake_message(self, lines: list[str]) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        active_lines: list[str] = []
+        for line in lines:
+            active_lines.extend(
+                self._wrap_text(str(line), width_px=self.width - 8, font=self.font)
+            )
+        self._draw_text_centered(
+            draw,
+            active_lines or ["Snake Game"],
+            fill=SNAKE_TEXT,
+            font=self.font,
+        )
+        return img
+
+    def render_snake_game(self, snapshot) -> Image.Image:
+        img = self._new_canvas()
+        draw = ImageDraw.Draw(img)
+        cell_size = max(1, int(getattr(snapshot, "cell_size", 2)))
+
+        food_x, food_y = snapshot.food
+        draw.rectangle(
+            (
+                food_x * cell_size,
+                food_y * cell_size,
+                ((food_x + 1) * cell_size) - 1,
+                ((food_y + 1) * cell_size) - 1,
+            ),
+            fill=SNAKE_FOOD,
+        )
+
+        for index, (cell_x, cell_y) in enumerate(reversed(snapshot.snake)):
+            fill = SNAKE_HEAD if index == len(snapshot.snake) - 1 else SNAKE_BODY
+            draw.rectangle(
+                (
+                    cell_x * cell_size,
+                    cell_y * cell_size,
+                    ((cell_x + 1) * cell_size) - 1,
+                    ((cell_y + 1) * cell_size) - 1,
+                ),
+                fill=fill,
+            )
         return img
 
     def _draw_custom_text_line(
