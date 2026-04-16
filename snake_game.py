@@ -181,22 +181,40 @@ def _save_snake_state(game: SnakeGame, db_path: str) -> None:
     set_snake_runtime_status(game.phase, score=game.score, db_path=db_path)
 
 
+def _snake_frame_sleep_seconds(
+    phase: str,
+    next_step_at: float,
+    *,
+    now: float | None = None,
+) -> float:
+    if phase != "playing":
+        return FRAME_SECONDS
+
+    current = time.perf_counter() if now is None else now
+    return min(FRAME_SECONDS, max(0.0, next_step_at - current))
+
+
 def run_snake_mode(display, db_path: str = DB_PATH) -> None:
     game = SnakeGame(width=display.width, height=display.height)
     _save_snake_state(game, db_path)
     last_snapshot = (game.phase, game.score)
-    last_step_at = time.perf_counter()
+    next_step_at = time.perf_counter() + TICK_SECONDS
 
     while is_snake_mode_enabled(db_path):
         consumed_input = consume_snake_input(db_path)
         if consumed_input is not None:
             _, direction = consumed_input
+            previous_phase = game.phase
             game.apply_input(direction)
+            if previous_phase != "playing" and game.phase == "playing":
+                next_step_at = time.perf_counter()
 
         now = time.perf_counter()
-        if game.phase == "playing" and now - last_step_at >= TICK_SECONDS:
+        if game.phase == "playing" and now >= next_step_at:
             game.step()
-            last_step_at = now
+            next_step_at = time.perf_counter() + TICK_SECONDS
+        elif game.phase != "playing":
+            next_step_at = now + TICK_SECONDS
 
         current_snapshot = (game.phase, game.score)
         if current_snapshot != last_snapshot:
@@ -214,7 +232,12 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
             frame = display.render_snake_game(snapshot)
 
         display.show_image(frame, preview_name="snake_game.png")
-        time.sleep(FRAME_SECONDS)
+        sleep_seconds = _snake_frame_sleep_seconds(
+            game.phase,
+            next_step_at,
+        )
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
 
     set_snake_runtime_status("idle", score=0, db_path=db_path)
 
