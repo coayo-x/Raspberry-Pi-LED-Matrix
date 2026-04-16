@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from config import DB_PATH
 from db_manager import connect
+from snake_control import SNAKE_ACTIVE_BLOCKED_MESSAGE, is_snake_mode_enabled_from_conn
 
 CUSTOM_TEXT_OVERRIDE_KEY = "custom_text_override"
 CUSTOM_TEXT_REQUEST_KEY = "custom_text_request_count"
@@ -436,10 +437,15 @@ def _build_custom_text_state(conn, *, current: datetime, is_admin: bool) -> dict
         current,
     )
     override = _load_override_from_conn(conn, current=current)
+    snake_game_active = is_snake_mode_enabled_from_conn(conn)
     admin_override = bool(locked and is_admin)
-    is_blocked = cooldown_remaining > 0 or (locked and not is_admin)
+    is_blocked = (
+        snake_game_active or cooldown_remaining > 0 or (locked and not is_admin)
+    )
 
-    if locked and not is_admin:
+    if snake_game_active:
+        status = "snake_game_active"
+    elif locked and not is_admin:
         status = "locked"
     elif cooldown_remaining > 0:
         status = "cooldown"
@@ -468,6 +474,8 @@ def _build_custom_text_state(conn, *, current: datetime, is_admin: bool) -> dict
         "override_remaining_seconds": override["remaining_seconds"] if override else 0,
         "override_text": override["text"] if override else "",
         "override": override,
+        "blocked_by_snake": snake_game_active,
+        "blocked_reason": SNAKE_ACTIVE_BLOCKED_MESSAGE if snake_game_active else "",
     }
 
 
@@ -669,6 +677,16 @@ def request_custom_text_override(
         current_state = _build_custom_text_state(
             conn, current=current, is_admin=is_admin
         )
+        if current_state["blocked_by_snake"]:
+            conn.rollback()
+            return {
+                **current_state,
+                "accepted": False,
+                "requested": False,
+                "rate_limited": False,
+                "error": SNAKE_ACTIVE_BLOCKED_MESSAGE,
+            }
+
         if current_state["locked"] and not is_admin:
             conn.rollback()
             return {

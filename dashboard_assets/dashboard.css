@@ -949,6 +949,43 @@ select {
     padding-top: 0;
 }
 
+.snake-control-panel {
+    display: grid;
+    gap: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 231, 168, 0.12);
+}
+
+.snake-pad {
+    width: min(100%, 260px);
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.snake-button {
+    min-width: 0;
+    min-height: 44px;
+    padding: 9px 12px;
+}
+
+.snake-up {
+    grid-column: 2;
+}
+
+.snake-left {
+    grid-column: 1;
+}
+
+.snake-down {
+    grid-column: 2;
+}
+
+.snake-right {
+    grid-column: 3;
+}
+
 .admin-button {
     color: var(--admin-ink);
     border-color: rgba(255, 231, 168, 0.22);
