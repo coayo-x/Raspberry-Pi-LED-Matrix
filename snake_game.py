@@ -18,6 +18,10 @@ SPEEDUP_FOOD_INTERVAL = 3
 SPEEDUP_STEP_SECONDS = 0.01
 MIN_TICK_SECONDS = 0.07
 PAUSE_INPUT = "pause"
+SCORE_OVERLAY_HEIGHT_PX = 10
+SCORE_OVERLAY_TEXT_X_PX = 1
+SCORE_OVERLAY_RIGHT_PADDING_PX = 3
+SCORE_OVERLAY_CHAR_WIDTH_PX = 6
 
 DIRECTION_DELTAS = {
     "up": (0, -1),
@@ -43,6 +47,21 @@ class SnakeSnapshot:
     grid_width: int
     grid_height: int
     cell_size: int
+    score_overlay_cells: tuple[int, int]
+
+
+def _ceil_div(value: int, divisor: int) -> int:
+    return (value + divisor - 1) // divisor
+
+
+def score_overlay_size_px(score: int) -> tuple[int, int]:
+    score_text_length = len(f"S:{max(0, int(score))}")
+    return (
+        SCORE_OVERLAY_TEXT_X_PX
+        + (score_text_length * SCORE_OVERLAY_CHAR_WIDTH_PX)
+        + SCORE_OVERLAY_RIGHT_PADDING_PX,
+        SCORE_OVERLAY_HEIGHT_PX,
+    )
 
 
 class SnakeGame:
@@ -93,15 +112,30 @@ class SnakeGame:
                 self.rng.randrange(self.grid_width),
                 self.rng.randrange(self.grid_height),
             )
-            if candidate not in occupied:
+            if candidate not in occupied and not self._is_score_overlay_cell(candidate):
                 return candidate
 
         for y in range(self.grid_height):
             for x in range(self.grid_width):
-                if (x, y) not in occupied:
+                candidate = (x, y)
+                if candidate not in occupied and not self._is_score_overlay_cell(
+                    candidate
+                ):
                     return (x, y)
 
         return self.snake[0]
+
+    def _score_overlay_cell_bounds(self) -> tuple[int, int]:
+        width_px, height_px = score_overlay_size_px(self.score)
+        return (
+            min(self.grid_width, max(1, _ceil_div(width_px, self.cell_size))),
+            min(self.grid_height, max(1, _ceil_div(height_px, self.cell_size))),
+        )
+
+    def _is_score_overlay_cell(self, cell: tuple[int, int]) -> bool:
+        cell_x, cell_y = cell
+        overlay_width, overlay_height = self._score_overlay_cell_bounds()
+        return 0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height
 
     def apply_input(self, direction: str) -> None:
         if direction == PAUSE_INPUT:
@@ -172,6 +206,7 @@ class SnakeGame:
             grid_width=self.grid_width,
             grid_height=self.grid_height,
             cell_size=self.cell_size,
+            score_overlay_cells=self._score_overlay_cell_bounds(),
         )
 
 
@@ -218,7 +253,6 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
     _save_snake_state(game, db_path)
     last_snapshot = (game.phase, game.score)
     next_step_at = time.perf_counter() + game.tick_seconds()
-    next_step_at = time.perf_counter() + TICK_SECONDS
 
     while is_snake_mode_enabled(db_path):
         consumed_input = consume_snake_input(db_path)
@@ -232,7 +266,6 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
                     next_step_at = resumed_at + game.tick_seconds()
                 else:
                     next_step_at = resumed_at
-                next_step_at = time.perf_counter()
 
         now = time.perf_counter()
         if game.phase == "playing" and now >= next_step_at:
@@ -240,9 +273,6 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
             next_step_at = time.perf_counter() + game.tick_seconds()
         elif game.phase != "playing":
             next_step_at = now + game.tick_seconds()
-            next_step_at = time.perf_counter() + TICK_SECONDS
-        elif game.phase != "playing":
-            next_step_at = now + TICK_SECONDS
 
         current_snapshot = (game.phase, game.score)
         if current_snapshot != last_snapshot:

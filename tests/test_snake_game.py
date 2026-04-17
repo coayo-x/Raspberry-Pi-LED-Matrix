@@ -12,7 +12,35 @@ from snake_game import (
     SnakeGame,
     _snake_frame_sleep_seconds,
 )
-from snake_game import FRAME_SECONDS, SnakeGame, _snake_frame_sleep_seconds
+
+
+class SequenceRng:
+    def __init__(self, values: list[int]) -> None:
+        self.values = iter(values)
+
+    def randrange(self, stop: int) -> int:
+        value = next(self.values)
+        assert 0 <= value < stop
+        return value
+
+
+class ConstantRng:
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def randrange(self, stop: int) -> int:
+        assert 0 <= self.value < stop
+        return self.value
+
+
+def _first_visible_food_cell(game: SnakeGame) -> tuple[int, int]:
+    occupied = set(game.snake)
+    for y in range(game.grid_height):
+        for x in range(game.grid_width):
+            candidate = (x, y)
+            if candidate not in occupied and not game._is_score_overlay_cell(candidate):
+                return candidate
+    raise AssertionError("No visible food cell available")
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -69,6 +97,47 @@ def test_snake_grows_after_eating_food() -> None:
     assert game.phase == "playing"
     assert game.score == 1
     assert len(game.snake) == original_length + 1
+
+
+def test_snake_food_spawn_skips_score_overlay_random_candidates() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    game.snake = [(50, 10)]
+    overlay_width, overlay_height = game._score_overlay_cell_bounds()
+    visible_food = _first_visible_food_cell(game)
+    game.rng = SequenceRng(
+        [
+            0,
+            0,
+            overlay_width - 1,
+            overlay_height - 1,
+            visible_food[0],
+            visible_food[1],
+        ]
+    )
+
+    assert game._spawn_food() == visible_food
+
+
+def test_snake_food_spawn_fallback_skips_score_overlay_cells() -> None:
+    game = SnakeGame(width=192, height=32, rng=ConstantRng(0))
+    game.snake = [(50, 10)]
+
+    assert game._spawn_food() == _first_visible_food_cell(game)
+
+
+def test_snake_food_spawn_after_eating_respects_score_overlay() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    game.apply_input("right")
+    head_x, head_y = game.snake[0]
+    game.food = (head_x + 1, head_y)
+    visible_food = _first_visible_food_cell(game)
+    game.rng = SequenceRng([0, 0, visible_food[0], visible_food[1]])
+
+    game.step()
+
+    assert game.score == 1
+    assert game.food == visible_food
+    assert not game._is_score_overlay_cell(game.food)
 
 
 def test_snake_speed_increases_every_three_food_items() -> None:
@@ -189,7 +258,5 @@ def test_run_snake_mode_pause_stops_motion_and_resume_waits_for_next_tick(
     assert paused_heads
     assert all(head == paused_heads[0] for head in paused_heads)
     assert resumed_head == paused_heads[0]
-    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(
-        0.01
-    )
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(0.01)
     assert _snake_frame_sleep_seconds("playing", 10.0, now=10.01) == 0.0

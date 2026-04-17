@@ -1145,9 +1145,22 @@ class DisplayManager:
                 fill=fill,
             )
         score_text = f"S:{int(getattr(snapshot, 'score', 0))}"
-        score_width = self._text_width(score_text, font=self.small_font)
+        overlay_cells = getattr(snapshot, "score_overlay_cells", None)
+        if overlay_cells:
+            overlay_width = int(overlay_cells[0]) * cell_size
+            overlay_height = int(overlay_cells[1]) * cell_size
+        else:
+            overlay_width = self._text_width(score_text, font=self.small_font) + 4
+            overlay_height = self.small_line_height + 1
+        overlay_width = max(1, min(self.width, overlay_width))
+        overlay_height = max(1, min(self.height, overlay_height))
+        score_text = self._truncate_to_width(
+            score_text,
+            max(1, overlay_width - 1),
+            font=self.small_font,
+        )
         draw.rectangle(
-            (0, 0, min(self.width - 1, score_width + 3), self.small_line_height),
+            (0, 0, overlay_width - 1, overlay_height - 1),
             fill=DEFAULT_BG,
         )
         self._draw_line(draw, 1, 0, score_text, fill=SNAKE_TEXT, font=self.small_font)
