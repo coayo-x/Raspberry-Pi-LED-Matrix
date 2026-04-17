@@ -740,13 +740,16 @@ function applyAdminSnakeState(control, button, labelElement) {
     const enabled = Boolean(control?.enabled);
     const status = String(control?.status || (enabled ? "waiting" : "idle"));
     const score = Number(control?.score || 0);
+    const level = Math.max(1, Number(control?.level || 1));
     labelElement.textContent = enabled
         ? status === "playing"
-            ? `Active. Score ${score}.`
+            ? `Active. Level ${level}. Score ${score}.`
             : status === "paused"
-                ? `Paused. Score ${score}.`
+                ? `Paused. Level ${level}. Score ${score}.`
+            : status === "level_intro"
+                ? `Level ${level} starting. Score ${score}.`
             : status === "game_over"
-                ? `Game over. Score ${score}.`
+                ? `Game over on level ${level}. Score ${score}.`
                 : "Active. Waiting for the first control input."
         : "Disabled. Normal rotation controls the matrix.";
     button.textContent = enabled ? "Stop Snake" : "Enable Snake";

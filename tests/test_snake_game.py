@@ -5,6 +5,9 @@ import pytest
 import snake_game
 from snake_game import (
     FRAME_SECONDS,
+    FOOD_PER_LEVEL,
+    MAX_LEVEL,
+    LEVEL_SPEED_STEP_SECONDS,
     MIN_TICK_SECONDS,
     SPEEDUP_FOOD_INTERVAL,
     SPEEDUP_STEP_SECONDS,
@@ -34,13 +37,27 @@ class ConstantRng:
 
 
 def _first_visible_food_cell(game: SnakeGame) -> tuple[int, int]:
-    occupied = set(game.snake)
+    occupied = set(game.snake) | set(game.obstacles)
     for y in range(game.grid_height):
         for x in range(game.grid_width):
             candidate = (x, y)
             if candidate not in occupied and not game._is_score_overlay_cell(candidate):
                 return candidate
     raise AssertionError("No visible food cell available")
+
+
+def _start_game(game: SnakeGame, direction: str = "right") -> None:
+    game.apply_input(direction)
+    assert game.phase == "level_intro"
+    game.begin_level_after_intro()
+    assert game.phase == "playing"
+
+
+def _place_safe_food_ahead(game: SnakeGame) -> None:
+    game.snake = [(20, 12), (19, 12), (18, 12), (17, 12), (16, 12), (15, 12)]
+    game.direction = "right"
+    game.pending_direction = "right"
+    game.food = (21, 12)
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -52,19 +69,22 @@ def test_snake_waits_until_first_control_input() -> None:
     assert game.snake[0] == original_head
 
     game.apply_input("up")
+    assert game.phase == "level_intro"
+    assert game.pending_direction == "up"
+
+    game.begin_level_after_intro()
     assert game.phase == "playing"
     assert game.direction == "up"
 
 
 def test_snake_pause_toggles_only_during_gameplay() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    waiting_head = game.snake[0]
 
     game.apply_input("pause")
-    assert game.phase == "waiting"
-    assert game.snake[0] == waiting_head
+    assert game.phase == "level_intro"
+    assert game.pending_direction == "right"
+    game.begin_level_after_intro()
 
-    game.apply_input("right")
     game.apply_input("pause")
     paused_head = game.snake[0]
     game.step()
@@ -78,7 +98,7 @@ def test_snake_pause_toggles_only_during_gameplay() -> None:
 
 def test_snake_rejects_invalid_reverse_direction() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    game.apply_input("right")
+    _start_game(game)
     game.apply_input("left")
 
     assert game.phase == "playing"
@@ -87,7 +107,7 @@ def test_snake_rejects_invalid_reverse_direction() -> None:
 
 def test_snake_grows_after_eating_food() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    game.apply_input("right")
+    _start_game(game)
     head_x, head_y = game.snake[0]
     game.food = (head_x + 1, head_y)
     original_length = len(game.snake)
@@ -127,7 +147,7 @@ def test_snake_food_spawn_fallback_skips_score_overlay_cells() -> None:
 
 def test_snake_food_spawn_after_eating_respects_score_overlay() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    game.apply_input("right")
+    _start_game(game)
     head_x, head_y = game.snake[0]
     game.food = (head_x + 1, head_y)
     visible_food = _first_visible_food_cell(game)
@@ -152,13 +172,18 @@ def test_snake_speed_increases_every_three_food_items() -> None:
     assert game.tick_seconds() == pytest.approx(
         TICK_SECONDS - (SPEEDUP_STEP_SECONDS * 2)
     )
+    game.score = 0
+    game.level = 3
+    assert game.tick_seconds() == pytest.approx(
+        TICK_SECONDS - (LEVEL_SPEED_STEP_SECONDS * 2)
+    )
     game.score = 999
     assert game.tick_seconds() == MIN_TICK_SECONDS
 
 
 def test_snake_detects_wall_and_self_collision() -> None:
     wall_game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    wall_game.apply_input("right")
+    _start_game(wall_game)
     wall_game.snake = [(wall_game.grid_width - 1, 1), (wall_game.grid_width - 2, 1)]
     wall_game.direction = "right"
     wall_game.pending_direction = "right"
@@ -167,7 +192,7 @@ def test_snake_detects_wall_and_self_collision() -> None:
     assert wall_game.phase == "game_over"
 
     self_game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    self_game.apply_input("left")
+    _start_game(self_game, "left")
     self_game.snake = [(5, 5), (5, 6), (4, 6), (4, 5), (4, 4), (5, 4)]
     self_game.direction = "left"
     self_game.pending_direction = "left"
@@ -176,12 +201,213 @@ def test_snake_detects_wall_and_self_collision() -> None:
     assert self_game.phase == "game_over"
 
 
+def test_snake_game_over_replay_restarts_same_level() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    game.level = 4
+    game.score = 35
+    game.level_food_count = 5
+    game.pending_direction = "up"
+    game.phase = "game_over"
+
+    game.apply_input("pause")
+
+    assert game.phase == "level_intro"
+    assert game.level == 4
+    assert game.pending_direction == "up"
+    assert game.level_intro_source_phase == "game_over"
+
+    game.begin_level_after_intro()
+
+    assert game.phase == "playing"
+    assert game.level == 4
+    assert game.score == 30
+    assert game.level_food_count == 0
+    assert not set(game.snake) & game.obstacles
+
+
+def test_snake_advances_level_every_ten_food_items() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    _start_game(game)
+
+    for expected_score in range(1, FOOD_PER_LEVEL + 1):
+        _place_safe_food_ahead(game)
+        game.step()
+        assert game.score == expected_score
+
+    assert game.phase == "level_intro"
+    assert game.level == 2
+    assert game.level_food_count == 0
+    assert game.level_intro_source_phase == "playing"
+
+    game.begin_level_after_intro()
+
+    assert game.phase == "playing"
+    assert game.level == 2
+    assert game.score == FOOD_PER_LEVEL
+    assert game.obstacles
+
+
+def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    previous_obstacle_count = -1
+
+    for level in range(1, MAX_LEVEL + 1):
+        game.level = level
+        game._reset_body(reset_score=True)
+        overlay_width, overlay_height = game._score_overlay_cell_bounds_for_score(
+            999,
+            level=MAX_LEVEL,
+        )
+
+        assert game.phase == "waiting"
+        assert game.score == (level - 1) * FOOD_PER_LEVEL
+        assert not set(game.snake) & game.obstacles
+        assert game.food not in game.obstacles
+        assert game.food not in game.snake
+        assert not game._is_score_overlay_cell(game.food)
+        assert all(
+            not (0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height)
+            for cell_x, cell_y in game.obstacles
+        )
+        assert len(game.obstacles) >= previous_obstacle_count
+        previous_obstacle_count = len(game.obstacles)
+
+
+def test_snake_obstacle_collision_ends_game() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    game.level = 2
+    game._reset_body(reset_score=True)
+    obstacle = next(iter(game.obstacles))
+    game.snake = [(obstacle[0] - 1, obstacle[1]), (obstacle[0] - 2, obstacle[1])]
+    game.direction = "right"
+    game.pending_direction = "right"
+    game.phase = "playing"
+
+    game.step()
+
+    assert game.phase == "game_over"
+    assert game.game_over_animation_pending is True
+
+
+def test_snake_game_over_pulse_animates_existing_snapshot(monkeypatch) -> None:
+    class FakeDisplay:
+        def __init__(self) -> None:
+            self.pulse_factors: list[float] = []
+            self.show_count = 0
+
+        def render_snake_game(self, snapshot):
+            self.pulse_factors.append(snapshot.pulse_factor)
+            return snapshot
+
+        def show_image(self, frame, preview_name=None) -> None:
+            self.show_count += 1
+
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    game.phase = "game_over"
+    display = FakeDisplay()
+    monkeypatch.setattr(
+        snake_game,
+        "_sleep_with_snake_interrupt",
+        lambda duration, should_interrupt, interval=0.02: False,
+    )
+
+    interrupted = snake_game._show_snake_game_over_pulse(
+        display,
+        game,
+        should_interrupt=lambda: False,
+    )
+
+    assert interrupted is False
+    assert display.pulse_factors == [1.0, 0.55, 1.15, 0.55, 1.0]
+    assert display.show_count == 5
+
+
 def test_snake_frame_sleep_wakes_for_next_movement_tick() -> None:
     assert _snake_frame_sleep_seconds("waiting", 10.0, now=9.99) == FRAME_SECONDS
     assert _snake_frame_sleep_seconds("game_over", 10.0, now=9.99) == FRAME_SECONDS
     assert _snake_frame_sleep_seconds("playing", 10.0, now=9.0) == FRAME_SECONDS
     assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(0.01)
     assert _snake_frame_sleep_seconds("playing", 10.0, now=10.01) == 0.0
+
+
+def test_run_snake_mode_shows_level_intro_before_gameplay(monkeypatch) -> None:
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def perf_counter(self) -> float:
+            return self.now
+
+        def sleep(self, duration: float) -> None:
+            self.now += max(0.0, duration)
+
+    class FakeDisplay:
+        width = 192
+        height = 32
+
+        def __init__(self) -> None:
+            self.events: list[tuple[str, object]] = []
+            self.playing_seen = False
+
+        def render_snake_message(self, lines):
+            return ("message", tuple(lines))
+
+        def render_snake_game(self, snapshot):
+            return ("game", snapshot.phase, snapshot.level)
+
+        def _fade_sequence(
+            self,
+            frame,
+            *,
+            steps=6,
+            fade_in=True,
+            delay=0.05,
+            should_interrupt=None,
+            end_time=None,
+        ):
+            self.events.append(("fade_in" if fade_in else "fade_out", frame))
+            return False
+
+        def show_image(self, frame, preview_name=None) -> None:
+            self.events.append(("show", frame))
+            if frame == ("game", "playing", 1):
+                self.playing_seen = True
+
+    clock = FakeClock()
+    display = FakeDisplay()
+    inputs = iter([(1, "right"), None])
+
+    monkeypatch.setattr(snake_game.time, "perf_counter", clock.perf_counter)
+    monkeypatch.setattr(snake_game.time, "sleep", clock.sleep)
+    monkeypatch.setattr(
+        snake_game,
+        "is_snake_mode_enabled",
+        lambda db_path=None: not display.playing_seen,
+    )
+    monkeypatch.setattr(
+        snake_game,
+        "consume_snake_input",
+        lambda db_path=None: next(inputs, None),
+    )
+    monkeypatch.setattr(
+        snake_game,
+        "save_current_display_state",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        snake_game,
+        "set_snake_runtime_status",
+        lambda *args, **kwargs: None,
+    )
+
+    snake_game.run_snake_mode(display)
+
+    assert display.events[:4] == [
+        ("fade_out", ("message", ("Press any button to start",))),
+        ("fade_in", ("message", ("LEVEL 1",))),
+        ("fade_out", ("message", ("LEVEL 1",))),
+        ("show", ("game", "playing", 1)),
+    ]
 
 
 def test_run_snake_mode_pause_stops_motion_and_resume_waits_for_next_tick(

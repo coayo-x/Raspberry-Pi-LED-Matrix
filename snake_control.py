@@ -6,6 +6,7 @@ from db_manager import connect
 SNAKE_MODE_ENABLED_KEY = "snake_game_enabled"
 SNAKE_MODE_STATUS_KEY = "snake_game_status"
 SNAKE_MODE_SCORE_KEY = "snake_game_score"
+SNAKE_MODE_LEVEL_KEY = "snake_game_level"
 SNAKE_MODE_LAST_ENABLED_AT_KEY = "snake_game_last_enabled_at"
 SNAKE_MODE_LAST_DISABLED_AT_KEY = "snake_game_last_disabled_at"
 SNAKE_INPUT_REQUEST_KEY = "snake_game_input_request_count"
@@ -20,7 +21,7 @@ SNAKE_ADMIN_REQUIRED_MESSAGE = "Dashboard authentication is required."
 
 VALID_DIRECTIONS = {"up", "down", "left", "right"}
 VALID_INPUTS = VALID_DIRECTIONS | {"pause"}
-VALID_STATUSES = {"idle", "waiting", "playing", "paused", "game_over"}
+VALID_STATUSES = {"idle", "waiting", "level_intro", "playing", "paused", "game_over"}
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -125,6 +126,7 @@ def _build_snake_state(conn, *, current: datetime, is_admin: bool) -> dict:
     request_count = _get_meta_int(conn, SNAKE_INPUT_REQUEST_KEY)
     handled_count = _get_meta_int(conn, SNAKE_INPUT_HANDLED_KEY)
     score = _get_meta_int(conn, SNAKE_MODE_SCORE_KEY)
+    level = max(1, _get_meta_int(conn, SNAKE_MODE_LEVEL_KEY) or 1)
     last_input_at = _get_meta_text(conn, SNAKE_INPUT_LAST_REQUESTED_AT_KEY) or ""
     last_enabled_at = _get_meta_text(conn, SNAKE_MODE_LAST_ENABLED_AT_KEY) or ""
     last_disabled_at = _get_meta_text(conn, SNAKE_MODE_LAST_DISABLED_AT_KEY) or ""
@@ -138,6 +140,7 @@ def _build_snake_state(conn, *, current: datetime, is_admin: bool) -> dict:
         "available": is_admin,
         "status": status,
         "score": score,
+        "level": level if enabled else 1,
         "request_count": request_count,
         "handled_count": handled_count,
         "pending_request_count": max(0, request_count - handled_count),
@@ -202,6 +205,7 @@ def set_snake_mode_enabled(
         _set_meta(conn, SNAKE_MODE_ENABLED_KEY, "1" if enabled else "0")
         _set_meta(conn, SNAKE_MODE_STATUS_KEY, "waiting" if enabled else "idle")
         _set_meta(conn, SNAKE_MODE_SCORE_KEY, "0")
+        _set_meta(conn, SNAKE_MODE_LEVEL_KEY, "1")
         if enabled:
             _set_meta(conn, SNAKE_MODE_LAST_ENABLED_AT_KEY, timestamp)
         else:
@@ -327,6 +331,7 @@ def set_snake_runtime_status(
     status: str,
     *,
     score: int = 0,
+    level: int = 1,
     db_path: str = DB_PATH,
     now: datetime | None = None,
 ) -> dict:
@@ -339,8 +344,10 @@ def set_snake_runtime_status(
         if not is_snake_mode_enabled_from_conn(conn):
             normalized_status = "idle"
             score = 0
+            level = 1
         _set_meta(conn, SNAKE_MODE_STATUS_KEY, normalized_status)
         _set_meta(conn, SNAKE_MODE_SCORE_KEY, str(max(0, int(score))))
+        _set_meta(conn, SNAKE_MODE_LEVEL_KEY, str(max(1, int(level))))
         conn.commit()
         return _build_snake_state(conn, current=current, is_admin=True)
     finally:

@@ -1022,6 +1022,9 @@ select {
 
 .admin-controls-dialog.admin-modal {
     padding: 24px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .admin-modal-header {
@@ -1116,6 +1119,7 @@ select {
 
     .admin-controls-dialog.admin-modal {
         padding: 18px;
+        max-height: calc(100dvh - 24px);
     }
 
     .color-swatch,

@@ -149,6 +149,15 @@ def test_dashboard_root_is_public_without_authentication(
     assert "Restricted Access" not in page
 
 
+def test_admin_controls_modal_css_is_scrollable() -> None:
+    css = Path("dashboard_assets/dashboard.css").read_text(encoding="utf-8")
+
+    assert ".admin-controls-dialog.admin-modal" in css
+    assert "max-height: calc(100vh - 40px);" in css
+    assert "overflow-y: auto;" in css
+    assert "max-height: calc(100dvh - 24px);" in css
+
+
 def test_dashboard_safe_default_keeps_public_routes_available_when_credentials_missing(
     isolated_db_path,
 ) -> None:
@@ -891,8 +900,10 @@ def test_dashboard_snake_mode_requires_admin_and_writes_control_input(
     assert enable_body["accepted"] is True
     assert enable_body["enabled"] is True
     assert enable_body["status"] == "waiting"
+    assert enable_body["level"] == 1
     assert active_state["controls"]["snake_game"]["enabled"] is True
     assert active_state["controls"]["snake_game"]["available"] is True
+    assert active_state["controls"]["snake_game"]["level"] == 1
     assert active_state["controls"]["skip_category"]["available"] is False
     assert active_state["controls"]["switch_category"]["status"] == "snake_game_active"
 
