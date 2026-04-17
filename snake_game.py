@@ -14,6 +14,10 @@ from snake_control import (
 CELL_SIZE = 2
 TICK_SECONDS = 0.12
 FRAME_SECONDS = 0.035
+SPEEDUP_FOOD_INTERVAL = 3
+SPEEDUP_STEP_SECONDS = 0.01
+MIN_TICK_SECONDS = 0.07
+PAUSE_INPUT = "pause"
 
 DIRECTION_DELTAS = {
     "up": (0, -1),
@@ -100,6 +104,13 @@ class SnakeGame:
         return self.snake[0]
 
     def apply_input(self, direction: str) -> None:
+        if direction == PAUSE_INPUT:
+            if self.phase == "playing":
+                self.phase = "paused"
+            elif self.phase == "paused":
+                self.phase = "playing"
+            return
+
         if direction not in DIRECTION_DELTAS:
             return
 
@@ -144,6 +155,13 @@ class SnakeGame:
         else:
             self.snake.pop()
 
+    def tick_seconds(self) -> float:
+        speed_tier = self.score // SPEEDUP_FOOD_INTERVAL
+        return max(
+            MIN_TICK_SECONDS,
+            TICK_SECONDS - (speed_tier * SPEEDUP_STEP_SECONDS),
+        )
+
     def snapshot(self) -> SnakeSnapshot:
         return SnakeSnapshot(
             phase=self.phase,
@@ -162,6 +180,7 @@ def build_snake_payload(game: SnakeGame) -> dict:
     phase_labels = {
         "waiting": "Press any button to start",
         "playing": f"Score {game.score}",
+        "paused": f"Paused | Score {game.score}",
         "game_over": f"Game over | Score {game.score}",
     }
     return {
@@ -198,6 +217,7 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
     game = SnakeGame(width=display.width, height=display.height)
     _save_snake_state(game, db_path)
     last_snapshot = (game.phase, game.score)
+    next_step_at = time.perf_counter() + game.tick_seconds()
     next_step_at = time.perf_counter() + TICK_SECONDS
 
     while is_snake_mode_enabled(db_path):
@@ -207,11 +227,19 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
             previous_phase = game.phase
             game.apply_input(direction)
             if previous_phase != "playing" and game.phase == "playing":
+                resumed_at = time.perf_counter()
+                if previous_phase == "paused":
+                    next_step_at = resumed_at + game.tick_seconds()
+                else:
+                    next_step_at = resumed_at
                 next_step_at = time.perf_counter()
 
         now = time.perf_counter()
         if game.phase == "playing" and now >= next_step_at:
             game.step()
+            next_step_at = time.perf_counter() + game.tick_seconds()
+        elif game.phase != "playing":
+            next_step_at = now + game.tick_seconds()
             next_step_at = time.perf_counter() + TICK_SECONDS
         elif game.phase != "playing":
             next_step_at = now + TICK_SECONDS
@@ -224,6 +252,8 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
         snapshot = game.snapshot()
         if snapshot.phase == "waiting":
             frame = display.render_snake_message(["Press any button to start"])
+        elif snapshot.phase == "paused":
+            frame = display.render_snake_game(snapshot)
         elif snapshot.phase == "game_over":
             frame = display.render_snake_message(
                 ["Game Over", f"Score {snapshot.score}", "Press any button"]

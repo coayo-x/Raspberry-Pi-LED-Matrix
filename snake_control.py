@@ -19,7 +19,8 @@ SNAKE_ACTIVE_BLOCKED_MESSAGE = (
 SNAKE_ADMIN_REQUIRED_MESSAGE = "Dashboard authentication is required."
 
 VALID_DIRECTIONS = {"up", "down", "left", "right"}
-VALID_STATUSES = {"idle", "waiting", "playing", "game_over"}
+VALID_INPUTS = VALID_DIRECTIONS | {"pause"}
+VALID_STATUSES = {"idle", "waiting", "playing", "paused", "game_over"}
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -74,7 +75,7 @@ def _set_meta(conn, key: str, value: str) -> None:
 
 
 def _normalize_direction(direction: str) -> str:
-    normalized = str(direction or "").strip().lower()
+    raw_value = str(direction or "").lower()
     aliases = {
         "arrowup": "up",
         "w": "up",
@@ -84,11 +85,18 @@ def _normalize_direction(direction: str) -> str:
         "a": "left",
         "arrowright": "right",
         "d": "right",
+        " ": "pause",
+        "space": "pause",
+        "spacebar": "pause",
     }
-    normalized = aliases.get(normalized, normalized)
-    if normalized not in VALID_DIRECTIONS:
+    stripped_value = raw_value.strip()
+    normalized = aliases.get(
+        raw_value,
+        aliases.get(stripped_value, stripped_value),
+    )
+    if normalized not in VALID_INPUTS:
         raise ValueError(
-            f"Invalid snake direction '{direction}'. Expected one of: {', '.join(sorted(VALID_DIRECTIONS))}"
+            f"Invalid snake direction '{direction}'. Expected one of: {', '.join(sorted(VALID_INPUTS))}"
         )
     return normalized
 
