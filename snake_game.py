@@ -218,6 +218,7 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
     _save_snake_state(game, db_path)
     last_snapshot = (game.phase, game.score)
     next_step_at = time.perf_counter() + game.tick_seconds()
+    next_step_at = time.perf_counter() + TICK_SECONDS
 
     while is_snake_mode_enabled(db_path):
         consumed_input = consume_snake_input(db_path)
@@ -231,6 +232,7 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
                     next_step_at = resumed_at + game.tick_seconds()
                 else:
                     next_step_at = resumed_at
+                next_step_at = time.perf_counter()
 
         now = time.perf_counter()
         if game.phase == "playing" and now >= next_step_at:
@@ -238,6 +240,9 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
             next_step_at = time.perf_counter() + game.tick_seconds()
         elif game.phase != "playing":
             next_step_at = now + game.tick_seconds()
+            next_step_at = time.perf_counter() + TICK_SECONDS
+        elif game.phase != "playing":
+            next_step_at = now + TICK_SECONDS
 
         current_snapshot = (game.phase, game.score)
         if current_snapshot != last_snapshot:

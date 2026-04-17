@@ -12,6 +12,7 @@ from snake_game import (
     SnakeGame,
     _snake_frame_sleep_seconds,
 )
+from snake_game import FRAME_SECONDS, SnakeGame, _snake_frame_sleep_seconds
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -188,3 +189,7 @@ def test_run_snake_mode_pause_stops_motion_and_resume_waits_for_next_tick(
     assert paused_heads
     assert all(head == paused_heads[0] for head in paused_heads)
     assert resumed_head == paused_heads[0]
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(
+        0.01
+    )
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=10.01) == 0.0
