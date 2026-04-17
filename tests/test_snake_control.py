@@ -54,6 +54,16 @@ def test_snake_input_is_counted_consumed_and_cleared_on_stop(isolated_db_path) -
     assert state["pending_request_count"] == 0
 
 
+def test_snake_input_normalizes_space_to_pause(isolated_db_path) -> None:
+    set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
+
+    result = request_snake_input(" ", str(isolated_db_path), is_admin=True)
+
+    assert result["accepted"] is True
+    assert result["direction"] == "pause"
+    assert consume_snake_input(str(isolated_db_path)) == (1, "pause")
+
+
 def test_snake_runtime_status_tracks_score_only_while_enabled(isolated_db_path) -> None:
     set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
 

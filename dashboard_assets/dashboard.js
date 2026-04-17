@@ -743,6 +743,8 @@ function applyAdminSnakeState(control, button, labelElement) {
     labelElement.textContent = enabled
         ? status === "playing"
             ? `Active. Score ${score}.`
+            : status === "paused"
+                ? `Paused. Score ${score}.`
             : status === "game_over"
                 ? `Game over. Score ${score}.`
                 : "Active. Waiting for the first control input."
@@ -771,6 +773,8 @@ function getSnakeDirectionForKey(key) {
         a: "left",
         arrowright: "right",
         d: "right",
+        " ": "pause",
+        spacebar: "pause",
     }[normalized];
 }
 

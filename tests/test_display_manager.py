@@ -397,3 +397,17 @@ def test_render_snake_game_uses_full_matrix_width() -> None:
     assert mask[:, :panel_width].any()
     assert mask[:, panel_width : panel_width * 2].any()
     assert mask[:, panel_width * 2 :].any()
+
+
+def test_render_snake_game_draws_score_in_top_left() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    game = SnakeGame(width=display.width, height=display.height)
+    game.phase = "playing"
+    game.score = 12
+    game.snake = [(30, 10), (29, 10), (28, 10)]
+    game.food = (40, 10)
+
+    frame = display.render_snake_game(game.snapshot())
+    top_left_mask = _non_default_mask(frame)[: display.small_line_height + 1, :24]
+
+    assert top_left_mask.any()

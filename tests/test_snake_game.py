@@ -2,7 +2,16 @@ import random
 
 import pytest
 
-from snake_game import FRAME_SECONDS, SnakeGame, _snake_frame_sleep_seconds
+import snake_game
+from snake_game import (
+    FRAME_SECONDS,
+    MIN_TICK_SECONDS,
+    SPEEDUP_FOOD_INTERVAL,
+    SPEEDUP_STEP_SECONDS,
+    TICK_SECONDS,
+    SnakeGame,
+    _snake_frame_sleep_seconds,
+)
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -16,6 +25,26 @@ def test_snake_waits_until_first_control_input() -> None:
     game.apply_input("up")
     assert game.phase == "playing"
     assert game.direction == "up"
+
+
+def test_snake_pause_toggles_only_during_gameplay() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    waiting_head = game.snake[0]
+
+    game.apply_input("pause")
+    assert game.phase == "waiting"
+    assert game.snake[0] == waiting_head
+
+    game.apply_input("right")
+    game.apply_input("pause")
+    paused_head = game.snake[0]
+    game.step()
+
+    assert game.phase == "paused"
+    assert game.snake[0] == paused_head
+
+    game.apply_input("pause")
+    assert game.phase == "playing"
 
 
 def test_snake_rejects_invalid_reverse_direction() -> None:
@@ -39,6 +68,22 @@ def test_snake_grows_after_eating_food() -> None:
     assert game.phase == "playing"
     assert game.score == 1
     assert len(game.snake) == original_length + 1
+
+
+def test_snake_speed_increases_every_three_food_items() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+
+    assert game.tick_seconds() == TICK_SECONDS
+    game.score = SPEEDUP_FOOD_INTERVAL - 1
+    assert game.tick_seconds() == TICK_SECONDS
+    game.score = SPEEDUP_FOOD_INTERVAL
+    assert game.tick_seconds() == pytest.approx(TICK_SECONDS - SPEEDUP_STEP_SECONDS)
+    game.score = SPEEDUP_FOOD_INTERVAL * 2
+    assert game.tick_seconds() == pytest.approx(
+        TICK_SECONDS - (SPEEDUP_STEP_SECONDS * 2)
+    )
+    game.score = 999
+    assert game.tick_seconds() == MIN_TICK_SECONDS
 
 
 def test_snake_detects_wall_and_self_collision() -> None:
@@ -65,7 +110,81 @@ def test_snake_frame_sleep_wakes_for_next_movement_tick() -> None:
     assert _snake_frame_sleep_seconds("waiting", 10.0, now=9.99) == FRAME_SECONDS
     assert _snake_frame_sleep_seconds("game_over", 10.0, now=9.99) == FRAME_SECONDS
     assert _snake_frame_sleep_seconds("playing", 10.0, now=9.0) == FRAME_SECONDS
-    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(
-        0.01
-    )
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(0.01)
     assert _snake_frame_sleep_seconds("playing", 10.0, now=10.01) == 0.0
+
+
+def test_run_snake_mode_pause_stops_motion_and_resume_waits_for_next_tick(
+    monkeypatch,
+) -> None:
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def perf_counter(self) -> float:
+            return self.now
+
+        def sleep(self, duration: float) -> None:
+            self.now += max(0.0, duration)
+
+    class FakeDisplay:
+        width = 192
+        height = 32
+
+        def __init__(self) -> None:
+            self.snapshots = []
+            self.show_count = 0
+
+        def render_snake_message(self, lines):
+            return ("message", lines)
+
+        def render_snake_game(self, snapshot):
+            self.snapshots.append(snapshot)
+            return ("game", snapshot.phase)
+
+        def show_image(self, frame, preview_name=None) -> None:
+            self.show_count += 1
+
+    clock = FakeClock()
+    display = FakeDisplay()
+    inputs = iter([(1, "right"), (2, "pause"), None, None, (3, "pause"), None])
+
+    monkeypatch.setattr(snake_game.time, "perf_counter", clock.perf_counter)
+    monkeypatch.setattr(snake_game.time, "sleep", clock.sleep)
+    monkeypatch.setattr(
+        snake_game,
+        "is_snake_mode_enabled",
+        lambda db_path=None: display.show_count < 6,
+    )
+    monkeypatch.setattr(
+        snake_game,
+        "consume_snake_input",
+        lambda db_path=None: next(inputs, None),
+    )
+    monkeypatch.setattr(
+        snake_game,
+        "save_current_display_state",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        snake_game,
+        "set_snake_runtime_status",
+        lambda *args, **kwargs: None,
+    )
+
+    snake_game.run_snake_mode(display)
+
+    paused_heads = [
+        snapshot.snake[0]
+        for snapshot in display.snapshots
+        if snapshot.phase == "paused"
+    ]
+    resumed_head = next(
+        snapshot.snake[0]
+        for index, snapshot in enumerate(display.snapshots)
+        if index > 0 and snapshot.phase == "playing"
+    )
+
+    assert paused_heads
+    assert all(head == paused_heads[0] for head in paused_heads)
+    assert resumed_head == paused_heads[0]
