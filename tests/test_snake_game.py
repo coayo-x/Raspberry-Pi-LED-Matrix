@@ -1,6 +1,8 @@
 import random
 
-from snake_game import SnakeGame
+import pytest
+
+from snake_game import FRAME_SECONDS, SnakeGame, _snake_frame_sleep_seconds
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -57,3 +59,13 @@ def test_snake_detects_wall_and_self_collision() -> None:
 
     self_game.step()
     assert self_game.phase == "game_over"
+
+
+def test_snake_frame_sleep_wakes_for_next_movement_tick() -> None:
+    assert _snake_frame_sleep_seconds("waiting", 10.0, now=9.99) == FRAME_SECONDS
+    assert _snake_frame_sleep_seconds("game_over", 10.0, now=9.99) == FRAME_SECONDS
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.0) == FRAME_SECONDS
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=9.99) == pytest.approx(
+        0.01
+    )
+    assert _snake_frame_sleep_seconds("playing", 10.0, now=10.01) == 0.0

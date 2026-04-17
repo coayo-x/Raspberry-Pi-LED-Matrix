@@ -1304,7 +1304,6 @@ async function sendSnakeInput(direction) {
             describeResultError(error, "Snake control failed"),
             "error",
         );
-    } finally {
         refreshControlState().catch(() => null);
     }
 }
@@ -1756,6 +1755,9 @@ function bindModalInteractions() {
             const snakeDirection = getSnakeDirectionForKey(event.key);
             if (snakeDirection && canSendSnakeInputFromKeyboard(event)) {
                 event.preventDefault();
+                if (event.repeat) {
+                    return;
+                }
                 sendSnakeInput(snakeDirection);
             }
             return;
