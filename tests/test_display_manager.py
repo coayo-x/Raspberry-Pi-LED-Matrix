@@ -432,3 +432,24 @@ def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
 
     assert not game._is_score_overlay_cell(game.food)
     assert np.any(np.all(food_pixels == food_color, axis=-1))
+
+
+def test_render_snake_game_draws_obstacles() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    game = SnakeGame(width=display.width, height=display.height)
+    game.level = 2
+    game._reset_body(reset_score=True)
+    obstacle = sorted(game.obstacles)[0]
+
+    frame = display.render_snake_game(game.snapshot())
+    pixels = np.array(frame)
+    cell_size = game.cell_size
+    obstacle_x = obstacle[0] * cell_size
+    obstacle_y = obstacle[1] * cell_size
+    obstacle_pixels = pixels[
+        obstacle_y : obstacle_y + cell_size,
+        obstacle_x : obstacle_x + cell_size,
+    ]
+    obstacle_color = np.array(display_manager.SNAKE_OBSTACLE, dtype=np.uint8)
+
+    assert np.any(np.all(obstacle_pixels == obstacle_color, axis=-1))
