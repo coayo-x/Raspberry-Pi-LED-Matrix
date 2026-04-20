@@ -411,3 +411,24 @@ def test_render_snake_game_draws_score_in_top_left() -> None:
     top_left_mask = _non_default_mask(frame)[: display.small_line_height + 1, :24]
 
     assert top_left_mask.any()
+
+
+def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    game = SnakeGame(width=display.width, height=display.height)
+    game.phase = "playing"
+    game.score = 12
+    game.snake = [(30, 10), (29, 10), (28, 10)]
+    overlay_width, overlay_height = game._score_overlay_cell_bounds()
+    game.food = (overlay_width, overlay_height - 1)
+
+    frame = display.render_snake_game(game.snapshot())
+    pixels = np.array(frame)
+    cell_size = game.cell_size
+    food_x = game.food[0] * cell_size
+    food_y = game.food[1] * cell_size
+    food_pixels = pixels[food_y : food_y + cell_size, food_x : food_x + cell_size]
+    food_color = np.array(display_manager.SNAKE_FOOD, dtype=np.uint8)
+
+    assert not game._is_score_overlay_cell(game.food)
+    assert np.any(np.all(food_pixels == food_color, axis=-1))

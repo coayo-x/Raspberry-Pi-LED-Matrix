@@ -18,6 +18,10 @@ SPEEDUP_FOOD_INTERVAL = 3
 SPEEDUP_STEP_SECONDS = 0.01
 MIN_TICK_SECONDS = 0.07
 PAUSE_INPUT = "pause"
+SCORE_OVERLAY_HEIGHT_PX = 10
+SCORE_OVERLAY_TEXT_X_PX = 1
+SCORE_OVERLAY_RIGHT_PADDING_PX = 3
+SCORE_OVERLAY_CHAR_WIDTH_PX = 6
 
 DIRECTION_DELTAS = {
     "up": (0, -1),
@@ -43,6 +47,21 @@ class SnakeSnapshot:
     grid_width: int
     grid_height: int
     cell_size: int
+    score_overlay_cells: tuple[int, int]
+
+
+def _ceil_div(value: int, divisor: int) -> int:
+    return (value + divisor - 1) // divisor
+
+
+def score_overlay_size_px(score: int) -> tuple[int, int]:
+    score_text_length = len(f"S:{max(0, int(score))}")
+    return (
+        SCORE_OVERLAY_TEXT_X_PX
+        + (score_text_length * SCORE_OVERLAY_CHAR_WIDTH_PX)
+        + SCORE_OVERLAY_RIGHT_PADDING_PX,
+        SCORE_OVERLAY_HEIGHT_PX,
+    )
 
 
 class SnakeGame:
@@ -93,15 +112,30 @@ class SnakeGame:
                 self.rng.randrange(self.grid_width),
                 self.rng.randrange(self.grid_height),
             )
-            if candidate not in occupied:
+            if candidate not in occupied and not self._is_score_overlay_cell(candidate):
                 return candidate
 
         for y in range(self.grid_height):
             for x in range(self.grid_width):
-                if (x, y) not in occupied:
+                candidate = (x, y)
+                if candidate not in occupied and not self._is_score_overlay_cell(
+                    candidate
+                ):
                     return (x, y)
 
         return self.snake[0]
+
+    def _score_overlay_cell_bounds(self) -> tuple[int, int]:
+        width_px, height_px = score_overlay_size_px(self.score)
+        return (
+            min(self.grid_width, max(1, _ceil_div(width_px, self.cell_size))),
+            min(self.grid_height, max(1, _ceil_div(height_px, self.cell_size))),
+        )
+
+    def _is_score_overlay_cell(self, cell: tuple[int, int]) -> bool:
+        cell_x, cell_y = cell
+        overlay_width, overlay_height = self._score_overlay_cell_bounds()
+        return 0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height
 
     def apply_input(self, direction: str) -> None:
         if direction == PAUSE_INPUT:
@@ -172,6 +206,7 @@ class SnakeGame:
             grid_width=self.grid_width,
             grid_height=self.grid_height,
             cell_size=self.cell_size,
+            score_overlay_cells=self._score_overlay_cell_bounds(),
         )
 
 
