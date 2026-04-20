@@ -1161,6 +1161,9 @@ class DisplayManager:
         )
         draw.rectangle(
             (0, 0, overlay_width - 1, overlay_height - 1),
+        score_width = self._text_width(score_text, font=self.small_font)
+        draw.rectangle(
+            (0, 0, min(self.width - 1, score_width + 3), self.small_line_height),
             fill=DEFAULT_BG,
         )
         self._draw_line(draw, 1, 0, score_text, fill=SNAKE_TEXT, font=self.small_font)
