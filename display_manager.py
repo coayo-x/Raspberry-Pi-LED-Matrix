@@ -62,6 +62,7 @@ CUSTOM_TEXT_COLORS = {
 SNAKE_BODY = (52, 199, 89, 255)
 SNAKE_HEAD = (255, 214, 10, 255)
 SNAKE_FOOD = (255, 59, 48, 255)
+SNAKE_OBSTACLE = (112, 128, 144, 255)
 SNAKE_TEXT = (245, 247, 250, 255)
 
 PANEL_PADDING = 4
@@ -1105,22 +1106,62 @@ class DisplayManager:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
         active_lines: list[str] = []
-        for line in lines:
-            active_lines.extend(
-                self._wrap_text(str(line), width_px=self.width - 8, font=self.font)
-            )
+        active_font = self.font
+        for candidate_font in (self.font, self.small_font):
+            candidate_lines: list[str] = []
+            for line in lines:
+                candidate_lines.extend(
+                    self._wrap_text(
+                        str(line),
+                        width_px=self.width - 8,
+                        font=candidate_font,
+                    )
+                )
+            line_height = self._get_line_height(candidate_font)
+            active_lines = candidate_lines
+            active_font = candidate_font
+            if len(candidate_lines) * line_height <= self.height:
+                break
         self._draw_text_centered(
             draw,
             active_lines or ["Snake Game"],
             fill=SNAKE_TEXT,
-            font=self.font,
+            font=active_font,
         )
         return img
+
+    def _scale_rgba(
+        self,
+        fill: tuple[int, int, int, int],
+        factor: float,
+    ) -> tuple[int, int, int, int]:
+        clamped = max(0.0, min(1.25, float(factor)))
+        red, green, blue, alpha = fill
+        return (
+            min(255, int(red * clamped)),
+            min(255, int(green * clamped)),
+            min(255, int(blue * clamped)),
+            alpha,
+        )
 
     def render_snake_game(self, snapshot) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
         cell_size = max(1, int(getattr(snapshot, "cell_size", 2)))
+        pulse_factor = max(0.0, float(getattr(snapshot, "pulse_factor", 1.0)))
+        body_fill = self._scale_rgba(SNAKE_BODY, pulse_factor)
+        head_fill = self._scale_rgba(SNAKE_HEAD, pulse_factor)
+
+        for cell_x, cell_y in getattr(snapshot, "obstacles", []):
+            draw.rectangle(
+                (
+                    cell_x * cell_size,
+                    cell_y * cell_size,
+                    ((cell_x + 1) * cell_size) - 1,
+                    ((cell_y + 1) * cell_size) - 1,
+                ),
+                fill=SNAKE_OBSTACLE,
+            )
 
         food_x, food_y = snapshot.food
         draw.rectangle(
@@ -1134,7 +1175,7 @@ class DisplayManager:
         )
 
         for index, (cell_x, cell_y) in enumerate(reversed(snapshot.snake)):
-            fill = SNAKE_HEAD if index == len(snapshot.snake) - 1 else SNAKE_BODY
+            fill = head_fill if index == len(snapshot.snake) - 1 else body_fill
             draw.rectangle(
                 (
                     cell_x * cell_size,
@@ -1144,7 +1185,10 @@ class DisplayManager:
                 ),
                 fill=fill,
             )
-        score_text = f"S:{int(getattr(snapshot, 'score', 0))}"
+        score_text = (
+            f"L{int(getattr(snapshot, 'level', 1))} "
+            f"S:{int(getattr(snapshot, 'score', 0))}"
+        )
         overlay_cells = getattr(snapshot, "score_overlay_cells", None)
         if overlay_cells:
             overlay_width = int(overlay_cells[0]) * cell_size
@@ -1161,9 +1205,6 @@ class DisplayManager:
         )
         draw.rectangle(
             (0, 0, overlay_width - 1, overlay_height - 1),
-        score_width = self._text_width(score_text, font=self.small_font)
-        draw.rectangle(
-            (0, 0, min(self.width - 1, score_width + 3), self.small_line_height),
             fill=DEFAULT_BG,
         )
         self._draw_line(draw, 1, 0, score_text, fill=SNAKE_TEXT, font=self.small_font)
