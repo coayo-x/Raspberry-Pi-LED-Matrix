@@ -180,13 +180,24 @@ def test_snake_food_spawn_after_eating_respects_score_overlay() -> None:
 def test_snake_playfield_reserves_hud_and_border_cells() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
     left, top, right, bottom = game.playfield_bounds
+    notch_right, notch_bottom = game.hud_notch_cells
+    outer_cells = (right - left + 1) * (bottom - top + 1)
 
-    assert top > 0
+    assert (left, top, right, bottom) == (
+        1,
+        1,
+        game.grid_width - 2,
+        game.grid_height - 2,
+    )
+    assert game._playfield_cell_count() > outer_cells * 0.95
+    assert not game._is_playfield_cell((left, top))
+    assert not game._is_playfield_cell((notch_right - 1, notch_bottom - 1))
     assert not game._is_playfield_cell((left, top - 1))
     assert not game._is_playfield_cell((left - 1, top))
     assert not game._is_playfield_cell((right + 1, top))
     assert not game._is_playfield_cell((left, bottom + 1))
-    assert game._is_playfield_cell((left, top))
+    assert game._is_playfield_cell((notch_right, top))
+    assert game._is_playfield_cell((left, notch_bottom))
     assert game._is_playfield_cell((right, bottom))
     assert score_overlay_text(12, level=3) == "12"
 
@@ -225,24 +236,38 @@ def test_snake_detects_wall_and_self_collision() -> None:
 
     top_border_game = SnakeGame(width=192, height=32, rng=random.Random(1))
     _start_game(top_border_game, "up")
-    left, top, _, _ = top_border_game.playfield_bounds
-    top_border_game.snake = [(left + 5, top), (left + 5, top + 1)]
+    _, top, _, _ = top_border_game.playfield_bounds
+    notch_right, _ = top_border_game.hud_notch_cells
+    top_border_game.snake = [(notch_right + 5, top), (notch_right + 5, top + 1)]
     top_border_game.direction = "up"
     top_border_game.pending_direction = "up"
 
     top_border_game.step()
     assert top_border_game.phase == "game_over"
 
+    notch_game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    _start_game(notch_game, "up")
+    left, _, _, _ = notch_game.playfield_bounds
+    _, notch_bottom = notch_game.hud_notch_cells
+    notch_game.snake = [(left + 2, notch_bottom), (left + 2, notch_bottom + 1)]
+    notch_game.direction = "up"
+    notch_game.pending_direction = "up"
+
+    notch_game.step()
+    assert notch_game.phase == "game_over"
+
     self_game = SnakeGame(width=192, height=32, rng=random.Random(1))
     _start_game(self_game, "left")
-    left, top, _, _ = self_game.playfield_bounds
+    left, _, _, _ = self_game.playfield_bounds
+    _, notch_bottom = self_game.hud_notch_cells
+    row = notch_bottom + 3
     self_game.snake = [
-        (left + 2, top + 3),
-        (left + 2, top + 4),
-        (left + 1, top + 4),
-        (left + 1, top + 3),
-        (left + 1, top + 2),
-        (left + 2, top + 2),
+        (left + 2, row),
+        (left + 2, row + 1),
+        (left + 1, row + 1),
+        (left + 1, row),
+        (left + 1, row - 1),
+        (left + 2, row - 1),
     ]
     self_game.direction = "left"
     self_game.pending_direction = "left"

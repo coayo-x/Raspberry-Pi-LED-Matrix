@@ -59,6 +59,7 @@ class SnakeSnapshot:
     cell_size: int
     score_overlay_cells: tuple[int, int]
     playfield_bounds: tuple[int, int, int, int]
+    hud_notch_cells: tuple[int, int]
     obstacles: list[tuple[int, int]]
     pulse_factor: float = 1.0
 
@@ -96,6 +97,7 @@ class SnakeGame:
         self.grid_height = max(4, height // self.cell_size)
         self.rng = rng or random.Random()
         self.playfield_bounds = self._build_playfield_bounds()
+        self.hud_notch_cells = self._build_hud_notch_cells()
         self.phase = "waiting"
         self.direction = "right"
         self.pending_direction = "right"
@@ -112,20 +114,46 @@ class SnakeGame:
 
     def _build_playfield_bounds(self) -> tuple[int, int, int, int]:
         left = 1
+        top = 1
         right = max(left, self.grid_width - 2)
         bottom = max(1, self.grid_height - 2)
-        hud_cells = _ceil_div(HUD_RESERVED_HEIGHT_PX, self.cell_size)
-        top = min(max(1, hud_cells), max(1, bottom - 1))
         return left, top, right, bottom
+
+    def _build_hud_notch_cells(self) -> tuple[int, int]:
+        notch_right, _ = self._score_overlay_cell_bounds_for_score(
+            SCORE_OVERLAY_RESERVED_SCORE,
+            level=MAX_LEVEL,
+        )
+        _, top, _, bottom = self.playfield_bounds
+        notch_bottom = _ceil_div(HUD_RESERVED_HEIGHT_PX, self.cell_size)
+        return (
+            min(self.grid_width, max(2, notch_right)),
+            min(bottom, max(top + 1, notch_bottom)),
+        )
+
+    def _is_hud_notch_cell(self, cell: tuple[int, int]) -> bool:
+        cell_x, cell_y = cell
+        left, top, _, _ = self.playfield_bounds
+        notch_right, notch_bottom = self.hud_notch_cells
+        return left <= cell_x < notch_right and top <= cell_y < notch_bottom
 
     def _is_playfield_cell(self, cell: tuple[int, int]) -> bool:
         cell_x, cell_y = cell
         left, top, right, bottom = self.playfield_bounds
-        return left <= cell_x <= right and top <= cell_y <= bottom
+        return (
+            left <= cell_x <= right
+            and top <= cell_y <= bottom
+            and not self._is_hud_notch_cell(cell)
+        )
 
     def _playfield_cell_count(self) -> int:
         left, top, right, bottom = self.playfield_bounds
-        return max(0, right - left + 1) * max(0, bottom - top + 1)
+        notch_right, notch_bottom = self.hud_notch_cells
+        outer_cells = max(0, right - left + 1) * max(0, bottom - top + 1)
+        notch_cells = max(0, min(right + 1, notch_right) - left) * max(
+            0, min(bottom + 1, notch_bottom) - top
+        )
+        return max(0, outer_cells - notch_cells)
 
     def reset_waiting(self) -> None:
         self.phase = "waiting"
@@ -348,8 +376,10 @@ class SnakeGame:
         for y in range(top, bottom + 1):
             for x in range(left, right + 1):
                 candidate = (x, y)
-                if candidate not in occupied and not self._is_score_overlay_cell(
-                    candidate
+                if (
+                    self._is_playfield_cell(candidate)
+                    and candidate not in occupied
+                    and not self._is_score_overlay_cell(candidate)
                 ):
                     return (x, y)
 
@@ -483,6 +513,7 @@ class SnakeGame:
             cell_size=self.cell_size,
             score_overlay_cells=self._score_overlay_cell_bounds(),
             playfield_bounds=self.playfield_bounds,
+            hud_notch_cells=self.hud_notch_cells,
             obstacles=sorted(self.obstacles),
             pulse_factor=max(0.0, float(pulse_factor)),
         )

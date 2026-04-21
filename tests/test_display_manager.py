@@ -384,8 +384,9 @@ def test_render_snake_game_uses_full_matrix_width() -> None:
     game = SnakeGame(width=display.width, height=display.height)
     game.phase = "playing"
     left, top, right, _ = game.playfield_bounds
+    _, notch_bottom = game.hud_notch_cells
     game.snake = [
-        (left, top),
+        (left, notch_bottom),
         ((left + right) // 2, top),
         (right, top),
     ]
@@ -421,8 +422,9 @@ def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
     game.phase = "playing"
     game.score = 12
     game.snake = [(30, 10), (29, 10), (28, 10)]
-    left, top, _, _ = game.playfield_bounds
-    game.food = (left, top)
+    left, _, _, _ = game.playfield_bounds
+    _, notch_bottom = game.hud_notch_cells
+    game.food = (left, notch_bottom)
 
     frame = display.render_snake_game(game.snapshot())
     pixels = np.array(frame)
@@ -445,15 +447,27 @@ def test_render_snake_game_draws_playfield_border() -> None:
     pixels = np.array(frame)
     cell_size = game.cell_size
     left, top, right, bottom = game.playfield_bounds
+    notch_right_cell, notch_bottom_cell = game.hud_notch_cells
     border_color = np.array(display_manager.SNAKE_BORDER, dtype=np.uint8)
+    border_left = (left * cell_size) - 1
+    border_top = (top * cell_size) - 1
+    border_right = (right + 1) * cell_size
+    border_bottom = (bottom + 1) * cell_size
+    notch_right = (notch_right_cell * cell_size) - 1
+    notch_bottom = (notch_bottom_cell * cell_size) - 1
     border_points = [
-        ((left * cell_size) - 1, (top * cell_size) - 1),
-        ((right + 1) * cell_size, (top * cell_size) - 1),
-        ((left * cell_size) - 1, (bottom + 1) * cell_size),
-        ((right + 1) * cell_size, (bottom + 1) * cell_size),
+        (notch_right, border_top),
+        (border_right, border_top),
+        (notch_right, notch_bottom),
+        (border_left, notch_bottom),
+        (border_left, border_bottom),
+        (border_right, border_bottom),
     ]
 
     assert all(np.array_equal(pixels[y, x], border_color) for x, y in border_points)
+    assert not np.array_equal(pixels[border_top, border_left], border_color)
+    assert border_top == 1
+    assert notch_bottom < display.height // 2
 
 
 def test_render_snake_game_draws_obstacles() -> None:

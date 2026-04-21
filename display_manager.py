@@ -1162,20 +1162,83 @@ class DisplayManager:
             play_top = 0
             play_right = int(getattr(snapshot, "grid_width", self.width)) - 1
             play_bottom = int(getattr(snapshot, "grid_height", self.height)) - 1
+        score_text = str(max(0, int(getattr(snapshot, "score", 0))))
+        overlay_cells = getattr(snapshot, "score_overlay_cells", None)
+        if overlay_cells:
+            overlay_width = int(overlay_cells[0]) * cell_size
+            overlay_height = int(overlay_cells[1]) * cell_size
+        else:
+            overlay_width = self._text_width(score_text, font=self.small_font) + 4
+            overlay_height = self.small_line_height + 1
+        overlay_width = max(1, min(self.width, overlay_width))
+        overlay_height = max(1, min(self.height, overlay_height))
+        draw.rectangle(
+            (0, 0, overlay_width - 1, overlay_height - 1),
+            fill=DEFAULT_BG,
+        )
+        hud_notch_cells = getattr(snapshot, "hud_notch_cells", None)
+
+        def is_hud_notch_cell(cell_x: int, cell_y: int) -> bool:
+            if not hud_notch_cells:
+                return False
+            notch_right_cell, notch_bottom_cell = [
+                int(value) for value in hud_notch_cells
+            ]
+            return (
+                play_left <= cell_x < notch_right_cell
+                and play_top <= cell_y < notch_bottom_cell
+            )
 
         def is_playfield_cell(cell_x: int, cell_y: int) -> bool:
             return (
-                play_left <= cell_x <= play_right and play_top <= cell_y <= play_bottom
+                play_left <= cell_x <= play_right
+                and play_top <= cell_y <= play_bottom
+                and not is_hud_notch_cell(cell_x, cell_y)
             )
 
         border_left = max(0, (play_left * cell_size) - 1)
         border_top = max(0, (play_top * cell_size) - 1)
         border_right = min(self.width - 1, ((play_right + 1) * cell_size))
         border_bottom = min(self.height - 1, ((play_bottom + 1) * cell_size))
-        draw.rectangle(
-            (border_left, border_top, border_right, border_bottom),
-            outline=SNAKE_BORDER,
-        )
+        if hud_notch_cells:
+            notch_right_cell, notch_bottom_cell = [
+                int(value) for value in hud_notch_cells
+            ]
+            notch_right = max(
+                border_left,
+                min(border_right, (notch_right_cell * cell_size) - 1),
+            )
+            notch_bottom = max(
+                border_top,
+                min(border_bottom, (notch_bottom_cell * cell_size) - 1),
+            )
+            draw.line(
+                (border_left, notch_bottom, border_left, border_bottom),
+                fill=SNAKE_BORDER,
+            )
+            draw.line(
+                (border_left, border_bottom, border_right, border_bottom),
+                fill=SNAKE_BORDER,
+            )
+            draw.line(
+                (border_right, border_top, border_right, border_bottom),
+                fill=SNAKE_BORDER,
+            )
+            draw.line(
+                (notch_right, border_top, border_right, border_top), fill=SNAKE_BORDER
+            )
+            draw.line(
+                (notch_right, border_top, notch_right, notch_bottom), fill=SNAKE_BORDER
+            )
+            draw.line(
+                (border_left, notch_bottom, notch_right, notch_bottom),
+                fill=SNAKE_BORDER,
+            )
+        else:
+            draw.rectangle(
+                (border_left, border_top, border_right, border_bottom),
+                outline=SNAKE_BORDER,
+            )
 
         for cell_x, cell_y in getattr(snapshot, "obstacles", []):
             if not is_playfield_cell(cell_x, cell_y):
@@ -1215,24 +1278,10 @@ class DisplayManager:
                 ),
                 fill=fill,
             )
-        score_text = str(max(0, int(getattr(snapshot, "score", 0))))
-        overlay_cells = getattr(snapshot, "score_overlay_cells", None)
-        if overlay_cells:
-            overlay_width = int(overlay_cells[0]) * cell_size
-            overlay_height = int(overlay_cells[1]) * cell_size
-        else:
-            overlay_width = self._text_width(score_text, font=self.small_font) + 4
-            overlay_height = self.small_line_height + 1
-        overlay_width = max(1, min(self.width, overlay_width))
-        overlay_height = max(1, min(self.height, overlay_height))
         score_text = self._truncate_to_width(
             score_text,
             max(1, overlay_width - 1),
             font=self.small_font,
-        )
-        draw.rectangle(
-            (0, 0, overlay_width - 1, overlay_height - 1),
-            fill=DEFAULT_BG,
         )
         self._draw_line(draw, 1, 0, score_text, fill=SNAKE_TEXT, font=self.small_font)
         return img
