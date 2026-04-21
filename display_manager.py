@@ -63,6 +63,7 @@ SNAKE_BODY = (52, 199, 89, 255)
 SNAKE_HEAD = (255, 214, 10, 255)
 SNAKE_FOOD = (255, 59, 48, 255)
 SNAKE_OBSTACLE = (112, 128, 144, 255)
+SNAKE_BORDER = (124, 214, 255, 255)
 SNAKE_TEXT = (245, 247, 250, 255)
 
 PANEL_PADDING = 4
@@ -1151,8 +1152,34 @@ class DisplayManager:
         pulse_factor = max(0.0, float(getattr(snapshot, "pulse_factor", 1.0)))
         body_fill = self._scale_rgba(SNAKE_BODY, pulse_factor)
         head_fill = self._scale_rgba(SNAKE_HEAD, pulse_factor)
+        playfield_bounds = getattr(snapshot, "playfield_bounds", None)
+        if playfield_bounds:
+            play_left, play_top, play_right, play_bottom = [
+                int(value) for value in playfield_bounds
+            ]
+        else:
+            play_left = 0
+            play_top = 0
+            play_right = int(getattr(snapshot, "grid_width", self.width)) - 1
+            play_bottom = int(getattr(snapshot, "grid_height", self.height)) - 1
+
+        def is_playfield_cell(cell_x: int, cell_y: int) -> bool:
+            return (
+                play_left <= cell_x <= play_right and play_top <= cell_y <= play_bottom
+            )
+
+        border_left = max(0, (play_left * cell_size) - 1)
+        border_top = max(0, (play_top * cell_size) - 1)
+        border_right = min(self.width - 1, ((play_right + 1) * cell_size))
+        border_bottom = min(self.height - 1, ((play_bottom + 1) * cell_size))
+        draw.rectangle(
+            (border_left, border_top, border_right, border_bottom),
+            outline=SNAKE_BORDER,
+        )
 
         for cell_x, cell_y in getattr(snapshot, "obstacles", []):
+            if not is_playfield_cell(cell_x, cell_y):
+                continue
             draw.rectangle(
                 (
                     cell_x * cell_size,
@@ -1164,17 +1191,20 @@ class DisplayManager:
             )
 
         food_x, food_y = snapshot.food
-        draw.rectangle(
-            (
-                food_x * cell_size,
-                food_y * cell_size,
-                ((food_x + 1) * cell_size) - 1,
-                ((food_y + 1) * cell_size) - 1,
-            ),
-            fill=SNAKE_FOOD,
-        )
+        if is_playfield_cell(food_x, food_y):
+            draw.rectangle(
+                (
+                    food_x * cell_size,
+                    food_y * cell_size,
+                    ((food_x + 1) * cell_size) - 1,
+                    ((food_y + 1) * cell_size) - 1,
+                ),
+                fill=SNAKE_FOOD,
+            )
 
         for index, (cell_x, cell_y) in enumerate(reversed(snapshot.snake)):
+            if not is_playfield_cell(cell_x, cell_y):
+                continue
             fill = head_fill if index == len(snapshot.snake) - 1 else body_fill
             draw.rectangle(
                 (
@@ -1185,10 +1215,7 @@ class DisplayManager:
                 ),
                 fill=fill,
             )
-        score_text = (
-            f"L{int(getattr(snapshot, 'level', 1))} "
-            f"S:{int(getattr(snapshot, 'score', 0))}"
-        )
+        score_text = str(max(0, int(getattr(snapshot, "score", 0))))
         overlay_cells = getattr(snapshot, "score_overlay_cells", None)
         if overlay_cells:
             overlay_width = int(overlay_cells[0]) * cell_size

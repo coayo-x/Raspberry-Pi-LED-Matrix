@@ -14,6 +14,7 @@ from snake_game import (
     TICK_SECONDS,
     SnakeGame,
     _snake_frame_sleep_seconds,
+    score_overlay_text,
 )
 
 
@@ -38,10 +39,15 @@ class ConstantRng:
 
 def _first_visible_food_cell(game: SnakeGame) -> tuple[int, int]:
     occupied = set(game.snake) | set(game.obstacles)
-    for y in range(game.grid_height):
-        for x in range(game.grid_width):
+    left, top, right, bottom = game.playfield_bounds
+    for y in range(top, bottom + 1):
+        for x in range(left, right + 1):
             candidate = (x, y)
-            if candidate not in occupied and not game._is_score_overlay_cell(candidate):
+            if (
+                game._is_playfield_cell(candidate)
+                and candidate not in occupied
+                and not game._is_score_overlay_cell(candidate)
+            ):
                 return candidate
     raise AssertionError("No visible food cell available")
 
@@ -54,10 +60,20 @@ def _start_game(game: SnakeGame, direction: str = "right") -> None:
 
 
 def _place_safe_food_ahead(game: SnakeGame) -> None:
-    game.snake = [(20, 12), (19, 12), (18, 12), (17, 12), (16, 12), (15, 12)]
+    left, top, _, _ = game.playfield_bounds
+    row = top + 2
+    head_x = left + 20
+    game.snake = [
+        (head_x, row),
+        (head_x - 1, row),
+        (head_x - 2, row),
+        (head_x - 3, row),
+        (head_x - 4, row),
+        (head_x - 5, row),
+    ]
     game.direction = "right"
     game.pending_direction = "right"
-    game.food = (21, 12)
+    game.food = (head_x + 1, row)
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -158,6 +174,21 @@ def test_snake_food_spawn_after_eating_respects_score_overlay() -> None:
     assert game.score == 1
     assert game.food == visible_food
     assert not game._is_score_overlay_cell(game.food)
+    assert game._is_playfield_cell(game.food)
+
+
+def test_snake_playfield_reserves_hud_and_border_cells() -> None:
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    left, top, right, bottom = game.playfield_bounds
+
+    assert top > 0
+    assert not game._is_playfield_cell((left, top - 1))
+    assert not game._is_playfield_cell((left - 1, top))
+    assert not game._is_playfield_cell((right + 1, top))
+    assert not game._is_playfield_cell((left, bottom + 1))
+    assert game._is_playfield_cell((left, top))
+    assert game._is_playfield_cell((right, bottom))
+    assert score_overlay_text(12, level=3) == "12"
 
 
 def test_snake_speed_increases_every_three_food_items() -> None:
@@ -184,16 +215,35 @@ def test_snake_speed_increases_every_three_food_items() -> None:
 def test_snake_detects_wall_and_self_collision() -> None:
     wall_game = SnakeGame(width=192, height=32, rng=random.Random(1))
     _start_game(wall_game)
-    wall_game.snake = [(wall_game.grid_width - 1, 1), (wall_game.grid_width - 2, 1)]
+    _, top, right, _ = wall_game.playfield_bounds
+    wall_game.snake = [(right, top), (right - 1, top)]
     wall_game.direction = "right"
     wall_game.pending_direction = "right"
 
     wall_game.step()
     assert wall_game.phase == "game_over"
 
+    top_border_game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    _start_game(top_border_game, "up")
+    left, top, _, _ = top_border_game.playfield_bounds
+    top_border_game.snake = [(left + 5, top), (left + 5, top + 1)]
+    top_border_game.direction = "up"
+    top_border_game.pending_direction = "up"
+
+    top_border_game.step()
+    assert top_border_game.phase == "game_over"
+
     self_game = SnakeGame(width=192, height=32, rng=random.Random(1))
     _start_game(self_game, "left")
-    self_game.snake = [(5, 5), (5, 6), (4, 6), (4, 5), (4, 4), (5, 4)]
+    left, top, _, _ = self_game.playfield_bounds
+    self_game.snake = [
+        (left + 2, top + 3),
+        (left + 2, top + 4),
+        (left + 1, top + 4),
+        (left + 1, top + 3),
+        (left + 1, top + 2),
+        (left + 2, top + 2),
+    ]
     self_game.direction = "left"
     self_game.pending_direction = "left"
 
@@ -265,6 +315,9 @@ def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
         assert game.food not in game.obstacles
         assert game.food not in game.snake
         assert not game._is_score_overlay_cell(game.food)
+        assert game._is_playfield_cell(game.food)
+        assert all(game._is_playfield_cell(cell) for cell in game.snake)
+        assert all(game._is_playfield_cell(cell) for cell in game.obstacles)
         assert all(
             not (0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height)
             for cell_x, cell_y in game.obstacles
@@ -320,6 +373,49 @@ def test_snake_game_over_pulse_animates_existing_snapshot(monkeypatch) -> None:
     assert interrupted is False
     assert display.pulse_factors == [1.0, 0.55, 1.15, 0.55, 1.0]
     assert display.show_count == 5
+
+
+def test_snake_level_progression_intro_reads_as_advancement(monkeypatch) -> None:
+    class FakeDisplay:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, object]] = []
+
+        def render_snake_message(self, lines):
+            return ("message", tuple(lines))
+
+        def _transition_to(
+            self,
+            frame,
+            *,
+            preview_name=None,
+            steps=5,
+            delay=0.025,
+            should_interrupt=None,
+        ):
+            self.events.append(("transition", frame))
+            return False
+
+    game = SnakeGame(width=192, height=32, rng=random.Random(1))
+    game.level = 2
+    game.phase = "level_intro"
+    game.level_intro_source_phase = "playing"
+    display = FakeDisplay()
+    monkeypatch.setattr(
+        snake_game,
+        "_sleep_with_snake_interrupt",
+        lambda duration, should_interrupt, interval=0.02: False,
+    )
+
+    interrupted = snake_game._show_snake_level_intro_sequence(
+        display,
+        game,
+        should_interrupt=lambda: False,
+    )
+
+    assert interrupted is False
+    assert display.events == [
+        ("transition", ("message", ("LEVEL UP", "LEVEL 2"))),
+    ]
 
 
 def test_snake_frame_sleep_wakes_for_next_movement_tick() -> None:

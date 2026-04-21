@@ -24,11 +24,12 @@ LEVEL_INTRO_HOLD_SECONDS = 0.28
 LEVEL_INTRO_FADE_DELAY_SECONDS = 0.035
 GAME_OVER_PULSE_FRAME_SECONDS = 0.08
 PAUSE_INPUT = "pause"
-SCORE_OVERLAY_HEIGHT_PX = 10
+SCORE_OVERLAY_HEIGHT_PX = 8
 SCORE_OVERLAY_TEXT_X_PX = 1
 SCORE_OVERLAY_RIGHT_PADDING_PX = 3
 SCORE_OVERLAY_CHAR_WIDTH_PX = 6
 SCORE_OVERLAY_RESERVED_SCORE = 999
+HUD_RESERVED_HEIGHT_PX = 12
 
 DIRECTION_DELTAS = {
     "up": (0, -1),
@@ -57,6 +58,7 @@ class SnakeSnapshot:
     grid_height: int
     cell_size: int
     score_overlay_cells: tuple[int, int]
+    playfield_bounds: tuple[int, int, int, int]
     obstacles: list[tuple[int, int]]
     pulse_factor: float = 1.0
 
@@ -67,9 +69,7 @@ def _ceil_div(value: int, divisor: int) -> int:
 
 def score_overlay_text(score: int, level: int | None = None) -> str:
     safe_score = max(0, int(score))
-    if level is None:
-        return f"S:{safe_score}"
-    return f"L{max(1, int(level))} S:{safe_score}"
+    return str(safe_score)
 
 
 def score_overlay_size_px(score: int, level: int | None = None) -> tuple[int, int]:
@@ -95,6 +95,7 @@ class SnakeGame:
         self.grid_width = max(4, width // self.cell_size)
         self.grid_height = max(4, height // self.cell_size)
         self.rng = rng or random.Random()
+        self.playfield_bounds = self._build_playfield_bounds()
         self.phase = "waiting"
         self.direction = "right"
         self.pending_direction = "right"
@@ -108,6 +109,23 @@ class SnakeGame:
         self.level_intro_source_phase = "waiting"
         self.game_over_animation_pending = False
         self.reset_waiting()
+
+    def _build_playfield_bounds(self) -> tuple[int, int, int, int]:
+        left = 1
+        right = max(left, self.grid_width - 2)
+        bottom = max(1, self.grid_height - 2)
+        hud_cells = _ceil_div(HUD_RESERVED_HEIGHT_PX, self.cell_size)
+        top = min(max(1, hud_cells), max(1, bottom - 1))
+        return left, top, right, bottom
+
+    def _is_playfield_cell(self, cell: tuple[int, int]) -> bool:
+        cell_x, cell_y = cell
+        left, top, right, bottom = self.playfield_bounds
+        return left <= cell_x <= right and top <= cell_y <= bottom
+
+    def _playfield_cell_count(self) -> int:
+        left, top, right, bottom = self.playfield_bounds
+        return max(0, right - left + 1) * max(0, bottom - top + 1)
 
     def reset_waiting(self) -> None:
         self.phase = "waiting"
@@ -144,41 +162,43 @@ class SnakeGame:
         dx: int,
         dy: int,
     ) -> list[tuple[int, int]]:
-        center_x = self.grid_width // 2
-        center_y = self.grid_height // 2
-        overlay_width, overlay_height = self._score_overlay_cell_bounds_for_score(
+        left, top, right, bottom = self.playfield_bounds
+        center_x = (left + right) // 2
+        center_y = (top + bottom) // 2
+        _, overlay_height = self._score_overlay_cell_bounds_for_score(
             SCORE_OVERLAY_RESERVED_SCORE,
             level=MAX_LEVEL,
         )
         candidate_heads = [
             (center_x, center_y),
-            (center_x, max(overlay_height + 2, self.grid_height - 4)),
-            (max(8, self.grid_width // 4), center_y),
-            (min(self.grid_width - 3, (self.grid_width * 3) // 4), center_y),
+            (center_x, max(top + 2, bottom - 2)),
+            (max(left + 5, left + ((right - left + 1) // 4)), center_y),
+            (min(right - 2, left + (((right - left + 1) * 3) // 4)), center_y),
         ]
         for head_x, head_y in candidate_heads:
             snake = [
-                (head_x - (dx * offset), head_y - (dy * offset))
-                for offset in range(6)
+                (head_x - (dx * offset), head_y - (dy * offset)) for offset in range(6)
             ]
             if all(
-                0 <= cell_x < self.grid_width
-                and 0 <= cell_y < self.grid_height
+                self._is_playfield_cell((cell_x, cell_y))
                 and (cell_x, cell_y) not in self.obstacles
                 and not self._is_score_overlay_cell((cell_x, cell_y))
                 for cell_x, cell_y in snake
             ):
                 return snake
 
-        fallback_y = min(self.grid_height - 1, max(overlay_height + 1, center_y))
-        fallback_x = min(self.grid_width - 1, max(5, center_x))
+        fallback_y = min(bottom, max(top, center_y, overlay_height + 1))
+        fallback_x = min(right, max(left + 5, center_x))
         return [
-            (max(0, fallback_x - offset), fallback_y)
-            for offset in range(min(6, self.grid_width))
+            (max(left, fallback_x - offset), fallback_y)
+            for offset in range(min(6, right - left + 1))
         ]
 
     def _is_reserved_obstacle_cell(self, cell: tuple[int, int]) -> bool:
         cell_x, cell_y = cell
+        if not self._is_playfield_cell(cell):
+            return True
+
         overlay_width, overlay_height = self._score_overlay_cell_bounds_for_score(
             SCORE_OVERLAY_RESERVED_SCORE,
             level=MAX_LEVEL,
@@ -186,8 +206,9 @@ class SnakeGame:
         if 0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height:
             return True
 
-        center_x = self.grid_width // 2
-        center_y = self.grid_height // 2
+        left, top, right, bottom = self.playfield_bounds
+        center_x = (left + right) // 2
+        center_y = (top + bottom) // 2
         return abs(cell_x - center_x) <= 8 and abs(cell_y - center_y) <= 1
 
     def _build_level_obstacles(self, level: int) -> set[tuple[int, int]]:
@@ -196,24 +217,28 @@ class SnakeGame:
 
         def add(cell_x: int, cell_y: int) -> None:
             cell = (cell_x, cell_y)
-            if (
-                0 <= cell_x < self.grid_width
-                and 0 <= cell_y < self.grid_height
-                and not self._is_reserved_obstacle_cell(cell)
+            if self._is_playfield_cell(cell) and not self._is_reserved_obstacle_cell(
+                cell
             ):
                 obstacles.add(cell)
 
-        def hline(y: int, x0: int, x1: int, *, gap: tuple[int, int] | None = None) -> None:
-            start = max(0, min(x0, x1))
-            end = min(self.grid_width - 1, max(x0, x1))
+        def hline(
+            y: int, x0: int, x1: int, *, gap: tuple[int, int] | None = None
+        ) -> None:
+            play_left, _, play_right, _ = self.playfield_bounds
+            start = max(play_left, min(x0, x1))
+            end = min(play_right, max(x0, x1))
             for x in range(start, end + 1):
                 if gap is not None and gap[0] <= x <= gap[1]:
                     continue
                 add(x, y)
 
-        def vline(x: int, y0: int, y1: int, *, gap: tuple[int, int] | None = None) -> None:
-            start = max(0, min(y0, y1))
-            end = min(self.grid_height - 1, max(y0, y1))
+        def vline(
+            x: int, y0: int, y1: int, *, gap: tuple[int, int] | None = None
+        ) -> None:
+            _, play_top, _, play_bottom = self.playfield_bounds
+            start = max(play_top, min(y0, y1))
+            end = min(play_bottom, max(y0, y1))
             for y in range(start, end + 1):
                 if gap is not None and gap[0] <= y <= gap[1]:
                     continue
@@ -224,38 +249,43 @@ class SnakeGame:
                 for x in range(x0, x0 + width):
                     add(x, y)
 
-        gw = self.grid_width
-        gh = self.grid_height
-        cx = gw // 2
-        cy = gh // 2
-        left = max(3, gw // 4)
-        right = min(gw - 4, (gw * 3) // 4)
+        play_left, play_top, play_right, play_bottom = self.playfield_bounds
+        play_width = play_right - play_left + 1
+        play_height = play_bottom - play_top + 1
+        cx = (play_left + play_right) // 2
+        cy = (play_top + play_bottom) // 2
+        left = max(play_left + 3, play_left + (play_width // 4))
+        right = min(play_right - 3, play_left + ((play_width * 3) // 4))
 
         if safe_level >= 2:
-            vline(left, 6, gh - 5)
-            vline(right, 6, gh - 5)
+            vline(left, play_top + 1, play_bottom - 2)
+            vline(right, play_top + 1, play_bottom - 2)
 
         if safe_level >= 3:
-            hline(max(5, gh // 3), left - 8, left + 8)
-            hline(min(gh - 3, (gh * 2) // 3), right - 8, right + 8)
+            hline(play_top + max(1, play_height // 3), left - 8, left + 8)
+            hline(
+                play_top + min(play_height - 2, (play_height * 2) // 3),
+                right - 8,
+                right + 8,
+            )
 
         if safe_level >= 4:
-            vline(cx - 18, 4, gh - 4, gap=(cy - 1, cy + 1))
-            vline(cx + 18, 4, gh - 4, gap=(cy - 1, cy + 1))
+            vline(cx - 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
+            vline(cx + 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
 
         if safe_level >= 5:
-            block(gw - 16, 3, 7, 2)
-            block(8, gh - 5, 7, 2)
-            block(gw - 18, gh - 5, 8, 2)
+            block(play_right - 14, play_top + 1, 7, 2)
+            block(play_left + 7, play_bottom - 2, 7, 2)
+            block(play_right - 16, play_bottom - 2, 8, 2)
 
         if safe_level >= 6:
             hline(cy - 3, 24, cx - 12, gap=(cx - 26, cx - 22))
-            hline(cy + 3, cx + 12, gw - 25, gap=(cx + 22, cx + 26))
+            hline(cy + 3, cx + 12, play_right - 24, gap=(cx + 22, cx + 26))
 
         if safe_level >= 7:
             for offset in range(0, 18, 3):
                 add(28 + offset, 5 + (offset // 3))
-                add(gw - 29 - offset, gh - 6 - (offset // 3))
+                add(play_right - 27 - offset, play_bottom - 1 - (offset // 3))
 
         if safe_level >= 8:
             hline(cy - 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
@@ -265,20 +295,40 @@ class SnakeGame:
 
         if safe_level >= 9:
             for x in (left + 12, cx, right - 12):
-                vline(x, 3, 6)
-                vline(x, gh - 7, gh - 4)
+                vline(x, play_top, play_top + 3)
+                vline(x, play_bottom - 3, play_bottom)
 
         if safe_level >= 10:
-            hline(3, max(22, left), min(gw - 12, right + 14), gap=(cx - 5, cx + 5))
-            hline(gh - 4, max(12, left - 10), min(gw - 22, right), gap=(cx - 5, cx + 5))
-            vline(max(6, left - 14), 5, gh - 6, gap=(cy - 2, cy + 2))
-            vline(min(gw - 7, right + 14), 5, gh - 6, gap=(cy - 2, cy + 2))
+            hline(
+                play_top + 1,
+                max(play_left + 21, left),
+                min(play_right - 11, right + 14),
+                gap=(cx - 5, cx + 5),
+            )
+            hline(
+                play_bottom - 1,
+                max(play_left + 11, left - 10),
+                min(play_right - 21, right),
+                gap=(cx - 5, cx + 5),
+            )
+            vline(
+                max(play_left + 5, left - 14),
+                play_top + 1,
+                play_bottom - 1,
+                gap=(cy - 2, cy + 2),
+            )
+            vline(
+                min(play_right - 6, right + 14),
+                play_top + 1,
+                play_bottom - 1,
+                gap=(cy - 2, cy + 2),
+            )
 
         return obstacles
 
     def _spawn_food(self) -> tuple[int, int]:
         occupied = set(self.snake) | set(self.obstacles)
-        total_cells = self.grid_width * self.grid_height
+        total_cells = self._playfield_cell_count()
         if len(occupied) >= total_cells:
             return self.snake[0]
 
@@ -287,11 +337,16 @@ class SnakeGame:
                 self.rng.randrange(self.grid_width),
                 self.rng.randrange(self.grid_height),
             )
-            if candidate not in occupied and not self._is_score_overlay_cell(candidate):
+            if (
+                self._is_playfield_cell(candidate)
+                and candidate not in occupied
+                and not self._is_score_overlay_cell(candidate)
+            ):
                 return candidate
 
-        for y in range(self.grid_height):
-            for x in range(self.grid_width):
+        left, top, right, bottom = self.playfield_bounds
+        for y in range(top, bottom + 1):
+            for x in range(left, right + 1):
                 candidate = (x, y)
                 if candidate not in occupied and not self._is_score_overlay_cell(
                     candidate
@@ -381,9 +436,7 @@ class SnakeGame:
         head_x, head_y = self.snake[0]
         next_head = (head_x + dx, head_y + dy)
 
-        if not (0 <= next_head[0] < self.grid_width) or not (
-            0 <= next_head[1] < self.grid_height
-        ):
+        if not self._is_playfield_cell(next_head):
             self.phase = "game_over"
             self.game_over_animation_pending = True
             return
@@ -429,6 +482,7 @@ class SnakeGame:
             grid_height=self.grid_height,
             cell_size=self.cell_size,
             score_overlay_cells=self._score_overlay_cell_bounds(),
+            playfield_bounds=self.playfield_bounds,
             obstacles=sorted(self.obstacles),
             pulse_factor=max(0.0, float(pulse_factor)),
         )
@@ -543,6 +597,30 @@ def _fade_snake_frame(
     return _sleep_with_snake_interrupt(delay * steps, should_interrupt)
 
 
+def _transition_snake_frame(
+    display,
+    frame,
+    *,
+    should_interrupt,
+    steps: int = 5,
+    delay: float = 0.025,
+) -> bool:
+    transition_to = getattr(display, "_transition_to", None)
+    if callable(transition_to):
+        return bool(
+            transition_to(
+                frame,
+                preview_name="snake_game.png",
+                steps=steps,
+                delay=delay,
+                should_interrupt=should_interrupt,
+            )
+        )
+
+    display.show_image(frame, preview_name="snake_game.png")
+    return _sleep_with_snake_interrupt(delay * steps, should_interrupt)
+
+
 def _show_snake_level_intro_sequence(
     display,
     game: SnakeGame,
@@ -572,19 +650,23 @@ def _show_snake_level_intro_sequence(
             delay=0.03,
         ):
             return True
-    elif source_phase == "playing":
-        outgoing = display.render_snake_game(game.snapshot())
-        if _fade_snake_frame(
+    level_lines = [f"LEVEL {game.level}"]
+    if source_phase == "playing":
+        level_lines = ["LEVEL UP", f"LEVEL {game.level}"]
+
+    level_frame = display.render_snake_message(level_lines)
+    if source_phase == "playing":
+        if _transition_snake_frame(
             display,
-            outgoing,
-            fade_in=False,
+            level_frame,
             should_interrupt=should_interrupt,
-            steps=4,
-            delay=0.025,
         ):
             return True
+        return _sleep_with_snake_interrupt(
+            LEVEL_INTRO_HOLD_SECONDS,
+            should_interrupt,
+        )
 
-    level_frame = display.render_snake_message([f"LEVEL {game.level}"])
     if _fade_snake_frame(
         display,
         level_frame,
@@ -633,8 +715,10 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
     last_snapshot = _runtime_snapshot_key(game)
     next_step_at = time.perf_counter() + game.tick_seconds()
 
+    def should_stop_snake() -> bool:
+        return not is_snake_mode_enabled(db_path)
+
     while is_snake_mode_enabled(db_path):
-        should_stop_snake = lambda: not is_snake_mode_enabled(db_path)
         consumed_input = consume_snake_input(db_path)
         if consumed_input is not None:
             _, direction = consumed_input
