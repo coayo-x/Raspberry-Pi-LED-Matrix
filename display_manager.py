@@ -1992,3 +1992,4 @@ class DisplayManager:
             sleep_time = max(0, duration_seconds - 0.20)
             if sleep_time > 0:
                 self._sleep_with_interrupt(sleep_time, should_interrupt)
+
