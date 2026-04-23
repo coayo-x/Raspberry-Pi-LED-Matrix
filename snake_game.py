@@ -1,3 +1,4 @@
+from collections import deque
 import random
 import time
 from dataclasses import dataclass
@@ -5,6 +6,7 @@ from dataclasses import dataclass
 from config import DB_PATH
 from current_display_state import save_current_display_state
 from rotation_engine import get_current_slot_key
+from snake_audio import SnakeAudio
 from snake_control import (
     consume_snake_input,
     is_snake_mode_enabled,
@@ -22,6 +24,10 @@ FOOD_PER_LEVEL = 10
 LEVEL_SPEED_STEP_SECONDS = 0.002
 LEVEL_INTRO_HOLD_SECONDS = 0.28
 LEVEL_INTRO_FADE_DELAY_SECONDS = 0.035
+LEVEL_UP_FLASH_FRAME_SECONDS = 0.045
+LEVEL_UP_MESSAGE_HOLD_SECONDS = 0.16
+LEVEL_UP_LEVEL_HOLD_SECONDS = 0.22
+LEVEL_UP_BORDER_FLASH_FACTORS = (1.0, 1.45, 0.65, 1.35, 1.0)
 GAME_OVER_PULSE_FRAME_SECONDS = 0.08
 PAUSE_INPUT = "pause"
 SCORE_OVERLAY_HEIGHT_PX = 8
@@ -61,6 +67,14 @@ class SnakeSnapshot:
     playfield_bounds: tuple[int, int, int, int]
     obstacles: list[tuple[int, int]]
     pulse_factor: float = 1.0
+    border_flash_factor: float = 1.0
+
+
+@dataclass(frozen=True)
+class SnakeStepResult:
+    ate_food: bool = False
+    level_up: bool = False
+    game_over: bool = False
 
 
 def _ceil_div(value: int, divisor: int) -> int:
@@ -254,112 +268,126 @@ class SnakeGame:
         play_height = play_bottom - play_top + 1
         cx = (play_left + play_right) // 2
         cy = (play_top + play_bottom) // 2
-        left = max(play_left + 3, play_left + (play_width // 4))
-        right = min(play_right - 3, play_left + ((play_width * 3) // 4))
+
+        def x_at(ratio: float) -> int:
+            clamped_ratio = max(0.0, min(1.0, float(ratio)))
+            return play_left + int(round((play_width - 1) * clamped_ratio))
+
+        top_lane = min(play_bottom, play_top + 1)
+        upper_lane = min(play_bottom, play_top + 2)
+        lower_lane = max(play_top, play_bottom - 2)
+        bottom_lane = max(play_top, play_bottom - 1)
+        outer_left = x_at(0.22)
+        inner_left = x_at(0.34)
+        bracket_left = x_at(0.40)
+        bracket_right = x_at(0.60)
+        inner_right = x_at(0.66)
+        outer_right = x_at(0.78)
+        far_left = x_at(0.10)
+        far_right = x_at(0.90)
+        center_gap_half = max(4, play_width // 12)
+        center_gap = (cx - center_gap_half, cx + center_gap_half)
+        narrow_center_gap = (
+            cx - max(3, center_gap_half - 2),
+            cx + max(3, center_gap_half - 2),
+        )
+        vertical_gap = (cy - 1, cy + 1)
+        upper_bar_span = max(7, play_width // 10)
 
         if safe_level >= 2:
-            vline(left, play_top + 1, play_bottom - 2)
-            vline(right, play_top + 1, play_bottom - 2)
+            vline(outer_left, top_lane, bottom_lane)
+            vline(outer_right, top_lane, bottom_lane)
 
         if safe_level >= 3:
-            hline(play_top + max(1, play_height // 3), left - 8, left + 8)
-            hline(
-                play_top + min(play_height - 2, (play_height * 2) // 3),
-                right - 8,
-                right + 8,
-            )
+            hline(upper_lane, far_left, outer_left + upper_bar_span)
+            hline(lower_lane, outer_right - upper_bar_span, far_right)
 
         if safe_level >= 4:
-            vline(cx - 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
-            vline(cx + 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
+            vline(inner_left, play_top, play_bottom, gap=vertical_gap)
+            vline(inner_right, play_top, play_bottom, gap=vertical_gap)
 
         if safe_level >= 5:
-            block(play_right - 14, play_top + 1, 7, 2)
-            block(play_left + 7, play_bottom - 2, 7, 2)
-            block(play_right - 16, play_bottom - 2, 8, 2)
+            block(far_left + 2, bottom_lane - 1, 5, 2)
+            block(far_right - 6, top_lane, 5, 2)
 
         if safe_level >= 6:
-            hline(cy - 3, 24, cx - 12, gap=(cx - 26, cx - 22))
-            hline(cy + 3, cx + 12, play_right - 24, gap=(cx + 22, cx + 26))
+            hline(upper_lane, x_at(0.28), x_at(0.48), gap=center_gap)
+            hline(lower_lane, x_at(0.52), x_at(0.72), gap=center_gap)
 
         if safe_level >= 7:
-            for offset in range(0, 18, 3):
-                add(28 + offset, 5 + (offset // 3))
-                add(play_right - 27 - offset, play_bottom - 1 - (offset // 3))
+            for x0, y0 in (
+                (x_at(0.18), upper_lane),
+                (x_at(0.30), bottom_lane),
+                (x_at(0.70), top_lane),
+                (x_at(0.82), lower_lane),
+            ):
+                block(x0, y0, 2, 2)
 
         if safe_level >= 8:
-            hline(cy - 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            hline(cy + 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            vline(cx - 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
-            vline(cx + 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
+            hline(top_lane, bracket_left, bracket_right, gap=narrow_center_gap)
+            hline(bottom_lane, bracket_left, bracket_right, gap=narrow_center_gap)
+            vline(bracket_left, upper_lane, lower_lane, gap=(cy, cy))
+            vline(bracket_right, upper_lane, lower_lane, gap=(cy, cy))
 
         if safe_level >= 9:
-            for x in (left + 12, cx, right - 12):
-                vline(x, play_top, play_top + 3)
-                vline(x, play_bottom - 3, play_bottom)
+            for x in (x_at(0.16), x_at(0.50), x_at(0.84)):
+                vline(x, play_top, top_lane + 1)
+                vline(x, bottom_lane - 1, play_bottom)
 
         if safe_level >= 10:
-            hline(
-                play_top + 1,
-                max(play_left + 21, left),
-                min(play_right - 11, right + 14),
-                gap=(cx - 5, cx + 5),
-            )
-            hline(
-                play_bottom - 1,
-                max(play_left + 11, left - 10),
-                min(play_right - 21, right),
-                gap=(cx - 5, cx + 5),
-            )
-            vline(
-                max(play_left + 5, left - 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
-            vline(
-                min(play_right - 6, right + 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
+            vline(x_at(0.08), upper_lane, lower_lane, gap=(cy, cy))
+            vline(x_at(0.92), upper_lane, lower_lane, gap=(cy, cy))
+            hline(top_lane, x_at(0.18), x_at(0.32))
+            hline(top_lane, x_at(0.68), x_at(0.82))
+            hline(bottom_lane, x_at(0.18), x_at(0.32))
+            hline(bottom_lane, x_at(0.68), x_at(0.82))
+            hline(cy, x_at(0.24), x_at(0.30))
+            hline(cy, x_at(0.70), x_at(0.76))
 
         return obstacles
 
-    def _spawn_food(self) -> tuple[int, int]:
+    def _spawnable_food_cells(self) -> list[tuple[int, int]]:
         occupied = set(self.snake) | set(self.obstacles)
-        total_cells = self._playfield_cell_count()
-        if len(occupied) >= total_cells:
-            return self.snake[0]
+        visible_cells = [
+            (x, y)
+            for y in range(self.playfield_bounds[1], self.playfield_bounds[3] + 1)
+            for x in range(self.playfield_bounds[0], self.playfield_bounds[2] + 1)
+            if (x, y) not in occupied and not self._is_score_overlay_cell((x, y))
+        ]
+        if not visible_cells or not self.snake:
+            return visible_cells
 
-        for _ in range(total_cells * 2):
-            candidate = (
-                self.rng.randrange(self.grid_width),
-                self.rng.randrange(self.grid_height),
-            )
-            if (
-                self._is_playfield_cell(candidate)
-                and candidate not in occupied
-                and not self._is_score_overlay_cell(candidate)
-            ):
-                return candidate
+        head = self.snake[0]
+        blocked = occupied - {head}
+        reachable: list[tuple[int, int]] = []
+        queue = deque([head])
+        visited = {head}
 
-        left, top, right, bottom = self.playfield_bounds
-        for y in range(top, bottom + 1):
-            for x in range(left, right + 1):
-                candidate = (x, y)
-                if candidate not in occupied and not self._is_score_overlay_cell(
-                    candidate
+        while queue:
+            cell_x, cell_y = queue.popleft()
+            for dx, dy in DIRECTION_DELTAS.values():
+                candidate = (cell_x + dx, cell_y + dy)
+                if (
+                    candidate in visited
+                    or not self._is_playfield_cell(candidate)
+                    or candidate in blocked
+                    or self._is_score_overlay_cell(candidate)
                 ):
-                    return (x, y)
+                    continue
+                visited.add(candidate)
+                queue.append(candidate)
+                reachable.append(candidate)
 
-        return self.snake[0]
+        return sorted(reachable) or visible_cells
+
+    def _spawn_food(self) -> tuple[int, int]:
+        candidates = self._spawnable_food_cells()
+        if not candidates:
+            return self.snake[0]
+        return candidates[self.rng.randrange(len(candidates))]
 
     def _score_overlay_cell_bounds_for_score(
-        self,
-        score: int,
-        *,
-        level: int | None = None,
+        self, score: int, *, level: int | None = None
     ) -> tuple[int, int]:
         width_px, height_px = score_overlay_size_px(
             score,
@@ -378,38 +406,39 @@ class SnakeGame:
         overlay_width, overlay_height = self._score_overlay_cell_bounds()
         return 0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height
 
-    def apply_input(self, direction: str) -> None:
+    def apply_input(self, direction: str) -> bool:
         if direction == PAUSE_INPUT:
             if self.phase == "waiting":
                 self._queue_level_intro(self.pending_direction, reset_score=True)
-                return
+                return False
             if self.phase == "game_over":
                 self._queue_level_intro(self.pending_direction, reset_score=True)
-                return
+                return False
             if self.phase == "playing":
                 self.phase = "paused"
             elif self.phase == "paused":
                 self.phase = "playing"
-            return
+            return False
 
         if direction not in DIRECTION_DELTAS:
-            return
+            return False
 
         if self.phase == "waiting":
             self._queue_level_intro(direction, reset_score=True)
-            return
+            return True
 
         if self.phase == "game_over":
             self._queue_level_intro(direction, reset_score=True)
-            return
+            return True
 
         if self.phase != "playing":
-            return
+            return False
 
         if len(self.snake) > 1 and OPPOSITE_DIRECTIONS.get(self.direction) == direction:
-            return
+            return False
 
         self.pending_direction = direction
+        return True
 
     def _queue_level_intro(self, direction: str, *, reset_score: bool) -> None:
         self.pending_direction = direction if direction in DIRECTION_DELTAS else "right"
@@ -427,9 +456,10 @@ class SnakeGame:
         self.level_intro_reset_score = False
         self.level_intro_source_phase = "playing"
 
-    def step(self) -> None:
+    def step(self) -> SnakeStepResult:
+        result = SnakeStepResult()
         if self.phase != "playing":
-            return
+            return result
 
         self.direction = self.pending_direction
         dx, dy = DIRECTION_DELTAS[self.direction]
@@ -439,27 +469,29 @@ class SnakeGame:
         if not self._is_playfield_cell(next_head):
             self.phase = "game_over"
             self.game_over_animation_pending = True
-            return
+            return SnakeStepResult(game_over=True)
 
         will_grow = next_head == self.food
         collision_body = self.snake if will_grow else self.snake[:-1]
         if next_head in collision_body or next_head in self.obstacles:
             self.phase = "game_over"
             self.game_over_animation_pending = True
-            return
+            return SnakeStepResult(game_over=True)
 
         self.snake.insert(0, next_head)
         if will_grow:
             self.score += 1
             self.level_food_count += 1
+            result = SnakeStepResult(ate_food=True)
             if self.level_food_count >= FOOD_PER_LEVEL and self.level < MAX_LEVEL:
                 self.level += 1
                 self.level_food_count = 0
                 self._queue_level_intro(self.direction, reset_score=False)
-                return
+                return SnakeStepResult(ate_food=True, level_up=True)
             self.food = self._spawn_food()
         else:
             self.snake.pop()
+        return result
 
     def tick_seconds(self) -> float:
         speed_tier = self.score // SPEEDUP_FOOD_INTERVAL
@@ -469,7 +501,12 @@ class SnakeGame:
             TICK_SECONDS - (speed_tier * SPEEDUP_STEP_SECONDS) - level_pressure,
         )
 
-    def snapshot(self, *, pulse_factor: float = 1.0) -> SnakeSnapshot:
+    def snapshot(
+        self,
+        *,
+        pulse_factor: float = 1.0,
+        border_flash_factor: float = 1.0,
+    ) -> SnakeSnapshot:
         return SnakeSnapshot(
             phase=self.phase,
             snake=self.snake[:],
@@ -485,6 +522,7 @@ class SnakeGame:
             playfield_bounds=self.playfield_bounds,
             obstacles=sorted(self.obstacles),
             pulse_factor=max(0.0, float(pulse_factor)),
+            border_flash_factor=max(0.0, float(border_flash_factor)),
         )
 
 
@@ -627,6 +665,10 @@ def _show_snake_level_intro_sequence(
     *,
     should_interrupt,
 ) -> bool:
+    render_overlay_message = getattr(display, "render_snake_overlay_message", None)
+    if not callable(render_overlay_message):
+        render_overlay_message = None
+
     source_phase = game.level_intro_source_phase
     if source_phase == "waiting":
         outgoing = display.render_snake_message(["Press any button to start"])
@@ -650,22 +692,64 @@ def _show_snake_level_intro_sequence(
             delay=0.03,
         ):
             return True
-    level_lines = [f"LEVEL {game.level}"]
     if source_phase == "playing":
-        level_lines = ["LEVEL UP", f"LEVEL {game.level}"]
+        for flash_factor in LEVEL_UP_BORDER_FLASH_FACTORS:
+            if should_interrupt and should_interrupt():
+                return True
+            frame = display.render_snake_game(
+                game.snapshot(border_flash_factor=flash_factor)
+            )
+            display.show_image(frame, preview_name="snake_game.png")
+            if _sleep_with_snake_interrupt(
+                LEVEL_UP_FLASH_FRAME_SECONDS,
+                should_interrupt,
+            ):
+                return True
 
-    level_frame = display.render_snake_message(level_lines)
-    if source_phase == "playing":
+        level_up_frame = (
+            render_overlay_message(
+                game.snapshot(border_flash_factor=1.25),
+                ["LEVEL UP"],
+            )
+            if render_overlay_message is not None
+            else display.render_snake_message(["LEVEL UP"])
+        )
+        if _transition_snake_frame(
+            display,
+            level_up_frame,
+            should_interrupt=should_interrupt,
+            steps=5,
+            delay=0.02,
+        ):
+            return True
+        if _sleep_with_snake_interrupt(
+            LEVEL_UP_MESSAGE_HOLD_SECONDS,
+            should_interrupt,
+        ):
+            return True
+
+        level_frame = (
+            render_overlay_message(
+                game.snapshot(border_flash_factor=1.1),
+                [f"LEVEL {game.level}"],
+            )
+            if render_overlay_message is not None
+            else display.render_snake_message([f"LEVEL {game.level}"])
+        )
         if _transition_snake_frame(
             display,
             level_frame,
             should_interrupt=should_interrupt,
+            steps=5,
+            delay=0.02,
         ):
             return True
         return _sleep_with_snake_interrupt(
-            LEVEL_INTRO_HOLD_SECONDS,
+            LEVEL_UP_LEVEL_HOLD_SECONDS,
             should_interrupt,
         )
+
+    level_frame = display.render_snake_message([f"LEVEL {game.level}"])
 
     if _fade_snake_frame(
         display,
@@ -711,82 +795,107 @@ def _show_snake_game_over_pulse(
 
 def run_snake_mode(display, db_path: str = DB_PATH) -> None:
     game = SnakeGame(width=display.width, height=display.height)
-    _save_snake_state(game, db_path)
-    last_snapshot = _runtime_snapshot_key(game)
-    next_step_at = time.perf_counter() + game.tick_seconds()
+    snake_audio = SnakeAudio()
+    try:
+        _save_snake_state(game, db_path)
+        last_snapshot = _runtime_snapshot_key(game)
+        next_step_at = time.perf_counter() + game.tick_seconds()
 
-    def should_stop_snake() -> bool:
-        return not is_snake_mode_enabled(db_path)
+        def should_stop_snake() -> bool:
+            return not is_snake_mode_enabled(db_path)
 
-    while is_snake_mode_enabled(db_path):
-        consumed_input = consume_snake_input(db_path)
-        if consumed_input is not None:
-            _, direction = consumed_input
-            previous_phase = game.phase
-            game.apply_input(direction)
-            if previous_phase != "playing" and game.phase == "playing":
-                resumed_at = time.perf_counter()
-                if previous_phase == "paused":
-                    next_step_at = resumed_at + game.tick_seconds()
-                else:
-                    next_step_at = resumed_at
+        while is_snake_mode_enabled(db_path):
+            consumed_input = consume_snake_input(db_path)
+            if consumed_input is not None:
+                _, direction = consumed_input
+                previous_phase = game.phase
+                if game.apply_input(direction):
+                    snake_audio.play_move()
+                if previous_phase != "playing" and game.phase == "playing":
+                    resumed_at = time.perf_counter()
+                    if previous_phase == "paused":
+                        next_step_at = resumed_at + game.tick_seconds()
+                    else:
+                        next_step_at = resumed_at
 
-        now = time.perf_counter()
-        if game.phase == "playing" and now >= next_step_at:
-            game.step()
-            next_step_at = time.perf_counter() + game.tick_seconds()
-        elif game.phase != "playing":
-            next_step_at = now + game.tick_seconds()
+            now = time.perf_counter()
+            if game.phase == "playing" and now >= next_step_at:
+                step_result = game.step()
+                if step_result.ate_food:
+                    snake_audio.play_food()
+                if step_result.game_over:
+                    snake_audio.play_game_over()
+                next_step_at = time.perf_counter() + game.tick_seconds()
+            elif game.phase != "playing":
+                next_step_at = now + game.tick_seconds()
 
-        current_snapshot = _runtime_snapshot_key(game)
-        if current_snapshot != last_snapshot:
-            _save_snake_state(game, db_path)
-            last_snapshot = current_snapshot
-
-        if game.phase == "level_intro":
-            if _show_snake_level_intro_sequence(
-                display,
-                game,
-                should_interrupt=should_stop_snake,
-            ):
-                break
-            game.begin_level_after_intro()
-            next_step_at = time.perf_counter() + game.tick_seconds()
             current_snapshot = _runtime_snapshot_key(game)
             if current_snapshot != last_snapshot:
                 _save_snake_state(game, db_path)
                 last_snapshot = current_snapshot
 
-        if game.phase == "game_over" and game.game_over_animation_pending:
-            if _show_snake_game_over_pulse(
-                display,
-                game,
-                should_interrupt=should_stop_snake,
-            ):
-                break
-            game.game_over_animation_pending = False
+            rendered_frame = False
+            if game.phase == "level_intro":
+                if _show_snake_level_intro_sequence(
+                    display,
+                    game,
+                    should_interrupt=should_stop_snake,
+                ):
+                    break
+                game.begin_level_after_intro()
+                next_step_at = time.perf_counter() + game.tick_seconds()
+                current_snapshot = _runtime_snapshot_key(game)
+                if current_snapshot != last_snapshot:
+                    _save_snake_state(game, db_path)
+                    last_snapshot = current_snapshot
+                gameplay_frame = display.render_snake_game(game.snapshot())
+                if _transition_snake_frame(
+                    display,
+                    gameplay_frame,
+                    should_interrupt=should_stop_snake,
+                    steps=6,
+                    delay=0.02,
+                ):
+                    break
+                rendered_frame = True
 
-        snapshot = game.snapshot()
-        if snapshot.phase == "waiting":
-            frame = display.render_snake_message(["Press any button to start"])
-        elif snapshot.phase == "paused":
-            frame = display.render_snake_game(snapshot)
-        elif snapshot.phase == "game_over":
-            frame = display.render_snake_message(_snake_game_over_message_lines(game))
-        elif snapshot.phase == "level_intro":
-            frame = display.render_snake_message([f"LEVEL {snapshot.level}"])
-        else:
-            frame = display.render_snake_game(snapshot)
+            if game.phase == "game_over" and game.game_over_animation_pending:
+                if _show_snake_game_over_pulse(
+                    display,
+                    game,
+                    should_interrupt=should_stop_snake,
+                ):
+                    break
+                game.game_over_animation_pending = False
 
-        display.show_image(frame, preview_name="snake_game.png")
-        sleep_seconds = _snake_frame_sleep_seconds(
-            game.phase,
-            next_step_at,
-        )
-        if sleep_seconds > 0:
-            time.sleep(sleep_seconds)
+            if not rendered_frame:
+                snapshot = game.snapshot()
+                if snapshot.phase == "waiting":
+                    frame = display.render_snake_message(["Press any button to start"])
+                elif snapshot.phase == "paused":
+                    frame = display.render_snake_game(snapshot)
+                elif snapshot.phase == "game_over":
+                    frame = display.render_snake_message(
+                        _snake_game_over_message_lines(game)
+                    )
+                elif snapshot.phase == "level_intro":
+                    frame = display.render_snake_message([f"LEVEL {snapshot.level}"])
+                else:
+                    frame = display.render_snake_game(snapshot)
 
-    set_snake_runtime_status("idle", score=0, db_path=db_path)
+                display.show_image(frame, preview_name="snake_game.png")
+
+            sleep_seconds = _snake_frame_sleep_seconds(
+                game.phase,
+                next_step_at,
+            )
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+    finally:
+        close_audio = getattr(snake_audio, "close", None)
+        if callable(close_audio):
+            close_audio()
+        set_snake_runtime_status("idle", score=0, db_path=db_path)
 
 
 def render_snake_waiting_once(display, db_path: str = DB_PATH) -> dict:

@@ -5,6 +5,7 @@ adafruit-circuitpython-rgb-display
 requests
 python-dotenv
 bcrypt
+pygame
 
 ruff
 black

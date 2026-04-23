@@ -1150,8 +1150,12 @@ class DisplayManager:
         draw = ImageDraw.Draw(img)
         cell_size = max(1, int(getattr(snapshot, "cell_size", 2)))
         pulse_factor = max(0.0, float(getattr(snapshot, "pulse_factor", 1.0)))
+        border_flash_factor = max(
+            0.0, float(getattr(snapshot, "border_flash_factor", 1.0))
+        )
         body_fill = self._scale_rgba(SNAKE_BODY, pulse_factor)
         head_fill = self._scale_rgba(SNAKE_HEAD, pulse_factor)
+        border_fill = self._scale_rgba(SNAKE_BORDER, border_flash_factor)
         playfield_bounds = getattr(snapshot, "playfield_bounds", None)
         if playfield_bounds:
             play_left, play_top, play_right, play_bottom = [
@@ -1174,7 +1178,7 @@ class DisplayManager:
         border_bottom = min(self.height - 1, ((play_bottom + 1) * cell_size))
         draw.rectangle(
             (border_left, border_top, border_right, border_bottom),
-            outline=SNAKE_BORDER,
+            outline=border_fill,
         )
 
         for cell_x, cell_y in getattr(snapshot, "obstacles", []):
@@ -1235,6 +1239,59 @@ class DisplayManager:
             fill=DEFAULT_BG,
         )
         self._draw_line(draw, 1, 0, score_text, fill=SNAKE_TEXT, font=self.small_font)
+        return img
+
+    def render_snake_overlay_message(
+        self,
+        snapshot,
+        lines: list[str],
+        *,
+        fill=SNAKE_TEXT,
+        outline=SNAKE_BORDER,
+        backdrop=(0, 0, 0, 176),
+    ) -> Image.Image:
+        img = self.render_snake_game(snapshot)
+        draw = ImageDraw.Draw(img)
+        active_lines: list[str] = []
+        active_font = self.large_font
+        max_width = max(24, self.width - 24)
+
+        for candidate_font in (
+            self.large_font,
+            self.medium_font,
+            self.font,
+            self.small_font,
+        ):
+            wrapped_lines: list[str] = []
+            for line in lines:
+                wrapped_lines.extend(
+                    self._wrap_text(str(line), width_px=max_width, font=candidate_font)
+                )
+            active_lines = wrapped_lines or [""]
+            active_font = candidate_font
+            if (
+                len(active_lines) * self._get_line_height(candidate_font)
+                <= self.height - 8
+            ):
+                break
+
+        line_height = self._get_line_height(active_font)
+        text_width = max(self._text_width(line, active_font) for line in active_lines)
+        box_width = min(self.width - 4, text_width + 12)
+        box_height = min(self.height - 4, (len(active_lines) * line_height) + 8)
+        box_x0 = max(2, (self.width - box_width) // 2)
+        box_y0 = max(2, (self.height - box_height) // 2)
+        box_x1 = box_x0 + box_width - 1
+        box_y1 = box_y0 + box_height - 1
+
+        draw.rectangle((box_x0, box_y0, box_x1, box_y1), fill=backdrop, outline=outline)
+
+        y = box_y0 + 4
+        for line in active_lines:
+            line_width = self._text_width(line, active_font)
+            x = box_x0 + max(0, (box_width - line_width) // 2)
+            draw.text((x, y), line, font=active_font, fill=fill)
+            y += line_height
         return img
 
     def _draw_custom_text_line(
