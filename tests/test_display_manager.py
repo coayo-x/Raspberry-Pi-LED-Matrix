@@ -456,6 +456,21 @@ def test_render_snake_game_draws_playfield_border() -> None:
     assert all(np.array_equal(pixels[y, x], border_color) for x, y in border_points)
 
 
+def test_render_snake_game_scales_border_for_level_up_flash() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    game = SnakeGame(width=display.width, height=display.height)
+    left, top, _, _ = game.playfield_bounds
+    border_point = ((left * game.cell_size) - 1, (top * game.cell_size) - 1)
+
+    base_frame = display.render_snake_game(game.snapshot())
+    flash_frame = display.render_snake_game(game.snapshot(border_pulse_factor=1.25))
+
+    base_pixel = np.array(base_frame.getpixel(border_point), dtype=np.uint8)
+    flash_pixel = np.array(flash_frame.getpixel(border_point), dtype=np.uint8)
+
+    assert int(flash_pixel[:3].sum()) > int(base_pixel[:3].sum())
+
+
 def test_render_snake_game_draws_obstacles() -> None:
     display = display_manager.DisplayManager(use_matrix=False)
     game = SnakeGame(width=display.width, height=display.height)

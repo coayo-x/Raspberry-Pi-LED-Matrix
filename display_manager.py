@@ -1150,8 +1150,13 @@ class DisplayManager:
         draw = ImageDraw.Draw(img)
         cell_size = max(1, int(getattr(snapshot, "cell_size", 2)))
         pulse_factor = max(0.0, float(getattr(snapshot, "pulse_factor", 1.0)))
+        border_pulse_factor = max(
+            0.0,
+            float(getattr(snapshot, "border_pulse_factor", 1.0)),
+        )
         body_fill = self._scale_rgba(SNAKE_BODY, pulse_factor)
         head_fill = self._scale_rgba(SNAKE_HEAD, pulse_factor)
+        border_fill = self._scale_rgba(SNAKE_BORDER, border_pulse_factor)
         playfield_bounds = getattr(snapshot, "playfield_bounds", None)
         if playfield_bounds:
             play_left, play_top, play_right, play_bottom = [
@@ -1174,7 +1179,7 @@ class DisplayManager:
         border_bottom = min(self.height - 1, ((play_bottom + 1) * cell_size))
         draw.rectangle(
             (border_left, border_top, border_right, border_bottom),
-            outline=SNAKE_BORDER,
+            outline=border_fill,
         )
 
         for cell_x, cell_y in getattr(snapshot, "obstacles", []):

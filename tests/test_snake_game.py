@@ -1,3 +1,4 @@
+from collections import deque
 import random
 
 import pytest
@@ -74,6 +75,27 @@ def _place_safe_food_ahead(game: SnakeGame) -> None:
     game.direction = "right"
     game.pending_direction = "right"
     game.food = (head_x + 1, row)
+
+
+def _reachable_playfield_cells(game: SnakeGame) -> tuple[set[tuple[int, int]], set[tuple[int, int]]]:
+    left, top, right, bottom = game.playfield_bounds
+    open_cells = {
+        (x, y)
+        for y in range(top, bottom + 1)
+        for x in range(left, right + 1)
+        if (x, y) not in game.obstacles
+    }
+    reachable = {game.snake[0]}
+    frontier = deque([game.snake[0]])
+    while frontier:
+        cell_x, cell_y = frontier.popleft()
+        for dx, dy in snake_game.DIRECTION_DELTAS.values():
+            next_cell = (cell_x + dx, cell_y + dy)
+            if next_cell not in open_cells or next_cell in reachable:
+                continue
+            reachable.add(next_cell)
+            frontier.append(next_cell)
+    return reachable, open_cells
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -299,7 +321,6 @@ def test_snake_advances_level_every_ten_food_items() -> None:
 
 def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    previous_obstacle_count = -1
 
     for level in range(1, MAX_LEVEL + 1):
         game.level = level
@@ -308,9 +329,14 @@ def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
             999,
             level=MAX_LEVEL,
         )
+        reachable_cells, open_cells = _reachable_playfield_cells(game)
+        head_x, head_y = game.snake[0]
+        forward_cell = (head_x + 1, head_y)
+        turn_cells = [(head_x, head_y - 1), (head_x, head_y + 1)]
 
         assert game.phase == "waiting"
         assert game.score == (level - 1) * FOOD_PER_LEVEL
+        assert (level == 1) == (not game.obstacles)
         assert not set(game.snake) & game.obstacles
         assert game.food not in game.obstacles
         assert game.food not in game.snake
@@ -322,8 +348,15 @@ def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
             not (0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height)
             for cell_x, cell_y in game.obstacles
         )
-        assert len(game.obstacles) >= previous_obstacle_count
-        previous_obstacle_count = len(game.obstacles)
+        assert len(game.obstacles) <= game._playfield_cell_count() // 10
+        assert len(open_cells) >= int(game._playfield_cell_count() * 0.9)
+        assert reachable_cells == open_cells
+        assert game._is_playfield_cell(forward_cell)
+        assert forward_cell not in game.obstacles
+        assert any(
+            game._is_playfield_cell(cell) and cell not in game.obstacles
+            for cell in turn_cells
+        )
 
 
 def test_snake_obstacle_collision_ends_game() -> None:
@@ -378,10 +411,18 @@ def test_snake_game_over_pulse_animates_existing_snapshot(monkeypatch) -> None:
 def test_snake_level_progression_intro_reads_as_advancement(monkeypatch) -> None:
     class FakeDisplay:
         def __init__(self) -> None:
+            self.pulse_factors: list[float] = []
             self.events: list[tuple[str, object]] = []
+
+        def render_snake_game(self, snapshot):
+            self.pulse_factors.append(snapshot.border_pulse_factor)
+            return ("game", snapshot.border_pulse_factor)
 
         def render_snake_message(self, lines):
             return ("message", tuple(lines))
+
+        def show_image(self, frame, preview_name=None) -> None:
+            self.events.append(("show", frame))
 
         def _transition_to(
             self,
@@ -413,8 +454,14 @@ def test_snake_level_progression_intro_reads_as_advancement(monkeypatch) -> None
     )
 
     assert interrupted is False
+    assert display.pulse_factors == list(snake_game.LEVEL_UP_PULSE_FACTORS)
     assert display.events == [
-        ("transition", ("message", ("LEVEL UP", "LEVEL 2"))),
+        *[
+            ("show", ("game", factor))
+            for factor in snake_game.LEVEL_UP_PULSE_FACTORS
+        ],
+        ("transition", ("message", ("LEVEL UP",))),
+        ("transition", ("message", ("LEVEL 2",))),
     ]
 
 

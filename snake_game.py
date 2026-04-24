@@ -23,6 +23,12 @@ LEVEL_SPEED_STEP_SECONDS = 0.002
 LEVEL_INTRO_HOLD_SECONDS = 0.28
 LEVEL_INTRO_FADE_DELAY_SECONDS = 0.035
 GAME_OVER_PULSE_FRAME_SECONDS = 0.08
+LEVEL_UP_PULSE_FRAME_SECONDS = 0.05
+LEVEL_UP_PULSE_FACTORS = (1.0, 1.22, 0.82, 1.15, 1.0)
+LEVEL_UP_MESSAGE_HOLD_SECONDS = 0.16
+LEVEL_UP_LEVEL_HOLD_SECONDS = 0.2
+LEVEL_UP_TRANSITION_STEPS = 4
+LEVEL_UP_TRANSITION_DELAY_SECONDS = 0.02
 PAUSE_INPUT = "pause"
 SCORE_OVERLAY_HEIGHT_PX = 8
 SCORE_OVERLAY_TEXT_X_PX = 1
@@ -61,6 +67,7 @@ class SnakeSnapshot:
     playfield_bounds: tuple[int, int, int, int]
     obstacles: list[tuple[int, int]]
     pulse_factor: float = 1.0
+    border_pulse_factor: float = 1.0
 
 
 def _ceil_div(value: int, divisor: int) -> int:
@@ -249,80 +256,113 @@ class SnakeGame:
                 for x in range(x0, x0 + width):
                     add(x, y)
 
+        def hsegment(
+            center_x: int,
+            y: int,
+            length: int,
+            *,
+            gap: tuple[int, int] | None = None,
+        ) -> None:
+            half = max(0, (length - 1) // 2)
+            start = center_x - half
+            end = start + max(0, length - 1)
+            hline(y, start, end, gap=gap)
+
+        def vsegment(
+            x: int,
+            center_y: int,
+            length: int,
+            *,
+            gap: tuple[int, int] | None = None,
+        ) -> None:
+            half = max(0, (length - 1) // 2)
+            start = center_y - half
+            end = start + max(0, length - 1)
+            vline(x, start, end, gap=gap)
+
+        def block_center(center_x: int, center_y: int, width: int, height: int) -> None:
+            block(
+                center_x - max(0, (width - 1) // 2),
+                center_y - max(0, (height - 1) // 2),
+                width,
+                height,
+            )
+
         play_left, play_top, play_right, play_bottom = self.playfield_bounds
         play_width = play_right - play_left + 1
-        play_height = play_bottom - play_top + 1
         cx = (play_left + play_right) // 2
         cy = (play_top + play_bottom) // 2
-        left = max(play_left + 3, play_left + (play_width // 4))
-        right = min(play_right - 3, play_left + ((play_width * 3) // 4))
+        left_lane_x = play_left + max(8, play_width // 5)
+        mid_left_x = play_left + max(14, play_width // 3)
+        mid_right_x = play_right - max(14, play_width // 3)
+        right_lane_x = play_right - max(8, play_width // 5)
+        top_row = min(play_bottom, play_top + 1)
+        upper_row = min(play_bottom, play_top + 2)
+        lower_row = max(play_top, play_bottom - 2)
+        bottom_row = max(play_top, play_bottom - 1)
+        short_len = max(5, play_width // 12)
+        medium_len = max(7, play_width // 10)
+        long_len = max(9, play_width // 8)
 
-        if safe_level >= 2:
-            vline(left, play_top + 1, play_bottom - 2)
-            vline(right, play_top + 1, play_bottom - 2)
-
-        if safe_level >= 3:
-            hline(play_top + max(1, play_height // 3), left - 8, left + 8)
-            hline(
-                play_top + min(play_height - 2, (play_height * 2) // 3),
-                right - 8,
-                right + 8,
-            )
-
-        if safe_level >= 4:
-            vline(cx - 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
-            vline(cx + 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
-
-        if safe_level >= 5:
-            block(play_right - 14, play_top + 1, 7, 2)
-            block(play_left + 7, play_bottom - 2, 7, 2)
-            block(play_right - 16, play_bottom - 2, 8, 2)
-
-        if safe_level >= 6:
-            hline(cy - 3, 24, cx - 12, gap=(cx - 26, cx - 22))
-            hline(cy + 3, cx + 12, play_right - 24, gap=(cx + 22, cx + 26))
-
-        if safe_level >= 7:
-            for offset in range(0, 18, 3):
-                add(28 + offset, 5 + (offset // 3))
-                add(play_right - 27 - offset, play_bottom - 1 - (offset // 3))
-
-        if safe_level >= 8:
-            hline(cy - 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            hline(cy + 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            vline(cx - 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
-            vline(cx + 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
-
-        if safe_level >= 9:
-            for x in (left + 12, cx, right - 12):
-                vline(x, play_top, play_top + 3)
-                vline(x, play_bottom - 3, play_bottom)
-
-        if safe_level >= 10:
-            hline(
-                play_top + 1,
-                max(play_left + 21, left),
-                min(play_right - 11, right + 14),
-                gap=(cx - 5, cx + 5),
-            )
-            hline(
-                play_bottom - 1,
-                max(play_left + 11, left - 10),
-                min(play_right - 21, right),
-                gap=(cx - 5, cx + 5),
-            )
-            vline(
-                max(play_left + 5, left - 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
-            vline(
-                min(play_right - 6, right + 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
+        if safe_level == 2:
+            hsegment(cx, upper_row, short_len)
+            hsegment(cx, lower_row, short_len)
+        elif safe_level == 3:
+            hsegment(left_lane_x, top_row, medium_len)
+            hsegment(cx, upper_row, short_len)
+            hsegment(cx, lower_row, short_len)
+            hsegment(right_lane_x, bottom_row, medium_len)
+        elif safe_level == 4:
+            hsegment(cx, upper_row, long_len + 2, gap=(cx - 1, cx + 1))
+            hsegment(cx, lower_row, long_len + 2, gap=(cx - 1, cx + 1))
+            vsegment(mid_left_x, cy, 3)
+            vsegment(mid_right_x, cy, 3)
+        elif safe_level == 5:
+            block_center(left_lane_x, upper_row, short_len - 1, 2)
+            block_center(right_lane_x, lower_row, short_len - 1, 2)
+            hsegment(cx, top_row, short_len)
+            hsegment(cx, bottom_row, short_len)
+        elif safe_level == 6:
+            hsegment(mid_left_x, top_row, long_len)
+            hsegment(mid_right_x, upper_row, long_len)
+            hsegment(mid_left_x, lower_row, long_len)
+            hsegment(mid_right_x, bottom_row, long_len)
+            vsegment(left_lane_x + 6, cy, 3)
+            vsegment(right_lane_x - 6, cy, 3)
+        elif safe_level == 7:
+            hsegment(left_lane_x, top_row, medium_len)
+            hsegment(mid_right_x, upper_row, long_len)
+            hsegment(mid_left_x, lower_row, long_len)
+            hsegment(right_lane_x, bottom_row, medium_len)
+            block_center(mid_left_x - 6, cy, 4, 2)
+            block_center(mid_right_x + 6, cy, 4, 2)
+        elif safe_level == 8:
+            hsegment(left_lane_x, top_row, long_len)
+            hsegment(right_lane_x, upper_row, long_len)
+            hsegment(cx, lower_row, long_len + 2, gap=(cx - 2, cx + 2))
+            hsegment(cx, bottom_row, long_len + 2, gap=(cx - 2, cx + 2))
+            vsegment(mid_left_x, cy, 5)
+            vsegment(mid_right_x, cy, 5)
+        elif safe_level == 9:
+            hsegment(cx, top_row, long_len + 4, gap=(cx - 2, cx + 2))
+            hsegment(left_lane_x, upper_row, long_len)
+            hsegment(right_lane_x, lower_row, long_len)
+            hsegment(cx, bottom_row, long_len + 4, gap=(cx - 2, cx + 2))
+            vsegment(mid_left_x, cy, 5)
+            vsegment(mid_right_x, cy, 5)
+            block_center(left_lane_x, lower_row, 4, 2)
+            block_center(right_lane_x, upper_row, 4, 2)
+        elif safe_level >= 10:
+            hsegment(left_lane_x, top_row, long_len)
+            hsegment(cx, upper_row, long_len + 4, gap=(cx - 2, cx + 2))
+            hsegment(cx, lower_row, long_len + 4, gap=(cx - 2, cx + 2))
+            hsegment(right_lane_x, bottom_row, long_len)
+            vsegment(mid_left_x, cy, 5)
+            vsegment(mid_right_x, cy, 5)
+            vsegment(left_lane_x + 6, cy, 3)
+            vsegment(right_lane_x - 6, cy, 3)
+            block_center(cx, top_row, 5, 1)
+            block_center(cx, bottom_row, 5, 1)
 
         return obstacles
 
@@ -469,7 +509,12 @@ class SnakeGame:
             TICK_SECONDS - (speed_tier * SPEEDUP_STEP_SECONDS) - level_pressure,
         )
 
-    def snapshot(self, *, pulse_factor: float = 1.0) -> SnakeSnapshot:
+    def snapshot(
+        self,
+        *,
+        pulse_factor: float = 1.0,
+        border_pulse_factor: float = 1.0,
+    ) -> SnakeSnapshot:
         return SnakeSnapshot(
             phase=self.phase,
             snake=self.snake[:],
@@ -485,6 +530,7 @@ class SnakeGame:
             playfield_bounds=self.playfield_bounds,
             obstacles=sorted(self.obstacles),
             pulse_factor=max(0.0, float(pulse_factor)),
+            border_pulse_factor=max(0.0, float(border_pulse_factor)),
         )
 
 
@@ -621,6 +667,27 @@ def _transition_snake_frame(
     return _sleep_with_snake_interrupt(delay * steps, should_interrupt)
 
 
+def _show_snake_level_up_pulse(
+    display,
+    game: SnakeGame,
+    *,
+    should_interrupt,
+) -> bool:
+    for factor in LEVEL_UP_PULSE_FACTORS:
+        if should_interrupt and should_interrupt():
+            return True
+        frame = display.render_snake_game(
+            game.snapshot(border_pulse_factor=factor)
+        )
+        display.show_image(frame, preview_name="snake_game.png")
+        if _sleep_with_snake_interrupt(
+            LEVEL_UP_PULSE_FRAME_SECONDS,
+            should_interrupt,
+        ):
+            return True
+    return False
+
+
 def _show_snake_level_intro_sequence(
     display,
     game: SnakeGame,
@@ -650,22 +717,42 @@ def _show_snake_level_intro_sequence(
             delay=0.03,
         ):
             return True
-    level_lines = [f"LEVEL {game.level}"]
     if source_phase == "playing":
-        level_lines = ["LEVEL UP", f"LEVEL {game.level}"]
-
-    level_frame = display.render_snake_message(level_lines)
-    if source_phase == "playing":
+        if _show_snake_level_up_pulse(
+            display,
+            game,
+            should_interrupt=should_interrupt,
+        ):
+            return True
+        level_up_frame = display.render_snake_message(["LEVEL UP"])
+        if _transition_snake_frame(
+            display,
+            level_up_frame,
+            should_interrupt=should_interrupt,
+            steps=LEVEL_UP_TRANSITION_STEPS,
+            delay=LEVEL_UP_TRANSITION_DELAY_SECONDS,
+        ):
+            return True
+        if _sleep_with_snake_interrupt(
+            LEVEL_UP_MESSAGE_HOLD_SECONDS,
+            should_interrupt,
+        ):
+            return True
+        level_frame = display.render_snake_message([f"LEVEL {game.level}"])
         if _transition_snake_frame(
             display,
             level_frame,
             should_interrupt=should_interrupt,
+            steps=LEVEL_UP_TRANSITION_STEPS,
+            delay=LEVEL_UP_TRANSITION_DELAY_SECONDS,
         ):
             return True
         return _sleep_with_snake_interrupt(
-            LEVEL_INTRO_HOLD_SECONDS,
+            LEVEL_UP_LEVEL_HOLD_SECONDS,
             should_interrupt,
         )
+
+    level_frame = display.render_snake_message([f"LEVEL {game.level}"])
 
     if _fade_snake_frame(
         display,
@@ -744,6 +831,7 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
             last_snapshot = current_snapshot
 
         if game.phase == "level_intro":
+            intro_source_phase = game.level_intro_source_phase
             if _show_snake_level_intro_sequence(
                 display,
                 game,
@@ -756,6 +844,16 @@ def run_snake_mode(display, db_path: str = DB_PATH) -> None:
             if current_snapshot != last_snapshot:
                 _save_snake_state(game, db_path)
                 last_snapshot = current_snapshot
+            if intro_source_phase == "playing":
+                if _transition_snake_frame(
+                    display,
+                    display.render_snake_game(game.snapshot()),
+                    should_interrupt=should_stop_snake,
+                    steps=LEVEL_UP_TRANSITION_STEPS,
+                    delay=LEVEL_UP_TRANSITION_DELAY_SECONDS,
+                ):
+                    break
+                continue
 
         if game.phase == "game_over" and game.game_over_animation_pending:
             if _show_snake_game_over_pulse(
