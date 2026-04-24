@@ -12,3 +12,4 @@ Key pages:
 - [Troubleshooting](https://github.com/coayo-x/Raspberry-Pi-LED-Matrix/wiki/Troubleshooting)
 
 Please review the Wiki before modifying any core components.
+ 
