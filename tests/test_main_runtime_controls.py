@@ -63,6 +63,7 @@ def test_run_forever_switches_category_immediately_within_active_slot(
 
     monkeypatch.setattr(main, "datetime", FakeDateTime)
     monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "is_snake_mode_enabled", lambda: False)
     monkeypatch.setattr(main, "print_payload", lambda payload: None)
     monkeypatch.setattr(main, "get_current_slot_key", lambda now=None: "2026-03-15:144")
     monkeypatch.setattr(main, "seconds_until_next_slot", lambda now=None: 60)
@@ -116,6 +117,7 @@ def test_run_once_uses_short_duration_for_single_render(monkeypatch) -> None:
             captured["should_interrupt"] = should_interrupt
 
     monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "is_snake_mode_enabled", lambda: False)
     monkeypatch.setattr(main, "build_runtime_payload", lambda now=None: payload)
     monkeypatch.setattr(main, "print_payload", lambda active_payload: None)
 
@@ -286,6 +288,7 @@ def test_run_forever_custom_text_discards_category_requests_without_interrupting
 
     monkeypatch.setattr(main, "datetime", FakeDateTime)
     monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "is_snake_mode_enabled", lambda: False)
     monkeypatch.setattr(main, "print_payload", lambda payload: None)
     monkeypatch.setattr(main, "get_current_slot_key", lambda now=None: "2026-03-23:144")
     monkeypatch.setattr(
