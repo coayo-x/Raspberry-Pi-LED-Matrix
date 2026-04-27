@@ -3,7 +3,7 @@
 .env.*
 !.env.example
 
-# Runtime database state
+# Runtime database state 
 *.db
 *.db-wal
 *.db-shm
