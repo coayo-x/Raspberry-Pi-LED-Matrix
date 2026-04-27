@@ -778,6 +778,16 @@ function getSnakeDirectionForKey(key) {
         d: "right",
         " ": "pause",
         spacebar: "pause",
+        "1": "cheat_level_1",
+        "2": "cheat_level_2",
+        "3": "cheat_level_3",
+        "4": "cheat_level_4",
+        "5": "cheat_level_5",
+        "6": "cheat_level_6",
+        "7": "cheat_level_7",
+        "8": "cheat_level_8",
+        "9": "cheat_level_9",
+        "0": "cheat_level_10",
     }[normalized];
 }
 

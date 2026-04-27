@@ -408,7 +408,23 @@ class SnakeGame:
         overlay_width, overlay_height = self._score_overlay_cell_bounds()
         return 0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height
 
+    def _apply_cheat_level(self, cheat_input: str) -> None:
+        if self.phase == "level_intro":
+            return
+        try:
+            target_level = int(cheat_input.removeprefix("cheat_level_"))
+        except ValueError:
+            return
+        if target_level < 1 or target_level > MAX_LEVEL:
+            return
+        self.level = target_level
+        self._queue_level_intro(self.pending_direction, reset_score=True)
+
     def apply_input(self, direction: str) -> None:
+        if direction.startswith("cheat_level_"):
+            self._apply_cheat_level(direction)
+            return
+
         if direction == PAUSE_INPUT:
             if self.phase == "waiting":
                 self._queue_level_intro(self.pending_direction, reset_score=True)

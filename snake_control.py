@@ -20,7 +20,8 @@ SNAKE_ACTIVE_BLOCKED_MESSAGE = (
 SNAKE_ADMIN_REQUIRED_MESSAGE = "Dashboard authentication is required."
 
 VALID_DIRECTIONS = {"up", "down", "left", "right"}
-VALID_INPUTS = VALID_DIRECTIONS | {"pause"}
+VALID_CHEAT_LEVELS = {f"cheat_level_{i}" for i in range(1, 11)}
+VALID_INPUTS = VALID_DIRECTIONS | {"pause"} | VALID_CHEAT_LEVELS
 VALID_STATUSES = {"idle", "waiting", "level_intro", "playing", "paused", "game_over"}
 
 
