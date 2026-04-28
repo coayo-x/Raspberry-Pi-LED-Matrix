@@ -562,9 +562,19 @@ select {
     height: 14px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    background: var(--swatch);
     box-shadow: 0 0 0 1px rgba(4, 10, 18, 0.28);
 }
+
+.color-swatch[data-color-name="red"] .color-dot     { background: #ff3b30; }
+.color-swatch[data-color-name="green"] .color-dot   { background: #34c759; }
+.color-swatch[data-color-name="blue"] .color-dot    { background: #0a84ff; }
+.color-swatch[data-color-name="yellow"] .color-dot  { background: #ffd60a; }
+.color-swatch[data-color-name="magenta"] .color-dot { background: #ff2d55; }
+.color-swatch[data-color-name="cyan"] .color-dot    { background: #64d2ff; }
+.color-swatch[data-color-name="white"] .color-dot   { background: #f5f7fa; }
+.color-swatch[data-color-name="black"] .color-dot   { background: #000000; }
+.color-swatch[data-color-name="orange"] .color-dot  { background: #ff9f0a; }
+.color-swatch[data-color-name="purple"] .color-dot  { background: #bf5af2; }
 
 .custom-text-footer {
     display: grid;
