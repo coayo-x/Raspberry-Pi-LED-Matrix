@@ -425,6 +425,8 @@ def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
     left, _, _, _ = game.playfield_bounds
     _, notch_bottom = game.hud_notch_cells
     game.food = (left, notch_bottom)
+    overlay_width, overlay_height = game._score_overlay_cell_bounds()
+    game.food = (overlay_width, overlay_height - 1)
 
     frame = display.render_snake_game(game.snapshot())
     pixels = np.array(frame)
@@ -468,6 +470,9 @@ def test_render_snake_game_draws_playfield_border() -> None:
     assert not np.array_equal(pixels[border_top, border_left], border_color)
     assert border_top == 1
     assert notch_bottom < display.height // 2
+
+
+    assert np.any(np.all(food_pixels == food_color, axis=-1))
 
 
 def test_render_snake_game_draws_obstacles() -> None:
