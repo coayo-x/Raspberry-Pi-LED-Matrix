@@ -740,13 +740,19 @@ function applyAdminSnakeState(control, button, labelElement) {
     const enabled = Boolean(control?.enabled);
     const status = String(control?.status || (enabled ? "waiting" : "idle"));
     const score = Number(control?.score || 0);
+    const level = Math.max(1, Number(control?.level || 1));
     labelElement.textContent = enabled
         ? status === "playing"
+            ? `Active. Level ${level}. Score ${score}.`
+            : status === "paused"
+                ? `Paused. Level ${level}. Score ${score}.`
+            : status === "level_intro"
+                ? `Level ${level} starting. Score ${score}.`
             ? `Active. Score ${score}.`
             : status === "paused"
                 ? `Paused. Score ${score}.`
             : status === "game_over"
-                ? `Game over. Score ${score}.`
+                ? `Game over on level ${level}. Score ${score}.`
                 : "Active. Waiting for the first control input."
         : "Disabled. Normal rotation controls the matrix.";
     button.textContent = enabled ? "Stop Snake" : "Enable Snake";
@@ -775,6 +781,16 @@ function getSnakeDirectionForKey(key) {
         d: "right",
         " ": "pause",
         spacebar: "pause",
+        "1": "cheat_level_1",
+        "2": "cheat_level_2",
+        "3": "cheat_level_3",
+        "4": "cheat_level_4",
+        "5": "cheat_level_5",
+        "6": "cheat_level_6",
+        "7": "cheat_level_7",
+        "8": "cheat_level_8",
+        "9": "cheat_level_9",
+        "0": "cheat_level_10",
     }[normalized];
 }
 

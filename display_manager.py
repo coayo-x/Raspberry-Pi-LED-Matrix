@@ -63,6 +63,7 @@ SNAKE_BODY = (52, 199, 89, 255)
 SNAKE_HEAD = (255, 214, 10, 255)
 SNAKE_FOOD = (255, 59, 48, 255)
 SNAKE_OBSTACLE = (112, 128, 144, 255)
+SNAKE_BORDER = (124, 214, 255, 255)
 SNAKE_TEXT = (245, 247, 250, 255)
 
 PANEL_PADDING = 4
@@ -1151,6 +1152,26 @@ class DisplayManager:
         pulse_factor = max(0.0, float(getattr(snapshot, "pulse_factor", 1.0)))
         body_fill = self._scale_rgba(SNAKE_BODY, pulse_factor)
         head_fill = self._scale_rgba(SNAKE_HEAD, pulse_factor)
+        playfield_bounds = getattr(snapshot, "playfield_bounds", None)
+        if playfield_bounds:
+            play_left, play_top, play_right, play_bottom = [
+                int(value) for value in playfield_bounds
+            ]
+        else:
+            play_left = 0
+            play_top = 0
+            play_right = int(getattr(snapshot, "grid_width", self.width)) - 1
+            play_bottom = int(getattr(snapshot, "grid_height", self.height)) - 1
+        score_text = str(max(0, int(getattr(snapshot, "score", 0))))
+        overlay_cells = getattr(snapshot, "score_overlay_cells", None)
+        if overlay_cells:
+            overlay_width = int(overlay_cells[0]) * cell_size
+            overlay_height = int(overlay_cells[1]) * cell_size
+        else:
+            overlay_width = self._text_width(score_text, font=self.small_font) + 4
+            overlay_height = self.small_line_height + 1
+        overlay_width = max(1, min(self.width, overlay_width))
+        overlay_height = max(1, min(self.height, overlay_height))
 
         for cell_x, cell_y in getattr(snapshot, "obstacles", []):
             draw.rectangle(
@@ -1165,16 +1186,101 @@ class DisplayManager:
 
         food_x, food_y = snapshot.food
         draw.rectangle(
-            (
-                food_x * cell_size,
-                food_y * cell_size,
-                ((food_x + 1) * cell_size) - 1,
-                ((food_y + 1) * cell_size) - 1,
-            ),
-            fill=SNAKE_FOOD,
+            (0, 0, overlay_width - 1, overlay_height - 1),
+            fill=DEFAULT_BG,
         )
+        hud_notch_cells = getattr(snapshot, "hud_notch_cells", None)
+
+        def is_hud_notch_cell(cell_x: int, cell_y: int) -> bool:
+            if not hud_notch_cells:
+                return False
+            notch_right_cell, notch_bottom_cell = [
+                int(value) for value in hud_notch_cells
+            ]
+            return (
+                play_left <= cell_x < notch_right_cell
+                and play_top <= cell_y < notch_bottom_cell
+            )
+
+        def is_playfield_cell(cell_x: int, cell_y: int) -> bool:
+            return (
+                play_left <= cell_x <= play_right
+                and play_top <= cell_y <= play_bottom
+                and not is_hud_notch_cell(cell_x, cell_y)
+            )
+
+        border_left = max(0, (play_left * cell_size) - 1)
+        border_top = max(0, (play_top * cell_size) - 1)
+        border_right = min(self.width - 1, ((play_right + 1) * cell_size))
+        border_bottom = min(self.height - 1, ((play_bottom + 1) * cell_size))
+        if hud_notch_cells:
+            notch_right_cell, notch_bottom_cell = [
+                int(value) for value in hud_notch_cells
+            ]
+            notch_right = max(
+                border_left,
+                min(border_right, (notch_right_cell * cell_size) - 1),
+            )
+            notch_bottom = max(
+                border_top,
+                min(border_bottom, (notch_bottom_cell * cell_size) - 1),
+            )
+            draw.line(
+                (border_left, notch_bottom, border_left, border_bottom),
+                fill=SNAKE_BORDER,
+            )
+            draw.line(
+                (border_left, border_bottom, border_right, border_bottom),
+                fill=SNAKE_BORDER,
+            )
+            draw.line(
+                (border_right, border_top, border_right, border_bottom),
+                fill=SNAKE_BORDER,
+            )
+            draw.line(
+                (notch_right, border_top, border_right, border_top), fill=SNAKE_BORDER
+            )
+            draw.line(
+                (notch_right, border_top, notch_right, notch_bottom), fill=SNAKE_BORDER
+            )
+            draw.line(
+                (border_left, notch_bottom, notch_right, notch_bottom),
+                fill=SNAKE_BORDER,
+            )
+        else:
+            draw.rectangle(
+                (border_left, border_top, border_right, border_bottom),
+                outline=SNAKE_BORDER,
+            )
+
+        for cell_x, cell_y in getattr(snapshot, "obstacles", []):
+            if not is_playfield_cell(cell_x, cell_y):
+                continue
+            draw.rectangle(
+                (
+                    cell_x * cell_size,
+                    cell_y * cell_size,
+                    ((cell_x + 1) * cell_size) - 1,
+                    ((cell_y + 1) * cell_size) - 1,
+                ),
+                fill=SNAKE_OBSTACLE,
+            )
+
+        food_x, food_y = snapshot.food
+        if is_playfield_cell(food_x, food_y):
+            draw.rectangle(
+                (
+                    food_x * cell_size,
+                    food_y * cell_size,
+                    ((food_x + 1) * cell_size) - 1,
+                    ((food_y + 1) * cell_size) - 1,
+                ),
+                fill=SNAKE_FOOD,
+            )
 
         for index, (cell_x, cell_y) in enumerate(reversed(snapshot.snake)):
+            if not is_playfield_cell(cell_x, cell_y):
+                continue
             fill = head_fill if index == len(snapshot.snake) - 1 else body_fill
             draw.rectangle(
                 (

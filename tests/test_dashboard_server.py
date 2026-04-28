@@ -149,6 +149,15 @@ def test_dashboard_root_is_public_without_authentication(
     assert "Restricted Access" not in page
 
 
+def test_admin_controls_modal_css_is_scrollable() -> None:
+    css = Path("dashboard_assets/dashboard.css").read_text(encoding="utf-8")
+
+    assert ".admin-controls-dialog.admin-modal" in css
+    assert "max-height: calc(100vh - 40px);" in css
+    assert "overflow-y: auto;" in css
+    assert "max-height: calc(100dvh - 24px);" in css
+
+
 def test_dashboard_safe_default_keeps_public_routes_available_when_credentials_missing(
     isolated_db_path,
 ) -> None:
@@ -891,8 +900,10 @@ def test_dashboard_snake_mode_requires_admin_and_writes_control_input(
     assert enable_body["accepted"] is True
     assert enable_body["enabled"] is True
     assert enable_body["status"] == "waiting"
+    assert enable_body["level"] == 1
     assert active_state["controls"]["snake_game"]["enabled"] is True
     assert active_state["controls"]["snake_game"]["available"] is True
+    assert active_state["controls"]["snake_game"]["level"] == 1
     assert active_state["controls"]["skip_category"]["available"] is False
     assert active_state["controls"]["switch_category"]["status"] == "snake_game_active"
 
@@ -908,6 +919,67 @@ def test_dashboard_snake_mode_requires_admin_and_writes_control_input(
     assert stopped_state["controls"]["snake_game"]["status"] == "idle"
     assert stopped_state["controls"]["skip_category"]["available"] is True
     assert stopped_state["controls"]["switch_category"]["available"] is True
+
+
+def test_dashboard_snake_cheat_inputs_accepted_via_http(
+    monkeypatch,
+    isolated_db_path,
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        _post_json(
+            f"{base_url}/api/admin/snake-mode",
+            {"enabled": True},
+            opener=opener,
+        )
+        cheat2_status, cheat2_body = _post_json(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "cheat_level_2"},
+            opener=opener,
+        )
+        cheat10_status, cheat10_body = _post_json(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "cheat_level_10"},
+            opener=opener,
+        )
+        up_status, up_body = _post_json(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "up"},
+            opener=opener,
+        )
+        garbage_status, garbage_body = _post_json_expect_error(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "garbage_xyz"},
+            opener=opener,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert cheat2_status == 200
+    assert cheat2_body["accepted"] is True
+    assert cheat2_body["direction"] == "cheat_level_2"
+
+    assert cheat10_status == 200
+    assert cheat10_body["accepted"] is True
+    assert cheat10_body["direction"] == "cheat_level_10"
+
+    assert up_status == 200
+    assert up_body["accepted"] is True
+    assert up_body["direction"] == "up"
+
+    assert garbage_status == 400
+    assert "Invalid snake direction" in garbage_body["error"]
 
 
 def test_dashboard_blocks_skip_and_switch_while_custom_text_override_is_active(

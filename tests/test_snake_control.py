@@ -70,6 +70,7 @@ def test_snake_runtime_status_tracks_score_only_while_enabled(isolated_db_path) 
     playing = set_snake_runtime_status(
         "playing",
         score=3,
+        level=2,
         db_path=str(isolated_db_path),
     )
     set_snake_mode_enabled(False, str(isolated_db_path), is_admin=True)
@@ -81,5 +82,7 @@ def test_snake_runtime_status_tracks_score_only_while_enabled(isolated_db_path) 
 
     assert playing["status"] == "playing"
     assert playing["score"] == 3
+    assert playing["level"] == 2
     assert idle["status"] == "idle"
     assert idle["score"] == 0
+    assert idle["level"] == 1

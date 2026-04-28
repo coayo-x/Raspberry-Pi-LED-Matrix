@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import display_manager
-from snake_game import SnakeGame
+from snake_game import SnakeGame, score_overlay_text
 
 
 class FakeGeometry:
@@ -383,12 +383,14 @@ def test_render_snake_game_uses_full_matrix_width() -> None:
     display = display_manager.DisplayManager(use_matrix=False)
     game = SnakeGame(width=display.width, height=display.height)
     game.phase = "playing"
+    left, top, right, _ = game.playfield_bounds
+    _, notch_bottom = game.hud_notch_cells
     game.snake = [
-        (1, 2),
-        (display.width // game.cell_size // 2, 2),
-        ((display.width // game.cell_size) - 2, 2),
+        (left, notch_bottom),
+        ((left + right) // 2, top),
+        (right, top),
     ]
-    game.food = ((display.width // game.cell_size) - 1, 3)
+    game.food = (right, top + 1)
 
     frame = display.render_snake_game(game.snapshot())
     mask = _non_default_mask(frame)
@@ -411,6 +413,7 @@ def test_render_snake_game_draws_score_in_top_left() -> None:
     top_left_mask = _non_default_mask(frame)[: display.small_line_height + 1, :24]
 
     assert top_left_mask.any()
+    assert score_overlay_text(12, level=3) == "12"
 
 
 def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
@@ -419,6 +422,9 @@ def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
     game.phase = "playing"
     game.score = 12
     game.snake = [(30, 10), (29, 10), (28, 10)]
+    left, _, _, _ = game.playfield_bounds
+    _, notch_bottom = game.hud_notch_cells
+    game.food = (left, notch_bottom)
     overlay_width, overlay_height = game._score_overlay_cell_bounds()
     game.food = (overlay_width, overlay_height - 1)
 
@@ -431,6 +437,41 @@ def test_render_snake_game_keeps_food_visible_next_to_score_area() -> None:
     food_color = np.array(display_manager.SNAKE_FOOD, dtype=np.uint8)
 
     assert not game._is_score_overlay_cell(game.food)
+    assert game._is_playfield_cell(game.food)
+    assert np.any(np.all(food_pixels == food_color, axis=-1))
+
+
+def test_render_snake_game_draws_playfield_border() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    game = SnakeGame(width=display.width, height=display.height)
+
+    frame = display.render_snake_game(game.snapshot())
+    pixels = np.array(frame)
+    cell_size = game.cell_size
+    left, top, right, bottom = game.playfield_bounds
+    notch_right_cell, notch_bottom_cell = game.hud_notch_cells
+    border_color = np.array(display_manager.SNAKE_BORDER, dtype=np.uint8)
+    border_left = (left * cell_size) - 1
+    border_top = (top * cell_size) - 1
+    border_right = (right + 1) * cell_size
+    border_bottom = (bottom + 1) * cell_size
+    notch_right = (notch_right_cell * cell_size) - 1
+    notch_bottom = (notch_bottom_cell * cell_size) - 1
+    border_points = [
+        (notch_right, border_top),
+        (border_right, border_top),
+        (notch_right, notch_bottom),
+        (border_left, notch_bottom),
+        (border_left, border_bottom),
+        (border_right, border_bottom),
+    ]
+
+    assert all(np.array_equal(pixels[y, x], border_color) for x, y in border_points)
+    assert not np.array_equal(pixels[border_top, border_left], border_color)
+    assert border_top == 1
+    assert notch_bottom < display.height // 2
+
+
     assert np.any(np.all(food_pixels == food_color, axis=-1))
 
 
