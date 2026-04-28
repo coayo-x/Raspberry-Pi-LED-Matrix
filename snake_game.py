@@ -244,85 +244,63 @@ class SnakeGame:
                     continue
                 add(x, y)
 
-        def block(x0: int, y0: int, width: int, height: int) -> None:
-            for y in range(y0, y0 + height):
-                for x in range(x0, x0 + width):
-                    add(x, y)
-
         play_left, play_top, play_right, play_bottom = self.playfield_bounds
         play_width = play_right - play_left + 1
-        play_height = play_bottom - play_top + 1
         cx = (play_left + play_right) // 2
         cy = (play_top + play_bottom) // 2
         left = max(play_left + 3, play_left + (play_width // 4))
         right = min(play_right - 3, play_left + ((play_width * 3) // 4))
 
         if safe_level >= 2:
-            vline(left, play_top + 1, play_bottom - 2)
-            vline(right, play_top + 1, play_bottom - 2)
+            # Diagonal 3-cell stubs: top-left and bottom-right
+            vline(left, play_top + 1, play_top + 3)          # x=24, y=7..9
+            vline(right, play_bottom - 3, play_bottom - 1)   # x=71, y=11..13
 
         if safe_level >= 3:
-            hline(play_top + max(1, play_height // 3), left - 8, left + 8)
-            hline(
-                play_top + min(play_height - 2, (play_height * 2) // 3),
-                right - 8,
-                right + 8,
-            )
+            # Mirror stubs: top-right and bottom-left (x=24,71 each get top+bottom pair)
+            vline(right, play_top + 1, play_top + 3)         # x=71, y=7..9
+            vline(left, play_bottom - 3, play_bottom - 1)    # x=24, y=11..13
 
         if safe_level >= 4:
-            vline(cx - 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
-            vline(cx + 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
+            # Inner horizontal mini-bars, staggered diagonally
+            hline(cy - 2, left + 8, cx - 10)   # y=8, x=32..37
+            hline(cy + 2, cx + 10, right - 8)  # y=12, x=57..63
 
         if safe_level >= 5:
-            block(play_right - 14, play_top + 1, 7, 2)
-            block(play_left + 7, play_bottom - 2, 7, 2)
-            block(play_right - 16, play_bottom - 2, 8, 2)
+            # Mirror mini-bars completing the X-pattern
+            hline(cy + 2, left + 8, cx - 10)   # y=12, x=32..37
+            hline(cy - 2, cx + 10, right - 8)  # y=8, x=57..63
 
         if safe_level >= 6:
-            hline(cy - 3, 24, cx - 12, gap=(cx - 26, cx - 22))
-            hline(cy + 3, cx + 12, play_right - 24, gap=(cx + 22, cx + 26))
+            # Center-flanking floating stubs at mid-height
+            vline(cx - 20, cy - 1, cy + 1)     # x=27, y=9..11
+            vline(cx + 20, cy - 1, cy + 1)     # x=67, y=9..11
 
         if safe_level >= 7:
-            for offset in range(0, 18, 3):
-                add(28 + offset, 5 + (offset // 3))
-                add(play_right - 27 - offset, play_bottom - 1 - (offset // 3))
+            # Far-edge horizontal bars at center row, forcing above/below routing
+            hline(cy, play_left + 2, play_left + 14)    # y=10, x=3..15
+            hline(cy, play_right - 14, play_right - 2)  # y=10, x=80..92
 
         if safe_level >= 8:
-            hline(cy - 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            hline(cy + 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            vline(cx - 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
-            vline(cx + 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
+            # Symmetric corner stubs at far-left and far-right
+            vline(cx - 30, play_top, play_top + 2)        # x=17, y=6..8
+            vline(cx + 30, play_bottom - 2, play_bottom)  # x=77, y=12..14
+            vline(cx + 30, play_top, play_top + 2)        # x=77, y=6..8
+            vline(cx - 30, play_bottom - 2, play_bottom)  # x=17, y=12..14
 
         if safe_level >= 9:
-            for x in (left + 12, cx, right - 12):
-                vline(x, play_top, play_top + 3)
-                vline(x, play_bottom - 3, play_bottom)
+            # Near-center stubs flanking the spawn zone (symmetric)
+            vline(cx - 9, play_top + 1, play_top + 3)        # x=38, y=7..9
+            vline(cx + 9, play_bottom - 3, play_bottom - 1)  # x=56, y=11..13
+            vline(cx + 9, play_top + 1, play_top + 3)        # x=56, y=7..9
+            vline(cx - 9, play_bottom - 3, play_bottom - 1)  # x=38, y=11..13
 
         if safe_level >= 10:
-            hline(
-                play_top + 1,
-                max(play_left + 21, left),
-                min(play_right - 11, right + 14),
-                gap=(cx - 5, cx + 5),
-            )
-            hline(
-                play_bottom - 1,
-                max(play_left + 11, left - 10),
-                min(play_right - 21, right),
-                gap=(cx - 5, cx + 5),
-            )
-            vline(
-                max(play_left + 5, left - 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
-            vline(
-                min(play_right - 6, right + 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
+            # Wing bars at near-top and near-bottom, flanking the center
+            hline(play_top + 1, cx - 14, cx - 6)             # y=7, x=33..41
+            hline(play_top + 1, cx + 6, cx + 14)             # y=7, x=53..61
+            hline(play_bottom - 1, cx - 14, cx - 6)          # y=13, x=33..41
+            hline(play_bottom - 1, cx + 6, cx + 14)          # y=13, x=53..61
 
         return obstacles
 
