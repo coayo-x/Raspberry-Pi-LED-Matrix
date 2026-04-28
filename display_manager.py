@@ -759,44 +759,60 @@ class DisplayManager:
     def _render_pokemon_center_title(self, data: dict) -> Image.Image:
         img = self._new_overlay(self.panel_width, self.height)
         draw = ImageDraw.Draw(img)
+        name = str(data.get("name", "Unknown"))
+        available_width = self.panel_width - (PANEL_PADDING * 2)
         title_lines = ["Today's", "Pokémon is:"]
         title_block_height = len(title_lines) * self.small_line_height
         title_gap = 1
         name_area_height = max(1, self.height - title_block_height - title_gap)
+        font_candidates = [self.large_font, self.medium_font, self.font, self.small_font]
 
         name_lines, name_font = self._fit_pokemon_name_lines(
-            str(data.get("name", "Unknown")),
-            self.panel_width - (PANEL_PADDING * 2),
-            font_candidates=[
-                self.large_font,
-                self.medium_font,
-                self.font,
-                self.small_font,
-            ],
+            name,
+            available_width,
+            font_candidates=font_candidates,
             max_height_px=name_area_height,
         )
+
+        show_label = True
+        if any(line.endswith("...") for line in name_lines):
+            name_lines_no_label, name_font_no_label = self._fit_pokemon_name_lines(
+                name,
+                available_width,
+                font_candidates=font_candidates,
+                max_height_px=self.height,
+            )
+            if not any(line.endswith("...") for line in name_lines_no_label):
+                name_lines = name_lines_no_label
+                name_font = name_font_no_label
+                show_label = False
+
         name_line_height = self._get_line_height(name_font)
-        total_height = (
-            title_block_height + title_gap + (len(name_lines) * name_line_height)
-        )
-        y = max(0, (self.height - total_height) // 2)
 
-        for title_line in title_lines:
-            title_x = max(
-                0,
-                (self.panel_width - self._text_width(title_line, self.small_font)) // 2,
+        if show_label:
+            total_height = (
+                title_block_height + title_gap + (len(name_lines) * name_line_height)
             )
-            self._draw_line(
-                draw,
-                title_x,
-                y,
-                title_line,
-                fill=TEXT_ACCENT,
-                font=self.small_font,
-            )
-            y += self.small_line_height
+            y = max(0, (self.height - total_height) // 2)
+            for title_line in title_lines:
+                title_x = max(
+                    0,
+                    (self.panel_width - self._text_width(title_line, self.small_font))
+                    // 2,
+                )
+                self._draw_line(
+                    draw,
+                    title_x,
+                    y,
+                    title_line,
+                    fill=TEXT_ACCENT,
+                    font=self.small_font,
+                )
+                y += self.small_line_height
+            y += title_gap
+        else:
+            y = max(0, (self.height - len(name_lines) * name_line_height) // 2)
 
-        y += title_gap
         for line in name_lines:
             line_width = self._text_width(line, name_font)
             line_x = max(0, (self.panel_width - line_width) // 2)
@@ -1038,48 +1054,50 @@ class DisplayManager:
         *,
         fill=TEXT_PRIMARY,
         label_fill=JOKE_LABEL,
+        font=None,
     ) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_text_centered(draw, lines, fill=fill, font=self.medium_font)
+        self._draw_text_centered(draw, lines, fill=fill, font=font or self.medium_font)
         return img
 
     def _paginate_lines(self, lines: list[str], max_lines: int = 3) -> list[list[str]]:
         pages = [lines[i : i + max_lines] for i in range(0, len(lines), max_lines)]
         return pages or [[""]]
 
+    def _fit_joke_text(self, text: str) -> tuple[list[str], object]:
+        available_width = self.width - 12
+        for candidate_font in (self.medium_font, self.font, self.small_font):
+            lines = self._wrap_text(text, width_px=available_width, font=candidate_font)
+            lh = self._get_line_height(candidate_font)
+            if len(lines) * lh <= self.height:
+                return lines, candidate_font
+        lines = self._wrap_text(text, width_px=available_width, font=self.small_font)
+        return lines, self.small_font
+
     def _build_joke_pages(self, text: str, fill=TEXT_PRIMARY) -> list[Image.Image]:
-        lines = self._wrap_text(text, width_px=self.width - 12, font=self.medium_font)
-        pages = self._paginate_lines(lines, max_lines=2)
-        return [self._render_joke_page("JOKE", page, fill=fill) for page in pages]
+        lines, font = self._fit_joke_text(text)
+        return [self._render_joke_page("JOKE", lines, fill=fill, font=font)]
 
     def render_joke_pages(self, payload: dict) -> list[Image.Image]:
         data = payload["data"]
         if data.get("type") == "twopart":
-            setup_lines = self._wrap_text(
-                data.get("setup") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
+            setup_lines, setup_font = self._fit_joke_text(data.get("setup") or "")
+            delivery_lines, delivery_font = self._fit_joke_text(
+                data.get("delivery") or ""
             )
-            delivery_lines = self._wrap_text(
-                data.get("delivery") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
-            )
-            setup_pages = [
-                self._render_joke_page("SETUP", page, fill=TEXT_PRIMARY)
-                for page in self._paginate_lines(setup_lines, max_lines=2)
-            ]
-            delivery_pages = [
+            return [
+                self._render_joke_page(
+                    "SETUP", setup_lines, fill=TEXT_PRIMARY, font=setup_font
+                ),
                 self._render_joke_page(
                     "PUNCHLINE",
-                    page,
+                    delivery_lines,
                     fill=JOKE_DELIVERY,
                     label_fill=JOKE_DELIVERY,
-                )
-                for page in self._paginate_lines(delivery_lines, max_lines=2)
+                    font=delivery_font,
+                ),
             ]
-            return setup_pages + delivery_pages
         return self._build_joke_pages(data.get("text") or "No joke", fill=TEXT_PRIMARY)
 
     def render_science(self, payload: dict) -> Image.Image:
@@ -1720,31 +1738,26 @@ class DisplayManager:
 
         segments: list[list[Image.Image]] = []
         if data.get("type") == "twopart":
-            setup_lines = self._wrap_text(
-                data.get("setup") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
-            )
-            delivery_lines = self._wrap_text(
-                data.get("delivery") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
+            setup_lines, setup_font = self._fit_joke_text(data.get("setup") or "")
+            delivery_lines, delivery_font = self._fit_joke_text(
+                data.get("delivery") or ""
             )
             segments.append(
                 [
-                    self._render_joke_page("SETUP", page, fill=TEXT_PRIMARY)
-                    for page in self._paginate_lines(setup_lines, max_lines=2)
+                    self._render_joke_page(
+                        "SETUP", setup_lines, fill=TEXT_PRIMARY, font=setup_font
+                    )
                 ]
             )
             segments.append(
                 [
                     self._render_joke_page(
                         "PUNCHLINE",
-                        page,
+                        delivery_lines,
                         fill=JOKE_DELIVERY,
                         label_fill=JOKE_DELIVERY,
+                        font=delivery_font,
                     )
-                    for page in self._paginate_lines(delivery_lines, max_lines=2)
                 ]
             )
         else:

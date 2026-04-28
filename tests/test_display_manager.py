@@ -489,3 +489,93 @@ def test_render_snake_game_draws_obstacles() -> None:
     obstacle_color = np.array(display_manager.SNAKE_OBSTACLE, dtype=np.uint8)
 
     assert np.any(np.all(obstacle_pixels == obstacle_color, axis=-1))
+
+
+def test_fit_joke_text_short_joke_uses_medium_font() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    short_text = "Why did the chicken cross the road?"
+    lines, font = display._fit_joke_text(short_text)
+    assert len(lines) >= 1
+    assert font is display.medium_font
+    lh = display._get_line_height(font)
+    assert len(lines) * lh <= display.height
+
+
+def test_fit_joke_text_long_joke_shrinks_font_below_medium() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    long_text = (
+        "I told my wife she was drawing her eyebrows too high. "
+        "She looked surprised. Then she looked even more surprised. "
+        "Then she just looked completely ridiculous."
+    )
+    lines, font = display._fit_joke_text(long_text)
+    assert len(lines) >= 1
+    assert font is not display.medium_font
+
+
+def test_build_joke_pages_long_joke_returns_single_page() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    long_text = (
+        "I told my wife she was drawing her eyebrows too high. "
+        "She looked surprised. Then she looked even more surprised. "
+        "Then she just looked completely ridiculous."
+    )
+    pages = display._build_joke_pages(long_text)
+    assert len(pages) == 1
+
+
+def test_render_joke_pages_twopart_returns_exactly_two_pages() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    payload = {
+        "data": {
+            "type": "twopart",
+            "setup": "Why do programmers prefer dark mode?",
+            "delivery": "Because light attracts bugs and nobody wants more bugs in their life.",
+        }
+    }
+    pages = display.render_joke_pages(payload)
+    assert len(pages) == 2
+
+
+def test_render_pokemon_center_title_short_name_renders_content() -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    data = {"name": "Pikachu"}
+    frame = display._render_pokemon_center_title(data)
+    pixels = np.array(frame)
+    assert np.any(pixels[..., 3] > 0)
+
+
+def test_render_pokemon_center_title_hides_label_when_name_would_be_truncated(
+    monkeypatch,
+) -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    calls: list[dict] = []
+
+    def mock_fit(name, width, *, font_candidates=None, max_lines=2, max_height_px=None):
+        calls.append({"max_height_px": max_height_px})
+        if len(calls) == 1:
+            return ["Truncated..."], display.small_font
+        return ["Aegislash", "Blade"], display.small_font
+
+    monkeypatch.setattr(display, "_fit_pokemon_name_lines", mock_fit)
+    frame = display._render_pokemon_center_title({"name": "Aegislash-Blade"})
+
+    pixels = np.array(frame)
+    assert np.any(pixels[..., 3] > 0)
+    assert len(calls) == 2
+    assert calls[0]["max_height_px"] is not None
+    assert calls[1]["max_height_px"] == display.height
+
+
+def test_render_pokemon_center_title_keeps_label_when_name_fits(monkeypatch) -> None:
+    display = display_manager.DisplayManager(use_matrix=False)
+    calls: list[dict] = []
+
+    def mock_fit(name, width, *, font_candidates=None, max_lines=2, max_height_px=None):
+        calls.append({"max_height_px": max_height_px})
+        return ["Bulbasaur"], display.font
+
+    monkeypatch.setattr(display, "_fit_pokemon_name_lines", mock_fit)
+    display._render_pokemon_center_title({"name": "Bulbasaur"})
+
+    assert len(calls) == 1
