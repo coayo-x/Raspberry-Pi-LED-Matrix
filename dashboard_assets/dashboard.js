@@ -748,9 +748,6 @@ function applyAdminSnakeState(control, button, labelElement) {
                 ? `Paused. Level ${level}. Score ${score}.`
             : status === "level_intro"
                 ? `Level ${level} starting. Score ${score}.`
-            ? `Active. Score ${score}.`
-            : status === "paused"
-                ? `Paused. Score ${score}.`
             : status === "game_over"
                 ? `Game over on level ${level}. Score ${score}.`
                 : "Active. Waiting for the first control input."
