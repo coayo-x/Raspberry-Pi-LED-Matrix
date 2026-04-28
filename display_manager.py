@@ -1172,19 +1172,6 @@ class DisplayManager:
             overlay_height = self.small_line_height + 1
         overlay_width = max(1, min(self.width, overlay_width))
         overlay_height = max(1, min(self.height, overlay_height))
-
-        for cell_x, cell_y in getattr(snapshot, "obstacles", []):
-            draw.rectangle(
-                (
-                    cell_x * cell_size,
-                    cell_y * cell_size,
-                    ((cell_x + 1) * cell_size) - 1,
-                    ((cell_y + 1) * cell_size) - 1,
-                ),
-                fill=SNAKE_OBSTACLE,
-            )
-
-        food_x, food_y = snapshot.food
         draw.rectangle(
             (0, 0, overlay_width - 1, overlay_height - 1),
             fill=DEFAULT_BG,
@@ -1291,27 +1278,10 @@ class DisplayManager:
                 ),
                 fill=fill,
             )
-        score_text = (
-            f"L{int(getattr(snapshot, 'level', 1))} "
-            f"S:{int(getattr(snapshot, 'score', 0))}"
-        )
-        overlay_cells = getattr(snapshot, "score_overlay_cells", None)
-        if overlay_cells:
-            overlay_width = int(overlay_cells[0]) * cell_size
-            overlay_height = int(overlay_cells[1]) * cell_size
-        else:
-            overlay_width = self._text_width(score_text, font=self.small_font) + 4
-            overlay_height = self.small_line_height + 1
-        overlay_width = max(1, min(self.width, overlay_width))
-        overlay_height = max(1, min(self.height, overlay_height))
         score_text = self._truncate_to_width(
             score_text,
             max(1, overlay_width - 1),
             font=self.small_font,
-        )
-        draw.rectangle(
-            (0, 0, overlay_width - 1, overlay_height - 1),
-            fill=DEFAULT_BG,
         )
         self._draw_line(draw, 1, 0, score_text, fill=SNAKE_TEXT, font=self.small_font)
         return img
@@ -2098,4 +2068,3 @@ class DisplayManager:
             sleep_time = max(0, duration_seconds - 0.20)
             if sleep_time > 0:
                 self._sleep_with_interrupt(sleep_time, should_interrupt)
-
