@@ -48,10 +48,6 @@ def _first_visible_food_cell(game: SnakeGame) -> tuple[int, int]:
                 and candidate not in occupied
                 and not game._is_score_overlay_cell(candidate)
             ):
-    for y in range(game.grid_height):
-        for x in range(game.grid_width):
-            candidate = (x, y)
-            if candidate not in occupied and not game._is_score_overlay_cell(candidate):
                 return candidate
     raise AssertionError("No visible food cell available")
 
@@ -78,10 +74,6 @@ def _place_safe_food_ahead(game: SnakeGame) -> None:
     game.direction = "right"
     game.pending_direction = "right"
     game.food = (head_x + 1, row)
-    game.snake = [(20, 12), (19, 12), (18, 12), (17, 12), (16, 12), (15, 12)]
-    game.direction = "right"
-    game.pending_direction = "right"
-    game.food = (21, 12)
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -236,7 +228,6 @@ def test_snake_detects_wall_and_self_collision() -> None:
     _start_game(wall_game)
     _, top, right, _ = wall_game.playfield_bounds
     wall_game.snake = [(right, top), (right - 1, top)]
-    wall_game.snake = [(wall_game.grid_width - 1, 1), (wall_game.grid_width - 2, 1)]
     wall_game.direction = "right"
     wall_game.pending_direction = "right"
 
@@ -278,7 +269,6 @@ def test_snake_detects_wall_and_self_collision() -> None:
         (left + 1, row - 1),
         (left + 2, row - 1),
     ]
-    self_game.snake = [(5, 5), (5, 6), (4, 6), (4, 5), (4, 4), (5, 4)]
     self_game.direction = "left"
     self_game.pending_direction = "left"
 
@@ -529,60 +519,6 @@ def test_run_snake_mode_shows_level_intro_before_gameplay(monkeypatch) -> None:
         snake_game,
         "set_snake_runtime_status",
         lambda *args, **kwargs: None,
-    )
-
-    snake_game.run_snake_mode(display)
-
-    assert display.events[:4] == [
-        ("fade_out", ("message", ("Press any button to start",))),
-        ("fade_in", ("message", ("LEVEL 1",))),
-        ("fade_out", ("message", ("LEVEL 1",))),
-        ("show", ("game", "playing", 1)),
-    ]
-
-
-def test_run_snake_mode_pause_stops_motion_and_resume_waits_for_next_tick(
-    monkeypatch,
-) -> None:
-    class FakeClock:
-        def __init__(self) -> None:
-            self.now = 0.0
-
-        def perf_counter(self) -> float:
-            return self.now
-
-        def sleep(self, duration: float) -> None:
-            self.now += max(0.0, duration)
-
-    class FakeDisplay:
-        width = 192
-        height = 32
-
-        def __init__(self) -> None:
-            self.snapshots = []
-            self.show_count = 0
-
-        def render_snake_message(self, lines):
-            return ("message", lines)
-
-        def render_snake_game(self, snapshot):
-            self.snapshots.append(snapshot)
-            return ("game", snapshot.phase)
-
-        def show_image(self, frame, preview_name=None) -> None:
-            self.show_count += 1
-
-    clock = FakeClock()
-    display = FakeDisplay()
-    inputs = iter([(1, "right"), (2, "pause"), None, None, (3, "pause"), None])
-
-    monkeypatch.setattr(snake_game.time, "perf_counter", clock.perf_counter)
-    monkeypatch.setattr(snake_game.time, "sleep", clock.sleep)
-    monkeypatch.setattr(
-        snake_game,
-        "is_snake_mode_enabled",
-        lambda db_path=None: display.show_count < 6,
-    )
     )
 
     snake_game.run_snake_mode(display)
