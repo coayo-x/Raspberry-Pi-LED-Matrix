@@ -1,4 +1,5 @@
 import random
+from collections import deque
 
 import pytest
 
@@ -347,6 +348,28 @@ def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
             not (0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height)
             for cell_x, cell_y in game.obstacles
         )
+        free_cells = {
+            (x, y)
+            for y in range(game.grid_height)
+            for x in range(game.grid_width)
+            if game._is_playfield_cell((x, y)) and (x, y) not in game.obstacles
+        }
+        assert len(free_cells) >= 900
+
+        visited = set()
+        queue = deque([next(iter(free_cells))])
+        while queue:
+            cell = queue.popleft()
+            if cell in visited:
+                continue
+            visited.add(cell)
+            cell_x, cell_y = cell
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                neighbor = (cell_x + dx, cell_y + dy)
+                if neighbor in free_cells and neighbor not in visited:
+                    queue.append(neighbor)
+
+        assert visited == free_cells
         assert len(game.obstacles) >= previous_obstacle_count
         previous_obstacle_count = len(game.obstacles)
 

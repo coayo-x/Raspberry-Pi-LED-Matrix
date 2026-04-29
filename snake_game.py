@@ -279,78 +279,56 @@ class SnakeGame:
 
         play_left, play_top, play_right, play_bottom = self.playfield_bounds
         play_width = play_right - play_left + 1
-        play_height = play_bottom - play_top + 1
         cx = (play_left + play_right) // 2
         cy = (play_top + play_bottom) // 2
-        left = max(play_left + 3, play_left + (play_width // 4))
-        right = min(play_right - 3, play_left + ((play_width * 3) // 4))
+        left = max(play_left + 4, play_left + (play_width // 4))
+        right = min(play_right - 4, play_left + ((play_width * 3) // 4))
+        upper_lane_y = play_top + 3
+        lower_lane_y = play_bottom - 3
 
         if safe_level >= 2:
-            vline(left, play_top + 1, play_bottom - 2)
-            vline(right, play_top + 1, play_bottom - 2)
+            vline(left, play_top + 2, cy - 1)
+            vline(right, cy + 1, play_bottom - 2)
 
         if safe_level >= 3:
-            hline(play_top + max(1, play_height // 3), left - 8, left + 8)
-            hline(
-                play_top + min(play_height - 2, (play_height * 2) // 3),
-                right - 8,
-                right + 8,
-            )
+            hline(upper_lane_y, left + 4, cx - 8, gap=(cx - 14, cx - 10))
+            hline(lower_lane_y, cx + 8, right - 4, gap=(cx + 10, cx + 14))
 
         if safe_level >= 4:
-            vline(cx - 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
-            vline(cx + 18, play_top, play_bottom, gap=(cy - 1, cy + 1))
+            vline(cx - 16, play_top + 1, play_bottom - 1, gap=(cy - 2, cy + 2))
+            vline(cx + 16, play_top + 1, play_bottom - 1, gap=(cy - 2, cy + 2))
 
         if safe_level >= 5:
-            block(play_right - 14, play_top + 1, 7, 2)
-            block(play_left + 7, play_bottom - 2, 7, 2)
-            block(play_right - 16, play_bottom - 2, 8, 2)
+            block(play_left + 13, play_top + 1, 5, 2)
+            block(play_right - 17, play_top + 1, 5, 2)
+            block(play_left + 9, play_bottom - 2, 5, 2)
+            block(play_right - 13, play_bottom - 2, 5, 2)
 
         if safe_level >= 6:
-            hline(cy - 3, 24, cx - 12, gap=(cx - 26, cx - 22))
-            hline(cy + 3, cx + 12, play_right - 24, gap=(cx + 22, cx + 26))
+            hline(cy - 2, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
+            hline(cy + 2, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
 
         if safe_level >= 7:
-            for offset in range(0, 18, 3):
-                add(28 + offset, 5 + (offset // 3))
-                add(play_right - 27 - offset, play_bottom - 1 - (offset // 3))
+            for offset in range(5):
+                add(cx - 24 + (offset * 2), cy - 4 + offset)
+                add(cx + 24 - (offset * 2), cy + 4 - offset)
 
         if safe_level >= 8:
-            hline(cy - 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            hline(cy + 4, cx - 12, cx + 12, gap=(cx - 2, cx + 2))
-            vline(cx - 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
-            vline(cx + 12, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
+            hline(cy - 4, cx - 10, cx + 10, gap=(cx - 2, cx + 2))
+            hline(cy + 4, cx - 10, cx + 10, gap=(cx - 2, cx + 2))
+            vline(cx - 10, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
+            vline(cx + 10, cy - 4, cy + 4, gap=(cy - 1, cy + 1))
 
         if safe_level >= 9:
-            for x in (left + 12, cx, right - 12):
-                vline(x, play_top, play_top + 3)
-                vline(x, play_bottom - 3, play_bottom)
+            for x in (cx - 26, cx, cx + 26):
+                vline(x, play_top + 1, play_top + 4)
+                vline(x, play_bottom - 4, play_bottom - 1)
 
         if safe_level >= 10:
-            hline(
-                play_top + 1,
-                max(play_left + 21, left),
-                min(play_right - 11, right + 14),
-                gap=(cx - 5, cx + 5),
-            )
-            hline(
-                play_bottom - 1,
-                max(play_left + 11, left - 10),
-                min(play_right - 21, right),
-                gap=(cx - 5, cx + 5),
-            )
-            vline(
-                max(play_left + 5, left - 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
-            vline(
-                min(play_right - 6, right + 14),
-                play_top + 1,
-                play_bottom - 1,
-                gap=(cy - 2, cy + 2),
-            )
+            hline(play_top + 1, cx - 22, cx + 22, gap=(cx - 6, cx + 6))
+            hline(play_bottom - 1, cx - 22, cx + 22, gap=(cx - 6, cx + 6))
+            vline(cx - 28, play_top + 2, play_bottom - 2, gap=(cy - 2, cy + 2))
+            vline(cx + 28, play_top + 2, play_bottom - 2, gap=(cy - 2, cy + 2))
 
         return obstacles
 
