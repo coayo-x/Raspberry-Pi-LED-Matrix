@@ -763,40 +763,63 @@ class DisplayManager:
         title_block_height = len(title_lines) * self.small_line_height
         title_gap = 1
         name_area_height = max(1, self.height - title_block_height - title_gap)
+        name = str(data.get("name", "Unknown"))
+        name_max_width = self.panel_width - (PANEL_PADDING * 2)
+        name_font_candidates = [
+            self.large_font,
+            self.medium_font,
+            self.font,
+            self.small_font,
+        ]
 
-        name_lines, name_font = self._fit_pokemon_name_lines(
-            str(data.get("name", "Unknown")),
-            self.panel_width - (PANEL_PADDING * 2),
-            font_candidates=[
-                self.large_font,
-                self.medium_font,
-                self.font,
-                self.small_font,
-            ],
+        name_lines, name_font, truncated = self._fit_pokemon_name_lines(
+            name,
+            name_max_width,
+            font_candidates=name_font_candidates,
             max_height_px=name_area_height,
         )
+
+        show_label = True
+        if truncated:
+            retry_lines, retry_font, retry_truncated = self._fit_pokemon_name_lines(
+                name,
+                name_max_width,
+                font_candidates=name_font_candidates,
+                max_lines=4,
+                max_height_px=self.height,
+            )
+            if not retry_truncated:
+                name_lines = retry_lines
+                name_font = retry_font
+                show_label = False
+
         name_line_height = self._get_line_height(name_font)
-        total_height = (
-            title_block_height + title_gap + (len(name_lines) * name_line_height)
-        )
-        y = max(0, (self.height - total_height) // 2)
 
-        for title_line in title_lines:
-            title_x = max(
-                0,
-                (self.panel_width - self._text_width(title_line, self.small_font)) // 2,
+        if show_label:
+            total_height = (
+                title_block_height + title_gap + (len(name_lines) * name_line_height)
             )
-            self._draw_line(
-                draw,
-                title_x,
-                y,
-                title_line,
-                fill=TEXT_ACCENT,
-                font=self.small_font,
-            )
-            y += self.small_line_height
+            y = max(0, (self.height - total_height) // 2)
+            for title_line in title_lines:
+                title_x = max(
+                    0,
+                    (self.panel_width - self._text_width(title_line, self.small_font))
+                    // 2,
+                )
+                self._draw_line(
+                    draw,
+                    title_x,
+                    y,
+                    title_line,
+                    fill=TEXT_ACCENT,
+                    font=self.small_font,
+                )
+                y += self.small_line_height
+            y += title_gap
+        else:
+            total_height = len(name_lines) * name_line_height
+            y = max(0, (self.height - total_height) // 2)
 
-        y += title_gap
         for line in name_lines:
             line_width = self._text_width(line, name_font)
             line_x = max(0, (self.panel_width - line_width) // 2)
@@ -820,7 +843,7 @@ class DisplayManager:
         title_height = self.small_line_height
         name_area_height = max(1, self.height - title_height - title_gap)
 
-        name_lines, name_font = self._fit_pokemon_name_lines(
+        name_lines, name_font, _ = self._fit_pokemon_name_lines(
             str(data.get("name", "Unknown")),
             self.width - (PANEL_PADDING * 2),
             font_candidates=[
@@ -885,7 +908,7 @@ class DisplayManager:
             if len(lines) <= max_lines and (
                 max_height_px is None or (len(lines) * line_height) <= max_height_px
             ):
-                return lines, candidate_font
+                return lines, candidate_font, False
 
         fallback_font = candidates[-1]
         truncated = self._truncate_to_width(name, max_width_px, font=fallback_font)
@@ -893,8 +916,8 @@ class DisplayManager:
             max_height_px is not None
             and self._get_line_height(fallback_font) > max_height_px
         ):
-            return [""], fallback_font
-        return [truncated], fallback_font
+            return [""], fallback_font, True
+        return [truncated], fallback_font, True
 
     def _render_pokemon_stat_frame(
         self,
@@ -913,7 +936,7 @@ class DisplayManager:
         label_height = self.small_line_height
         value_gap = 2
 
-        value_lines, value_font = self._fit_pokemon_name_lines(
+        value_lines, value_font, _ = self._fit_pokemon_name_lines(
             value,
             self.panel_width - (PANEL_PADDING * 2),
             font_candidates=[self.medium_font, self.font, self.small_font],
@@ -1038,47 +1061,85 @@ class DisplayManager:
         *,
         fill=TEXT_PRIMARY,
         label_fill=JOKE_LABEL,
+        font=None,
     ) -> Image.Image:
         img = self._new_canvas()
         draw = ImageDraw.Draw(img)
-        self._draw_text_centered(draw, lines, fill=fill, font=self.medium_font)
+        self._draw_text_centered(
+            draw, lines, fill=fill, font=font or self.medium_font
+        )
         return img
 
     def _paginate_lines(self, lines: list[str], max_lines: int = 3) -> list[list[str]]:
         pages = [lines[i : i + max_lines] for i in range(0, len(lines), max_lines)]
         return pages or [[""]]
 
+    def _fit_joke_lines(
+        self,
+        text: str,
+        *,
+        max_width_px: int,
+        max_height_px: int,
+    ):
+        candidates = [self.medium_font, self.font, self.small_font]
+        last_lines: list[str] = [""]
+        last_font = candidates[-1]
+        for candidate_font in candidates:
+            lines = self._wrap_text(text, max_width_px, font=candidate_font)
+            line_height = self._get_line_height(candidate_font)
+            last_lines, last_font = lines, candidate_font
+            if len(lines) * line_height <= max_height_px:
+                return lines, candidate_font, True
+        return last_lines, last_font, False
+
+    def _build_joke_segment_pages(
+        self,
+        text: str,
+        label: str,
+        *,
+        fill=TEXT_PRIMARY,
+        label_fill=JOKE_LABEL,
+    ) -> list[Image.Image]:
+        max_width = self.width - 12
+        max_height = self.height
+        lines, font, fits = self._fit_joke_lines(
+            text or "",
+            max_width_px=max_width,
+            max_height_px=max_height,
+        )
+        if fits:
+            return [
+                self._render_joke_page(
+                    label, lines, fill=fill, label_fill=label_fill, font=font
+                )
+            ]
+        line_height = self._get_line_height(font)
+        max_lines_per_page = max(1, max_height // line_height)
+        pages = self._paginate_lines(lines, max_lines=max_lines_per_page)
+        return [
+            self._render_joke_page(
+                label, page, fill=fill, label_fill=label_fill, font=font
+            )
+            for page in pages
+        ]
+
     def _build_joke_pages(self, text: str, fill=TEXT_PRIMARY) -> list[Image.Image]:
-        lines = self._wrap_text(text, width_px=self.width - 12, font=self.medium_font)
-        pages = self._paginate_lines(lines, max_lines=2)
-        return [self._render_joke_page("JOKE", page, fill=fill) for page in pages]
+        return self._build_joke_segment_pages(text, "JOKE", fill=fill)
 
     def render_joke_pages(self, payload: dict) -> list[Image.Image]:
         data = payload["data"]
         if data.get("type") == "twopart":
-            setup_lines = self._wrap_text(
+            setup_pages = self._build_joke_segment_pages(
                 data.get("setup") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
+                "SETUP",
+                fill=TEXT_PRIMARY,
             )
-            delivery_lines = self._wrap_text(
+            delivery_pages = self._build_joke_segment_pages(
                 data.get("delivery") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
+                "PUNCHLINE",
+                fill=JOKE_DELIVERY,
+                label_fill=JOKE_DELIVERY,
             )
-            setup_pages = [
-                self._render_joke_page("SETUP", page, fill=TEXT_PRIMARY)
-                for page in self._paginate_lines(setup_lines, max_lines=2)
-            ]
-            delivery_pages = [
-                self._render_joke_page(
-                    "PUNCHLINE",
-                    page,
-                    fill=JOKE_DELIVERY,
-                    label_fill=JOKE_DELIVERY,
-                )
-                for page in self._paginate_lines(delivery_lines, max_lines=2)
-            ]
             return setup_pages + delivery_pages
         return self._build_joke_pages(data.get("text") or "No joke", fill=TEXT_PRIMARY)
 
@@ -1720,32 +1781,20 @@ class DisplayManager:
 
         segments: list[list[Image.Image]] = []
         if data.get("type") == "twopart":
-            setup_lines = self._wrap_text(
-                data.get("setup") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
-            )
-            delivery_lines = self._wrap_text(
-                data.get("delivery") or "",
-                width_px=self.width - 12,
-                font=self.medium_font,
+            segments.append(
+                self._build_joke_segment_pages(
+                    data.get("setup") or "",
+                    "SETUP",
+                    fill=TEXT_PRIMARY,
+                )
             )
             segments.append(
-                [
-                    self._render_joke_page("SETUP", page, fill=TEXT_PRIMARY)
-                    for page in self._paginate_lines(setup_lines, max_lines=2)
-                ]
-            )
-            segments.append(
-                [
-                    self._render_joke_page(
-                        "PUNCHLINE",
-                        page,
-                        fill=JOKE_DELIVERY,
-                        label_fill=JOKE_DELIVERY,
-                    )
-                    for page in self._paginate_lines(delivery_lines, max_lines=2)
-                ]
+                self._build_joke_segment_pages(
+                    data.get("delivery") or "",
+                    "PUNCHLINE",
+                    fill=JOKE_DELIVERY,
+                    label_fill=JOKE_DELIVERY,
+                )
             )
         else:
             segments.append(

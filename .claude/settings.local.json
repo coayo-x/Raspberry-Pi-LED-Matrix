@@ -15,7 +15,13 @@
       "Bash(ls __pycache__/snake_control*)",
       "Bash(find . -name \"conftest.py\")",
       "Bash(cat tests/conftest.py)",
-      "Bash(python -m pytest --tb=short -q)"
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(python -m pytest)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(& \"C:\\\\Python314\\\\python.exe\" --version)",
+      "PowerShell(& \"C:\\\\Python314\\\\python.exe\" -m pytest 2>&1 | Select-Object -Last 60)",
+      "PowerShell(& \"C:\\\\Python314\\\\python.exe\" main.py --simulate --once 2>&1 | Select-Object -Last 80)",
+      "Bash(git stash *)"
     ]
   }
 }
