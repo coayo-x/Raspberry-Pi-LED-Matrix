@@ -59,6 +59,8 @@ const durationRange = {
     max: 5,
 };
 const modalTransitionMs = 180;
+const snakeMovementDirections = new Set(["up", "down", "left", "right"]);
+const snakeMovementDedupWindowMs = 180;
 
 const elements = {
     time: document.getElementById("time-value"),
@@ -159,6 +161,10 @@ const customTextStyleState = {
     textColor: "white",
     backgroundColor: "black",
 };
+const snakeInputRequestsInFlight = new Set();
+const snakeMovementSentAt = new Map();
+let lastSnakeInputRequestSequence = 0;
+let lastAppliedSnakeInputRequestSequence = 0;
 
 function displayText(value) {
     if (value === null || value === undefined || value === "") {
@@ -809,6 +815,44 @@ function canSendSnakeInputFromKeyboard(event) {
     );
 }
 
+function isMovementSnakeDirection(direction) {
+    return snakeMovementDirections.has(direction);
+}
+
+function wasMovementDirectionSentRecently(direction) {
+    if (!isMovementSnakeDirection(direction)) {
+        return false;
+    }
+
+    const sentAt = snakeMovementSentAt.get(direction);
+    return (
+        typeof sentAt === "number" &&
+        Date.now() - sentAt < snakeMovementDedupWindowMs
+    );
+}
+
+function applySnakeInputResult(result, requestSequence) {
+    if (
+        !result ||
+        !latestControlPayload?.controls?.snake_game ||
+        requestSequence < lastAppliedSnakeInputRequestSequence
+    ) {
+        return;
+    }
+
+    lastAppliedSnakeInputRequestSequence = requestSequence;
+    applyControlPayload({
+        ...latestControlPayload,
+        controls: {
+            ...latestControlPayload.controls,
+            snake_game: {
+                ...latestControlPayload.controls.snake_game,
+                ...result,
+            },
+        },
+    });
+}
+
 function syncCustomTextStyleButtons() {
     elements.toolbarToggleButtons.forEach((button) => {
         const styleKey = button.dataset.toggleStyle;
@@ -1300,12 +1344,27 @@ async function sendSnakeInput(direction) {
         return;
     }
 
+    if (snakeInputRequestsInFlight.has(direction)) {
+        return;
+    }
+
+    if (wasMovementDirectionSentRecently(direction)) {
+        return;
+    }
+
+    const requestSequence = ++lastSnakeInputRequestSequence;
+    snakeInputRequestsInFlight.add(direction);
+    if (isMovementSnakeDirection(direction)) {
+        snakeMovementSentAt.set(direction, Date.now());
+    }
+
     try {
-        await fetchJson(adminSnakeInputApi, {
+        const result = await fetchJson(adminSnakeInputApi, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ direction }),
         });
+        applySnakeInputResult(result, requestSequence);
     } catch (error) {
         if (
             handleUnauthorizedAdminAction(
@@ -1322,6 +1381,8 @@ async function sendSnakeInput(direction) {
             "error",
         );
         refreshControlState().catch(() => null);
+    } finally {
+        snakeInputRequestsInFlight.delete(direction);
     }
 }
 

@@ -64,6 +64,25 @@ def test_snake_input_normalizes_space_to_pause(isolated_db_path) -> None:
     assert consume_snake_input(str(isolated_db_path)) == (1, "pause")
 
 
+def test_duplicate_pending_movement_input_is_accepted_without_requeue(
+    isolated_db_path,
+) -> None:
+    set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
+
+    first = request_snake_input("left", str(isolated_db_path), is_admin=True)
+    duplicate = request_snake_input("left", str(isolated_db_path), is_admin=True)
+
+    assert first["accepted"] is True
+    assert first["requested"] is True
+    assert first["request_count"] == 1
+    assert duplicate["accepted"] is True
+    assert duplicate["requested"] is False
+    assert duplicate["duplicate"] is True
+    assert duplicate["request_count"] == 1
+    assert consume_snake_input(str(isolated_db_path)) == (1, "left")
+    assert consume_snake_input(str(isolated_db_path)) is None
+
+
 def test_snake_runtime_status_tracks_score_only_while_enabled(isolated_db_path) -> None:
     set_snake_mode_enabled(True, str(isolated_db_path), is_admin=True)
 
