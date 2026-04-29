@@ -1,3 +1,4 @@
+from collections import deque
 import random
 
 import pytest
@@ -74,6 +75,31 @@ def _place_safe_food_ahead(game: SnakeGame) -> None:
     game.direction = "right"
     game.pending_direction = "right"
     game.food = (head_x + 1, row)
+
+
+def _reachable_open_cells(
+    game: SnakeGame,
+    start: tuple[int, int],
+    blocked: set[tuple[int, int]],
+) -> set[tuple[int, int]]:
+    if start in blocked or not game._is_playfield_cell(start):
+        return set()
+
+    reachable = {start}
+    queue: deque[tuple[int, int]] = deque([start])
+    while queue:
+        cell_x, cell_y = queue.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            candidate = (cell_x + dx, cell_y + dy)
+            if (
+                candidate not in reachable
+                and candidate not in blocked
+                and game._is_playfield_cell(candidate)
+            ):
+                reachable.add(candidate)
+                queue.append(candidate)
+
+    return reachable
 
 
 def test_snake_waits_until_first_control_input() -> None:
@@ -299,7 +325,6 @@ def test_snake_advances_level_every_ten_food_items() -> None:
 
 def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
     game = SnakeGame(width=192, height=32, rng=random.Random(1))
-    previous_obstacle_count = -1
 
     for level in range(1, MAX_LEVEL + 1):
         game.level = level
@@ -322,8 +347,31 @@ def test_snake_level_layouts_are_playable_and_avoid_reserved_cells() -> None:
             not (0 <= cell_x < overlay_width and 0 <= cell_y < overlay_height)
             for cell_x, cell_y in game.obstacles
         )
-        assert len(game.obstacles) >= previous_obstacle_count
-        previous_obstacle_count = len(game.obstacles)
+
+        blocked = set(game.obstacles)
+        open_cells = {
+            (x, y)
+            for y in range(game.playfield_bounds[1], game.playfield_bounds[3] + 1)
+            for x in range(game.playfield_bounds[0], game.playfield_bounds[2] + 1)
+            if game._is_playfield_cell((x, y)) and (x, y) not in blocked
+        }
+        reachable = _reachable_open_cells(game, game.snake[0], blocked)
+        visible_food_cells = {
+            cell for cell in open_cells if not game._is_score_overlay_cell(cell)
+        }
+        free_neighbors = sum(
+            1
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            if (
+                (game.snake[0][0] + dx, game.snake[0][1] + dy) in open_cells
+                and (game.snake[0][0] + dx, game.snake[0][1] + dy) not in game.snake[1:]
+            )
+        )
+
+        assert len(open_cells) >= int(game._playfield_cell_count() * 0.85)
+        assert open_cells <= reachable
+        assert len(visible_food_cells) >= 100
+        assert free_neighbors >= 2
 
 
 def test_snake_obstacle_collision_ends_game() -> None:
