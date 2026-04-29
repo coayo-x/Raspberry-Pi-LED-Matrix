@@ -982,6 +982,55 @@ def test_dashboard_snake_cheat_inputs_accepted_via_http(
     assert "Invalid snake direction" in garbage_body["error"]
 
 
+def test_dashboard_duplicate_snake_movement_input_is_not_requeued(
+    monkeypatch,
+    isolated_db_path,
+) -> None:
+    _install_admin(monkeypatch)
+    opener = _build_opener()
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        _login(base_url, opener)
+        _post_json(
+            f"{base_url}/api/admin/snake-mode",
+            {"enabled": True},
+            opener=opener,
+        )
+        first_status, first_body = _post_json(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "left"},
+            opener=opener,
+        )
+        duplicate_status, duplicate_body = _post_json(
+            f"{base_url}/api/admin/snake-mode/input",
+            {"direction": "left"},
+            opener=opener,
+        )
+        consumed_input = consume_snake_input(str(isolated_db_path))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert first_status == 200
+    assert first_body["accepted"] is True
+    assert first_body["requested"] is True
+    assert first_body["request_count"] == 1
+
+    assert duplicate_status == 200
+    assert duplicate_body["accepted"] is True
+    assert duplicate_body["requested"] is False
+    assert duplicate_body["duplicate"] is True
+    assert duplicate_body["request_count"] == 1
+    assert consumed_input == (1, "left")
+
+
 def test_dashboard_blocks_skip_and_switch_while_custom_text_override_is_active(
     monkeypatch, isolated_db_path
 ) -> None:

@@ -112,6 +112,20 @@ def _normalize_status(status: str) -> str:
     return normalized
 
 
+def _is_duplicate_pending_movement(
+    direction: str,
+    *,
+    request_count: int,
+    handled_count: int,
+    current_direction: str | None,
+) -> bool:
+    return (
+        direction in VALID_DIRECTIONS
+        and handled_count < request_count
+        and (current_direction or "") == direction
+    )
+
+
 def is_snake_mode_enabled_from_conn(conn) -> bool:
     return _get_meta_bool(conn, SNAKE_MODE_ENABLED_KEY)
 
@@ -248,12 +262,12 @@ def request_snake_input(
     conn = connect(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        current_state = _build_snake_state(
-            conn,
-            current=current,
-            is_admin=is_admin,
-        )
         if not is_admin:
+            current_state = _build_snake_state(
+                conn,
+                current=current,
+                is_admin=is_admin,
+            )
             conn.rollback()
             return {
                 **current_state,
@@ -262,7 +276,12 @@ def request_snake_input(
                 "error": SNAKE_ADMIN_REQUIRED_MESSAGE,
             }
 
-        if not current_state["enabled"]:
+        if not is_snake_mode_enabled_from_conn(conn):
+            current_state = _build_snake_state(
+                conn,
+                current=current,
+                is_admin=is_admin,
+            )
             conn.rollback()
             return {
                 **current_state,
@@ -271,7 +290,31 @@ def request_snake_input(
                 "error": "Snake game mode is not active.",
             }
 
-        request_count = current_state["request_count"] + 1
+        request_count = _get_meta_int(conn, SNAKE_INPUT_REQUEST_KEY)
+        handled_count = _get_meta_int(conn, SNAKE_INPUT_HANDLED_KEY)
+        current_direction = _get_meta_text(conn, SNAKE_INPUT_DIRECTION_KEY)
+        if _is_duplicate_pending_movement(
+            normalized_direction,
+            request_count=request_count,
+            handled_count=handled_count,
+            current_direction=current_direction,
+        ):
+            current_state = _build_snake_state(
+                conn,
+                current=current,
+                is_admin=is_admin,
+            )
+            conn.rollback()
+            return {
+                **current_state,
+                "accepted": True,
+                "requested": False,
+                "duplicate": True,
+                "direction": normalized_direction,
+                "requested_at": timestamp,
+            }
+
+        request_count += 1
         _set_meta(conn, SNAKE_INPUT_REQUEST_KEY, str(request_count))
         _set_meta(conn, SNAKE_INPUT_DIRECTION_KEY, normalized_direction)
         _set_meta(conn, SNAKE_INPUT_LAST_REQUESTED_AT_KEY, timestamp)
