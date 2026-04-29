@@ -45,3 +45,4 @@ Desktop.ini
 badwordslist.txt
 !badwordslist.example.txt
 .claude/settings.local.json
+.claude/
