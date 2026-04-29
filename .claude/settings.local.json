@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(python -m pytest tests/test_snake_game.py tests/test_snake_control.py -v)",
+      "Bash(python main.py --simulate --once)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(python -c ' *)",
+      "Bash(find . -name \"snake_control*\")",
+      "Bash(ls __pycache__/snake_control*)",
+      "Bash(find . -name \"conftest.py\")",
+      "Bash(cat tests/conftest.py)",
+      "Bash(python -m pytest --tb=short -q)"
+    ]
+  }
+}
