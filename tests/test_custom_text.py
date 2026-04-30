@@ -1,11 +1,15 @@
+import base64
+import io
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from PIL import Image
 
 import custom_text
 from custom_text import (
+    _validate_rendered_frame,
     find_banned_words,
     get_active_custom_text_override,
     get_custom_text_control_state,
@@ -17,6 +21,17 @@ from custom_text import (
     stop_custom_text_override,
 )
 from snake_control import SNAKE_ACTIVE_BLOCKED_MESSAGE, set_snake_mode_enabled
+
+
+def _make_png_b64(width: int = 192, height: int = 32, color: tuple = (255, 0, 0)) -> str:
+    img = Image.new("RGB", (width, height), color)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _make_png_data_url(width: int = 192, height: int = 32) -> str:
+    return "data:image/png;base64," + _make_png_b64(width, height)
 
 
 def _install_bad_words(
@@ -306,3 +321,156 @@ def test_custom_text_legacy_brightness_maps_to_text_and_background() -> None:
 
     assert style["text_brightness"] == 55
     assert style["background_brightness"] == 55
+
+
+def test_validate_rendered_frame_returns_none_for_empty() -> None:
+    assert _validate_rendered_frame(None) is None
+    assert _validate_rendered_frame("") is None
+
+
+def test_validate_rendered_frame_accepts_valid_png_b64() -> None:
+    b64 = _make_png_b64(192, 32)
+    result = _validate_rendered_frame(b64)
+    assert result is not None
+    raw = base64.b64decode(result)
+    img = Image.open(io.BytesIO(raw))
+    assert img.size == (192, 32)
+    assert img.format == "PNG"
+
+
+def test_validate_rendered_frame_accepts_data_url() -> None:
+    data_url = _make_png_data_url(192, 32)
+    result = _validate_rendered_frame(data_url)
+    assert result is not None
+    raw = base64.b64decode(result)
+    img = Image.open(io.BytesIO(raw))
+    assert img.size == (192, 32)
+
+
+def test_validate_rendered_frame_resizes_to_matrix_dimensions() -> None:
+    b64 = _make_png_b64(96, 16)
+    result = _validate_rendered_frame(b64)
+    assert result is not None
+    raw = base64.b64decode(result)
+    img = Image.open(io.BytesIO(raw))
+    assert img.size == (192, 32)
+
+
+def test_validate_rendered_frame_rejects_invalid_base64() -> None:
+    with pytest.raises(ValueError, match="valid base64"):
+        _validate_rendered_frame("not-valid-base64!!!")
+
+
+def test_validate_rendered_frame_rejects_non_png_data_url() -> None:
+    with pytest.raises(ValueError, match="PNG"):
+        _validate_rendered_frame("data:image/jpeg;base64,/9j/abc")
+
+
+def test_validate_rendered_frame_rejects_oversized_payload() -> None:
+    import custom_text as ct
+
+    original = ct.RENDERED_FRAME_MAX_BYTES
+    ct.RENDERED_FRAME_MAX_BYTES = 10
+    try:
+        with pytest.raises(ValueError, match="too large"):
+            _validate_rendered_frame(_make_png_b64(192, 32))
+    finally:
+        ct.RENDERED_FRAME_MAX_BYTES = original
+
+
+def test_request_custom_text_override_with_rendered_frame_stores_it(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    b64 = _make_png_b64(192, 32)
+    now = datetime(2026, 3, 23, 12, 0, 0)
+
+    result = request_custom_text_override(
+        "Hello LED",
+        duration_minutes=1.0,
+        rendered_frame_png=b64,
+        db_path=str(isolated_db_path),
+        now=now,
+    )
+
+    assert result["accepted"] is True
+    override = result["override"]
+    assert "rendered_frame" in override
+    raw = base64.b64decode(override["rendered_frame"])
+    img = Image.open(io.BytesIO(raw))
+    assert img.size == (192, 32)
+
+
+def test_request_custom_text_override_with_rendered_frame_data_url(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    data_url = _make_png_data_url(192, 32)
+    now = datetime(2026, 3, 23, 12, 0, 0)
+
+    result = request_custom_text_override(
+        "Hello LED data url",
+        duration_minutes=1.0,
+        rendered_frame_png=data_url,
+        db_path=str(isolated_db_path),
+        now=now,
+    )
+
+    assert result["accepted"] is True
+    assert "rendered_frame" in result["override"]
+
+
+def test_request_custom_text_override_without_rendered_frame_unchanged(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    now = datetime(2026, 3, 23, 12, 0, 0)
+
+    result = request_custom_text_override(
+        "No image",
+        duration_minutes=1.0,
+        db_path=str(isolated_db_path),
+        now=now,
+    )
+
+    assert result["accepted"] is True
+    assert "rendered_frame" not in (result.get("override") or {})
+
+
+def test_request_custom_text_override_invalid_frame_raises(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+
+    with pytest.raises(ValueError, match="valid base64"):
+        request_custom_text_override(
+            "Bad frame",
+            rendered_frame_png="not-valid-base64!!!",
+            db_path=str(isolated_db_path),
+        )
+
+
+def test_get_active_custom_text_override_includes_rendered_frame(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    b64 = _make_png_b64(192, 32)
+    now = datetime(2026, 3, 23, 12, 0, 0)
+
+    request_custom_text_override(
+        "Persisted frame",
+        duration_minutes=5.0,
+        rendered_frame_png=b64,
+        db_path=str(isolated_db_path),
+        now=now,
+    )
+
+    loaded = get_active_custom_text_override(
+        db_path=str(isolated_db_path),
+        now=now + timedelta(seconds=30),
+    )
+    assert loaded is not None
+    assert "rendered_frame" in loaded
+    raw = base64.b64decode(loaded["rendered_frame"])
+    img = Image.open(io.BytesIO(raw))
+    assert img.size == (192, 32)

@@ -52,6 +52,7 @@ SWITCH_CATEGORY_API_PATH = "/api/switch-category"
 CUSTOM_TEXT_API_PATH = "/api/custom-text"
 STOP_CUSTOM_TEXT_API_PATH = "/api/admin/custom-text/stop"
 CUSTOM_TEXT_FORCE_API_PATH = "/admin/custom-text/force"
+CUSTOM_TEXT_MAX_BODY_BYTES = 300 * 1024
 ADMIN_LOGIN_API_PATH = "/api/admin/login"
 ADMIN_LOGOUT_API_PATH = "/api/admin/logout"
 ADMIN_CONTROL_LOCK_API_PATH = "/api/admin/control-lock"
@@ -453,6 +454,14 @@ def create_dashboard_server(
                 return
 
             if route == CUSTOM_TEXT_API_PATH:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                if content_length > CUSTOM_TEXT_MAX_BODY_BYTES:
+                    self._send_json_error(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        "Request body is too large.",
+                    )
+                    return
+
                 admin_status = self._get_admin_status()
                 try:
                     payload = self._read_json_body()
@@ -462,10 +471,17 @@ def create_dashboard_server(
                     if not isinstance(style, dict):
                         raise ValueError("'style' must be an object.")
 
+                    rendered_frame_png = payload.get("rendered_frame") or None
+                    if rendered_frame_png is not None and not isinstance(
+                        rendered_frame_png, str
+                    ):
+                        raise ValueError("'rendered_frame' must be a string.")
+
                     result = request_custom_text_override(
                         text=text,
                         duration_minutes=duration_minutes,
                         style=style,
+                        rendered_frame_png=rendered_frame_png,
                         db_path=db_path,
                         is_admin=admin_status["authenticated"],
                     )

@@ -151,16 +151,25 @@
                 </p>
 
                 <form class="custom-text-form" id="custom-text-form">
-                    <label class="custom-text-field" for="custom-text-input">
-                        <span class="control-title">Message</span>
-                        <textarea
-                            id="custom-text-input"
-                            name="custom-text"
-                            maxlength="240"
-                            rows="4"
-                            placeholder="Enter the temporary message you want to display on the LED matrix."
-                        ></textarea>
-                    </label>
+                    <div class="custom-text-field">
+                        <span class="control-title">Message / Text Blocks</span>
+                        <label for="custom-text-input">
+                            <textarea
+                                id="custom-text-input"
+                                name="custom-text"
+                                maxlength="240"
+                                rows="4"
+                                placeholder="Enter the temporary message you want to display on the LED matrix."
+                            ></textarea>
+                        </label>
+                        <div class="text-block-controls">
+                            <span class="text-block-status" id="text-block-status">Editing: Main message</span>
+                            <div class="text-block-buttons">
+                                <button class="toolbar-button" id="custom-text-add-text" type="button">Add Text Block</button>
+                                <button class="toolbar-button toolbar-button-remove" id="custom-text-remove-text" type="button" hidden>Delete This Block</button>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="custom-text-toolbar" aria-label="Text styling">
                         <div class="toolbar-group toolbar-button-group" role="group" aria-label="Text emphasis">
@@ -233,6 +242,52 @@
                                 <button class="color-swatch" type="button" data-color-target="background" data-color-name="orange" aria-pressed="false"><span class="color-dot"></span><span>Orange</span></button>
                                 <button class="color-swatch" type="button" data-color-target="background" data-color-name="purple" aria-pressed="false"><span class="color-dot"></span><span>Purple</span></button>
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="led-editor-section">
+                        <div class="led-editor-header">
+                            <span class="control-title">LED Preview (192&times;32)</span>
+                            <div class="led-editor-actions">
+                                <button class="toolbar-button" id="custom-text-add-image" type="button">Add Image</button>
+                                <button class="toolbar-button toolbar-button-remove" id="custom-text-remove-image" type="button" hidden>Remove Image</button>
+                                <input id="custom-text-image-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden aria-hidden="true">
+                            </div>
+                        </div>
+
+                        <div class="led-preview-wrap">
+                            <canvas id="custom-text-preview-canvas" width="192" height="32" aria-label="LED matrix preview"></canvas>
+                        </div>
+
+                        <div class="led-image-controls" id="led-image-controls" hidden>
+                            <label class="led-control-row">
+                                <span class="led-control-label">Image Scale</span>
+                                <input class="led-slider" type="range" id="image-scale" min="5" max="200" value="100" step="1">
+                                <span class="led-control-value" id="image-scale-value">100%</span>
+                            </label>
+                            <label class="led-control-row">
+                                <span class="led-control-label">Image X</span>
+                                <input class="led-slider" type="range" id="image-pos-x" min="-192" max="192" value="0" step="1">
+                                <span class="led-control-value" id="image-pos-x-value">0</span>
+                            </label>
+                            <label class="led-control-row">
+                                <span class="led-control-label">Image Y</span>
+                                <input class="led-slider" type="range" id="image-pos-y" min="-32" max="32" value="0" step="1">
+                                <span class="led-control-value" id="image-pos-y-value">0</span>
+                            </label>
+                        </div>
+
+                        <div class="led-text-controls">
+                            <label class="led-control-row">
+                                <span class="led-control-label">Text X offset</span>
+                                <input class="led-slider" type="range" id="text-pos-x" min="-96" max="96" value="0" step="1">
+                                <span class="led-control-value" id="text-pos-x-value">0</span>
+                            </label>
+                            <label class="led-control-row">
+                                <span class="led-control-label">Text Y offset</span>
+                                <input class="led-slider" type="range" id="text-pos-y" min="-16" max="16" value="0" step="1">
+                                <span class="led-control-value" id="text-pos-y-value">0</span>
+                            </label>
                         </div>
                     </div>
 

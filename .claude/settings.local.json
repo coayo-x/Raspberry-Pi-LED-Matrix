@@ -15,7 +15,20 @@
       "Bash(ls __pycache__/snake_control*)",
       "Bash(find . -name \"conftest.py\")",
       "Bash(cat tests/conftest.py)",
-      "Bash(python -m pytest --tb=short -q)"
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(python3 *)",
+      "PowerShell(python -m pytest --tb=short -q 2>&1)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(py *)",
+      "PowerShell(where.exe pytest 2>&1; where.exe python 2>&1; ls \"$env:LOCALAPPDATA\\\\Programs\\\\Python\" 2>&1 | Select-Object -First 10)",
+      "PowerShell($env:PATH -split \";\")",
+      "Read(//mnt/c/Users/**)",
+      "Read(//usr/**)",
+      "Read(//usr/local/**)",
+      "Bash(uv --version)",
+      "Bash(node --check __TRACKED_VAR__/Raspberry-Pi-LED-Matrix/dashboard_assets/dashboard.js)",
+      "Bash(node *)",
+      "Bash(python -m pytest)"
     ]
   }
 }

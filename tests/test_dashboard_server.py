@@ -1,10 +1,14 @@
+import base64
 import http.cookiejar
+import io
 import json
 import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
 from uuid import uuid4
+
+from PIL import Image
 
 import admin_auth
 import custom_text
@@ -1098,3 +1102,123 @@ def test_dashboard_blocks_skip_and_switch_while_custom_text_override_is_active(
     assert admin_skip_body["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
     assert admin_switch_status == 409
     assert admin_switch_body["error"] == CATEGORY_CHANGE_BLOCKED_MESSAGE
+
+
+def _make_png_b64(width: int = 192, height: int = 32, color: tuple = (255, 0, 0)) -> str:
+    img = Image.new("RGB", (width, height), color)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def test_dashboard_custom_text_accepts_rendered_frame(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    b64 = _make_png_b64(192, 32)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "LED image test", "duration_minutes": 1, "style": {}, "rendered_frame": b64},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 200
+    assert body["accepted"] is True
+    assert "rendered_frame" in body["override"]
+    raw = base64.b64decode(body["override"]["rendered_frame"])
+    img = Image.open(io.BytesIO(raw))
+    assert img.size == (192, 32)
+    assert img.format == "PNG"
+
+
+def test_dashboard_custom_text_accepts_rendered_frame_as_data_url(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    data_url = "data:image/png;base64," + _make_png_b64(192, 32)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "Data URL frame", "duration_minutes": 1, "style": {}, "rendered_frame": data_url},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 200
+    assert body["accepted"] is True
+    assert "rendered_frame" in body["override"]
+
+
+def test_dashboard_custom_text_rejects_invalid_rendered_frame(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json_expect_error(
+            f"{base_url}/api/custom-text",
+            {"text": "Bad frame", "duration_minutes": 1, "style": {}, "rendered_frame": "not-valid-base64!!!"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 400
+    assert "valid base64" in body["error"]
+
+
+def test_dashboard_custom_text_without_rendered_frame_is_unchanged(
+    monkeypatch, isolated_db_path
+) -> None:
+    _install_admin(monkeypatch)
+    _install_bad_words(monkeypatch, isolated_db_path.parent)
+    server = create_dashboard_server(
+        host="127.0.0.1", port=0, db_path=str(isolated_db_path)
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, body = _post_json(
+            f"{base_url}/api/custom-text",
+            {"text": "No image here", "duration_minutes": 1, "style": {}},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == 200
+    assert body["accepted"] is True
+    assert "rendered_frame" not in (body.get("override") or {})

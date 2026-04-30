@@ -1,3 +1,5 @@
+import base64
+import io
 import json
 import math
 import re
@@ -8,6 +10,14 @@ from uuid import uuid4
 
 from config import DB_PATH
 from db_manager import connect
+
+try:
+    from PIL import Image as _PIL_Image
+
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_Image = None
+    _PIL_AVAILABLE = False
 from snake_control import SNAKE_ACTIVE_BLOCKED_MESSAGE, is_snake_mode_enabled_from_conn
 
 CUSTOM_TEXT_OVERRIDE_KEY = "custom_text_override"
@@ -19,6 +29,10 @@ CUSTOM_TEXT_LOCKED_KEY = "custom_text_locked"
 
 BAD_WORDS_PATH = Path(__file__).with_name("badwordslist.txt")
 TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+
+RENDERED_FRAME_MAX_BYTES = 150 * 1024
+MATRIX_DISPLAY_WIDTH = 192
+MATRIX_DISPLAY_HEIGHT = 32
 
 CUSTOM_TEXT_COOLDOWN_SECONDS = 3
 MIN_DURATION_SECONDS = 5
@@ -59,6 +73,46 @@ DEFAULT_STYLE = {
     "background_color": "black",
     "alignment": "center",
 }
+
+
+def _validate_rendered_frame(raw: str | None) -> str | None:
+    """Validate a base64 PNG rendered frame and return normalized base64 PNG."""
+    if not raw:
+        return None
+
+    data = str(raw).strip()
+
+    if data.startswith("data:"):
+        if not data.startswith("data:image/png;base64,"):
+            raise ValueError(
+                "Rendered frame must be a PNG data URL (data:image/png;base64,...)."
+            )
+        data = data[len("data:image/png;base64,"):]
+
+    if len(data) > RENDERED_FRAME_MAX_BYTES:
+        raise ValueError("Rendered frame image payload is too large.")
+
+    try:
+        raw_bytes = base64.b64decode(data, validate=True)
+    except Exception:
+        raise ValueError("Rendered frame must be valid base64-encoded PNG data.")
+
+    if not _PIL_AVAILABLE:
+        raise ValueError("Image support is unavailable on this server (Pillow not installed).")
+
+    try:
+        img = _PIL_Image.open(io.BytesIO(raw_bytes))
+        img.load()
+    except Exception:
+        raise ValueError("Rendered frame could not be decoded as a valid image.")
+
+    if img.size != (MATRIX_DISPLAY_WIDTH, MATRIX_DISPLAY_HEIGHT):
+        img = img.resize((MATRIX_DISPLAY_WIDTH, MATRIX_DISPLAY_HEIGHT), _PIL_Image.NEAREST)
+
+    img = img.convert("RGBA")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _now_or_default(now: datetime | None = None) -> datetime:
@@ -393,7 +447,7 @@ def _build_override_state(override: dict, *, current: datetime) -> dict:
         active = remaining_seconds > 0
 
     style = normalize_custom_text_style(override.get("style") or {})
-    return {
+    result = {
         "request_id": str(override.get("request_id") or ""),
         "text": normalize_custom_text_text(override.get("text", "")),
         "style": style,
@@ -406,6 +460,10 @@ def _build_override_state(override: dict, *, current: datetime) -> dict:
         "text_color_hex": COLOR_PALETTE[style["text_color"]]["hex"],
         "background_color_hex": COLOR_PALETTE[style["background_color"]]["hex"],
     }
+    rendered_frame = override.get("rendered_frame")
+    if isinstance(rendered_frame, str) and rendered_frame:
+        result["rendered_frame"] = rendered_frame
+    return result
 
 
 def _load_override_from_conn(conn, *, current: datetime) -> dict | None:
@@ -633,6 +691,7 @@ def request_custom_text_override(
     *,
     duration_minutes: Any = None,
     style: dict | None = None,
+    rendered_frame_png: str | None = None,
     db_path: str = DB_PATH,
     requested_at: str | None = None,
     is_admin: bool = False,
@@ -645,6 +704,7 @@ def request_custom_text_override(
     normalized_text = normalize_custom_text_text(text)
     duration_seconds, normalized_minutes = _normalize_duration_minutes(duration_minutes)
     normalized_style = normalize_custom_text_style(style)
+    validated_frame = _validate_rendered_frame(rendered_frame_png)
 
     try:
         bad_words = load_bad_words()
@@ -670,6 +730,8 @@ def request_custom_text_override(
         "started_at": timestamp,
         "expires_at": _isoformat(current + timedelta(seconds=duration_seconds)),
     }
+    if validated_frame:
+        override["rendered_frame"] = validated_frame
 
     conn = connect(db_path)
     try:

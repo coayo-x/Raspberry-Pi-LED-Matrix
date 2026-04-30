@@ -1,3 +1,4 @@
+import base64
 import io
 import time
 import urllib.request
@@ -1443,8 +1444,25 @@ class DisplayManager:
         pages = self._paginate_lines(lines, max_lines=max_lines)
         return pages, font
 
+    def _decode_rendered_frame(self, b64_png: str) -> Image.Image | None:
+        try:
+            raw_bytes = base64.b64decode(b64_png)
+            frame = Image.open(io.BytesIO(raw_bytes)).convert("RGBA")
+            if frame.size != (self.width, self.height):
+                frame = frame.resize((self.width, self.height), Image.NEAREST)
+            return frame
+        except Exception:
+            return None
+
     def render_custom_text_pages(self, payload: dict) -> list[Image.Image]:
         data = payload["data"]
+
+        rendered_frame_b64 = data.get("rendered_frame")
+        if rendered_frame_b64:
+            frame = self._decode_rendered_frame(rendered_frame_b64)
+            if frame is not None:
+                return [frame]
+
         style = data.get("style") or {}
         pages, font = self._build_custom_text_pages(payload)
         text_fill = self._scale_custom_text_fill(

@@ -165,22 +165,25 @@ def build_runtime_payload(
 
 
 def _build_custom_text_payload(now: datetime, override: dict) -> dict:
+    data: dict = {
+        "request_id": override["request_id"],
+        "text": override["text"],
+        "style": override["style"],
+        "duration_seconds": override["duration_seconds"],
+        "duration_minutes": override["duration_minutes"],
+        "started_at": override["started_at"],
+        "expires_at": override["expires_at"],
+        "remaining_seconds": override["remaining_seconds"],
+        "text_color_hex": override["text_color_hex"],
+        "background_color_hex": override["background_color_hex"],
+    }
+    if override.get("rendered_frame"):
+        data["rendered_frame"] = override["rendered_frame"]
     return {
         "slot_key": get_current_slot_key(now),
         "time": now.strftime("%Y-%m-%d %H:%M:%S"),
         "category": "custom_text",
-        "data": {
-            "request_id": override["request_id"],
-            "text": override["text"],
-            "style": override["style"],
-            "duration_seconds": override["duration_seconds"],
-            "duration_minutes": override["duration_minutes"],
-            "started_at": override["started_at"],
-            "expires_at": override["expires_at"],
-            "remaining_seconds": override["remaining_seconds"],
-            "text_color_hex": override["text_color_hex"],
-            "background_color_hex": override["background_color_hex"],
-        },
+        "data": data,
     }
 
 
